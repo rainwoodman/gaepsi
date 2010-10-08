@@ -8,11 +8,11 @@ class Field:
 A field has three elements:
   location, default, and sml(smoothing length)
   """
-  def __init__(self, locations=None, sml=None, value=None, snap=None, ptype=0):
+  def __init__(self, locations=None, sml=None, periodical = True, value=None, snap=None, ptype=0):
     self.dict = {}
     self.snap = snap
     self.ptype = ptype
-
+    self.periodical = periodical
     boxsize = None
     numpoints = 0
    
@@ -93,5 +93,5 @@ A field has three elements:
     if self.quadtree == None:
       pos = self['locations']
       S = self['sml']
-      self.quadtree = QuadTree(pos, S, self.boxsize)
+      self.quadtree = QuadTree(pos, S, self.boxsize, self.periodical)
   

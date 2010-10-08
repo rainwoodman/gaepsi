@@ -39,6 +39,7 @@ struct _NDTree {
 	TreeNode root;
 	int node_count;
 	int threshold;
+	int periodical;
 };
 
 
@@ -95,7 +96,7 @@ static int TreeNode_touch(TreeNode * node, float pos[D]) {
 	for(d = 0; d < D; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
-		if(dist > boxsize2) dist = boxsize - dist;
+		if(tree->periodical && dist > boxsize2) dist = boxsize - dist;
 		if(dist > w2) return 0;
 	}
 	return 1;
@@ -114,7 +115,7 @@ static int TreeNode_touch_i(TreeNode * node, INDEX_T index) {
 	for(d = 0; d < D; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
-		if(dist > boxsize2) dist = boxsize - dist;
+		if(tree->periodical && dist > boxsize2) dist = boxsize - dist;
 		if(dist > w2 + s) return 0;
 	}
 	return 1;
@@ -214,13 +215,14 @@ static int NDTree_init(NDTree * self,
 	PyArrayObject * S;
 	float boxsize;
 	int length = 0;
+	int periodical = 1;
 	int i;
 	int d;
-	static char * kwlist[] = {"POS", "S", "boxsize", NULL};
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!f", kwlist,
+	static char * kwlist[] = {"POS", "S", "boxsize", "periodical", NULL};
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!f|i", kwlist,
 		&PyArray_Type, &POS, 
 		&PyArray_Type, &S,
-		&boxsize
+		&boxsize, &periodical
 	)) return -1;
 	
 	self->POS = (PyArrayObject*) PyArray_Cast(POS, NPY_FLOAT);
@@ -229,6 +231,7 @@ static int NDTree_init(NDTree * self,
 	self->boxsize = boxsize;
 	self->node_count = 0;
 	self->threshold = DEFAULT_THRESHOLD;
+	self->periodical = periodical;
 	float topleft[D];
 	float w[D];
 	for(d = 0; d < D ; d++) {
@@ -246,7 +249,7 @@ static int NDTree_init(NDTree * self,
 }
 
 static PyObject * NDTree_str(NDTree * self) {
-	return PyString_FromFormat("%s %p, %d nodes, %d threshold", STR(CLASS), self, self->node_count, self->threshold);
+	return PyString_FromFormat("%s %p, nodes=%d, threshold=%d, periodical=%d", STR(CLASS), self, self->node_count, self->threshold, self->periodical);
 }
 
 static PyObject * NDTree_list(NDTree * self, 
