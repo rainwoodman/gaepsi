@@ -22,8 +22,7 @@ struct _TreeNode {
 
 struct _QuadTree {
 	PyObject_HEAD
-	PyArrayObject * X;
-	PyArrayObject * Y;
+	PyArrayObject * POS;
 	PyArrayObject * S;
 	float boxsize;
 	TreeNode root;
@@ -94,8 +93,9 @@ int TreeNode_touch_i(TreeNode * node, INDEX_T index) {
 	int d;
 	QuadTree * tree = node->tree;
 	float pos[D];
-	pos[0] = *((float*)PyArray_GETPTR1(tree->X,index));
-	pos[1] = *((float*)PyArray_GETPTR1(tree->Y,index));
+	for(d = 0; d < D; d++) {
+		pos[d] = *((float*)PyArray_GETPTR2(tree->POS, index, d));
+	}
 	float s = *((float*)PyArray_GETPTR1(tree->S,index));
 	float boxsize = tree->boxsize;
 	float boxsize2 = 0.5 * tree->boxsize;
@@ -112,7 +112,7 @@ int TreeNode_touch_i(TreeNode * node, INDEX_T index) {
 
 /* returns the max chld node length */
 int TreeNode_split(TreeNode * node) {
-	static int bitmask[D] = { 0x1, 0x2};
+	static int bitmask[5] = { 0x1, 0x2, 0x4, 0x8, 0x16};
 	int i, d;
 
 	if(!TreeNode_isleaf(node)) {
@@ -127,9 +127,9 @@ int TreeNode_split(TreeNode * node) {
 	int max_child_length = 0;
 	for(i = 0; i < (1<<D); i++) {
 		TreeNode * child = calloc(sizeof(TreeNode), 1);
-		float topleft[2];
+		float topleft[D];
 		int p;
-		for(d = 0; d < 2; d++) {
+		for(d = 0; d < D; d++) {
 			topleft[d] = node->topleft[d] + ((i & bitmask[d]) >> d) * w2[d];
 		}
 		TreeNode_init(child, node->tree, topleft, w2);
@@ -199,36 +199,37 @@ static PyObject * QuadTree_new(PyTypeObject * type,
 
 static int QuadTree_init(QuadTree * self, 
 	PyObject * args, PyObject * kwds) {
-	PyArrayObject * X, * Y, * S;
+	PyArrayObject * POS;
+	PyArrayObject * S;
 	float boxsize;
 	int length = 0;
-	static char * kwlist[] = {"X", "Y", "S", "boxsize", NULL};
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!f", kwlist,
-		&PyArray_Type, &X, 
-		&PyArray_Type, &Y, 
+	int i;
+	int d;
+	static char * kwlist[] = {"POS", "S", "boxsize", NULL};
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!f", kwlist,
+		&PyArray_Type, &POS, 
 		&PyArray_Type, &S,
 		&boxsize
 	)) return -1;
 	
-	self->X = (PyArrayObject*) PyArray_Cast(X, NPY_FLOAT);
-	self->Y = (PyArrayObject*) PyArray_Cast(Y, NPY_FLOAT);
+	self->POS = (PyArrayObject*) PyArray_Cast(POS, NPY_FLOAT);
 	self->S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
-	length = PyArray_Size((PyObject*)X);
+	length = PyArray_Size((PyObject*)S);
 	self->boxsize = boxsize;
 	self->node_count = 0;
 	self->threshold = DEFAULT_THRESHOLD;
-	float topleft[] = {0.0, 0.0};
-	float w[2];
-	int i;
-	w[0] = boxsize;
-	w[1] = boxsize;
+	float topleft[D];
+	float w[D];
+	for(d = 0; d < D ; d++) {
+		topleft[d] = 0.0;
+		w[d] = boxsize;
+	}
 	TreeNode_init(&(self->root), self, topleft, w);
 	fprintf(stderr, "handling %d particles\n", length);
 	for(i = 0; i < length; i++) {
 		TreeNode_insert(&(self->root), i);
 	}
-	Py_DECREF(self->X);
-	Py_DECREF(self->Y);
+	Py_DECREF(self->POS);
 	Py_DECREF(self->S);
 	return 0;
 }
@@ -240,13 +241,12 @@ static PyObject * QuadTree_str(QuadTree * self) {
 
 static PyObject * QuadTree_list(QuadTree * self, 
 	PyObject * args, PyObject * kwds) {
-	float x, y;
-	static char * kwlist[] = {"x", "y", NULL};
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "ff", kwlist,
-		&x, &y)) {
+	float pos[D + 10] = {0};
+	static char * kwlist[] = {"x", "y", "z", NULL};
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "ff|f", kwlist,
+		&pos[0], &pos[1], &pos[2])) {
 		return NULL;
 	}
-	float pos[D] = {x, y};
 	TreeNode * node = TreeNode_find(&(self->root), pos);
 	npy_intp dims[] = {0};
 // FIXME: USE NPY_LONG if INDEX_T is long!

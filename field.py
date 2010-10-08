@@ -91,8 +91,7 @@ A field has three elements:
 
   def ensure_quadtree(self):
     if self.quadtree == None:
-      X = self['locations'][:, 0]
-      Y = self['locations'][:, 1]
+      pos = self['locations']
       S = self['sml']
-      self.quadtree = QuadTree(X,Y,S,self.boxsize)
+      self.quadtree = QuadTree(pos, S, self.boxsize)
   
