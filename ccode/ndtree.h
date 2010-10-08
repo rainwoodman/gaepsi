@@ -260,9 +260,16 @@ static PyObject * NDTree_list(NDTree * self,
 	TreeNode * node = TreeNode_find(&(self->root), pos);
 	npy_intp dims[] = {0};
 // FIXME: USE NPY_LONG if INDEX_T is long!
-	if(!node) return PyArray_EMPTY(1, dims, NPY_INT, 0);
-	dims[0] = node->indices_length;
-	return PyArray_SimpleNewFromData(1, dims, NPY_INT, node->indices);
+    PyObject * list = NULL;
+	PyObject * rt = NULL;
+	if(!node) {
+		list = PyArray_EMPTY(1, dims, NPY_INT, 0);
+	} else {
+		dims[0] = node->indices_length;
+		list = PyArray_SimpleNewFromData(1, dims, NPY_INT, node->indices);
+	}
+	rt = Py_BuildValue("Oi", list, node);
+	return rt;
 }
 
 static PyTypeObject NDTreeType = {
