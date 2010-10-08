@@ -9,11 +9,9 @@ def sightline(field, x0,y0, npixels=100) :
   """ returns the field density samples along a sightline"""
   boxsize = field.boxsize
 
-  field.ensure_hoc()
+  field.ensure_quadtree()
 
-  hoc = field.hocindex
-
-  plist = hoc.get(x0, y0)
+  plist = field.quadtree.list(x0, y0)
   pixelsize = boxsize / npixels
 
   pos = field['locations']

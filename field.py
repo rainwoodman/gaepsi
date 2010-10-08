@@ -1,7 +1,7 @@
 from numpy import isscalar
 from numpy import ones
 from matplotlib import is_string_like
-from hocindex import HOCIndex
+from quadtree import QuadTree
 
 class Field:
   """
@@ -48,7 +48,7 @@ A field has three elements:
 
     self.numpoints = numpoints
     self.boxsize = boxsize
-    self.hocindex = None
+    self.quadtree = None
     self.dict['locations'] = locations
 
 
@@ -89,7 +89,10 @@ A field has three elements:
       return self.dict.has_key(index)
     return True
 
-  def ensure_hoc(self):
-    if self.hocindex == None:
-      self.hocindex = HOCIndex(self)
+  def ensure_quadtree(self):
+    if self.quadtree == None:
+      X = self['locations'][:, 0]
+      Y = self['locations'][:, 1]
+      S = self['sml']
+      self.quadtree = QuadTree(X,Y,S,self.boxsize)
   
