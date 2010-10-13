@@ -35,7 +35,8 @@ struct _NDTree {
 	PyObject_HEAD
 	PyArrayObject * POS;
 	PyArrayObject * S;
-	float boxsize;
+	float boxsize[D];
+	float origin[D];
 	TreeNode root;
 	int node_count;
 	int threshold;
@@ -90,13 +91,12 @@ static void TreeNode_append(TreeNode * node, INDEX_T index) {
 static int TreeNode_touch(TreeNode * node, float pos[D]) {
 	NDTree * tree = node->tree;
 	int d;
-	float boxsize = tree->boxsize;
-	float boxsize2 = 0.5 * tree->boxsize;
+	float * boxsize = tree->boxsize;
 	
 	for(d = 0; d < D; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
-		if(tree->periodical && dist > boxsize2) dist = boxsize - dist;
+		if(tree->periodical && dist > 0.5 * boxsize[d]) dist = boxsize[d] - dist;
 		if(dist > w2) return 0;
 	}
 	return 1;
@@ -109,20 +109,19 @@ static int TreeNode_touch_i(TreeNode * node, INDEX_T index) {
 		pos[d] = *((float*)PyArray_GETPTR2(tree->POS, index, d));
 	}
 	float s = *((float*)PyArray_GETPTR1(tree->S,index));
-	float boxsize = tree->boxsize;
-	float boxsize2 = 0.5 * tree->boxsize;
+	float * boxsize = tree->boxsize;
 	
 	for(d = 0; d < D; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
-		if(tree->periodical && dist > boxsize2) dist = boxsize - dist;
+		if(tree->periodical && dist > 0.5 * boxsize[d]) dist = boxsize[d] - dist;
 		if(dist > w2 + s) return 0;
 	}
 	return 1;
 }
 
 
-/* returns the max chld node length */
+/* returns the min child node length */
 static int TreeNode_split(TreeNode * node) {
 	static int bitmask[5] = { 0x1, 0x2, 0x4, 0x8, 0x16};
 	int i, d;
@@ -213,36 +212,47 @@ static int NDTree_init(NDTree * self,
 	PyObject * args, PyObject * kwds) {
 	PyArrayObject * POS;
 	PyArrayObject * S;
-	float boxsize;
+	PyArrayObject * boxsize;
+	PyArrayObject * origin;
 	int length = 0;
 	int periodical = 1;
 	int i;
 	int d;
-	static char * kwlist[] = {"POS", "S", "boxsize", "periodical", NULL};
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!f|i", kwlist,
+	static char * kwlist[] = {"POS", "S", "origin", "boxsize", "periodical", NULL};
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!|i", kwlist,
 		&PyArray_Type, &POS, 
 		&PyArray_Type, &S,
-		&boxsize, &periodical
+		&PyArray_Type, &origin, 
+		&PyArray_Type, &boxsize, 
+        &periodical
 	)) return -1;
 	
 	self->POS = (PyArrayObject*) PyArray_Cast(POS, NPY_FLOAT);
 	self->S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
+    boxsize = (PyArrayObject*) PyArray_Cast(boxsize, NPY_FLOAT);
+    origin = (PyArrayObject*) PyArray_Cast(origin, NPY_FLOAT);
+
 	length = PyArray_Size((PyObject*)S);
-	self->boxsize = boxsize;
+	for(d = 0; d < D; d++) {
+		self->boxsize[d] = *((float*)PyArray_GETPTR1(boxsize, d));
+		self->origin[d] = *((float*)PyArray_GETPTR1(origin, d));
+	}
 	self->node_count = 0;
 	self->threshold = DEFAULT_THRESHOLD;
 	self->periodical = periodical;
 	float topleft[D];
 	float w[D];
 	for(d = 0; d < D ; d++) {
-		topleft[d] = 0.0;
-		w[d] = boxsize;
+		topleft[d] = self->origin[d];
+		w[d] = self->boxsize[d];
 	}
 	TreeNode_init(&(self->root), self, topleft, w);
 	fprintf(stderr, "handling %d particles\n", length);
 	for(i = 0; i < length; i++) {
 		TreeNode_insert(&(self->root), i);
 	}
+	Py_DECREF(boxsize);
+	Py_DECREF(origin);
 	Py_DECREF(self->POS);
 	Py_DECREF(self->S);
 	return 0;
@@ -287,7 +297,9 @@ static PyMemberDef NDTree_members[] = {
 static PyMethodDef NDTree_methods[] = {
 	{"list", (PyCFunction) NDTree_list, 
 		METH_KEYWORDS,
-		"return a list of particle indices that may contribute to the give position"},
+		"return a (plist, key)\n"
+		"plist is a list of particle indices that may contribute to the give position\n"
+		"key is a unique hash key of the list\n"},
 	{NULL}
 };
 
@@ -307,7 +319,7 @@ void ENTRY(MODULE) (void) {
 	NDTreeType.tp_str = (reprfunc) NDTree_str;
 	NDTreeType.tp_members = NDTree_members;
 	NDTreeType.tp_methods = NDTree_methods;
-
+	NDTreeType.tp_doc = STR(CLASS) "(pos=pos, s=sml, origin, boxsize, periodical=True)";
 	NDTreeType.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
 
 	if (PyType_Ready(&NDTreeType) < 0) return;

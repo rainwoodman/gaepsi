@@ -1,7 +1,8 @@
 from numpy import isscalar
-from numpy import ones
+from numpy import ones,zeros
 from matplotlib import is_string_like
 from quadtree import QuadTree
+from octtree import OctTree
 
 class Field:
   """
@@ -14,26 +15,31 @@ A field has three elements:
     self.ptype = ptype
     self.periodical = periodical
     boxsize = None
+    origin = None
     numpoints = 0
    
     # using a snapshot
     if snap != None:
       snap.push()
-      snap.load('pos')
-      locations = snap.P[ptype]['pos']
+      if locations == None:
+        snap.load('pos')
+        locations = snap.P[ptype]['pos']
+        origin = zeros(3)
+        boxsize = ones(3) * snap.header['boxsize']
 # shall use the schema to determine if a sml is in the snap
-      if ptype == 0 :
+      if sml == None and ptype == 0 :
         snap.load('sml')
         sml = snap.P[ptype]['sml']
       if is_string_like(value):
         snap.load(value)
         value = snap.P[ptype][value]
-      boxsize = snap.header['boxsize']
       snap.pop()
 
-    # using given fields
+    # boxsize using given fields
+    if origin == None:
+      origin = locations.min(axis=0)
     if boxsize == None:
-      boxsize = max(locations[:])
+      boxsize = locations.max(axis=0) - origin
 
     numpoints = locations.shape[0]
     if value != None:
@@ -48,7 +54,9 @@ A field has three elements:
 
     self.numpoints = numpoints
     self.boxsize = boxsize
+    self.origin = origin
     self.quadtree = None
+    self.octtree = None
     self.dict['locations'] = locations
 
 
@@ -93,5 +101,12 @@ A field has three elements:
     if self.quadtree == None:
       pos = self['locations']
       S = self['sml']
-      self.quadtree = QuadTree(pos, S, self.boxsize, self.periodical)
+      self.quadtree = QuadTree(pos, S, self.origin, self.boxsize, self.periodical)
+
+  def ensure_octtree(self):
+    if self.octtree == None:
+      pos = self['locations']
+      S = self['sml']
+      self.octtree = OctTree(pos, S, self.origin, self.boxsize, self.periodical)
+      
   

@@ -10,14 +10,14 @@ def rdist(field, bins=40, weights=1.0, logscale=False):
   """
   pos = field['locations']
   boxsize = field.boxsize
-  c = boxsize / 2.0
-
-  R = sqrt((pos[:,0] - c)**2 + (pos[:,1] - c)**2 + (pos[:,2] -c )**2)
+  center = field.origin + boxsize / 2.0
+  rmax = boxsize.min() / 2.0
+  R = sqrt((pos[:,0] - center[0])**2 + (pos[:,1] - center[1])**2 + (pos[:,2] -center[2] )**2)
   if isscalar(bins) :
     if logscale :
-      e = logspace(log10(boxsize/500.0), log10(boxsize / 2.0), bins)
+      e = logspace(log10(rmax/500), log10(rmax), bins)
     else :
-      e = linspace(0, boxsize / 2.0, bins)
+      e = linspace(0, rmax, bins)
   else :
     e = bins
 

@@ -12,7 +12,7 @@ def sightline(field, x0,y0, npixels=100) :
   field.ensure_quadtree()
 
   plist = field.quadtree.list(x0, y0)
-  pixelsize = boxsize / npixels
+  pixelsize = boxsize[2] / npixels
 
   pos = field['locations']
   x = pos[:,0][plist]
@@ -22,11 +22,11 @@ def sightline(field, x0,y0, npixels=100) :
   values = field['default'][plist]
 
   dx = x - x0
-  mask = dx > boxsize /2
-  dx[mask] = boxsize - dx[mask]
+  mask = dx > boxsize[0] /2
+  dx[mask] = boxsize[0] - dx[mask]
   dy = y - y0
-  mask = dy > boxsize /2
-  dy[mask] = boxsize - dy[mask]
+  mask = dy > boxsize[1] /2
+  dy[mask] = boxsize[1] - dy[mask]
 
   d = sqrt(dx ** 2 + dy ** 2)
   delta = sqrt(sml**2 - d**2)

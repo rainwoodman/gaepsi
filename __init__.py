@@ -1,6 +1,7 @@
 
 schemas = {}
 import schema
+import schemadefs.d4
 import schemadefs.hydro3200
 import schemadefs.hydro3200tab
 import schemadefs.sphray

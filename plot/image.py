@@ -11,9 +11,10 @@ import time
 
 def image(field, npixels=[10,10], xrange=None, yrange=None, zrange=None) :
   boxsize = field.boxsize
-  if xrange == None: xrange = [0, boxsize]
-  if yrange == None: yrange = [0, boxsize]
-  if zrange == None: zrange = [0, boxsize]
+  origin = field.origin
+  if xrange == None: xrange = [origin[0], origin[0] + boxsize[0]]
+  if yrange == None: yrange = [origin[1], origin[1] + boxsize[1]]
+  if zrange == None: zrange = [origin[2], origin[2] + boxsize[2]]
 
   field.ensure_quadtree()
   quadtree = field.quadtree

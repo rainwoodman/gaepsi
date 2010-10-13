@@ -15,9 +15,10 @@ def adist(field, bins=(40,80), weights=1.0, \
   """
   pos = field['locations']
   boxsize = field.boxsize
-  x = pos[:, 0] - boxsize/2
-  y = pos[:, 1] - boxsize/2
-  z = pos[:, 2] - boxsize/2
+  center = field.origin + field.boxsize / 2
+  x = pos[:, 0] - center[0]
+  y = pos[:, 1] - center[1]
+  z = pos[:, 2] - center[2]
   
   if isscalar(rrange): 
     rmin = 0
@@ -26,7 +27,7 @@ def adist(field, bins=(40,80), weights=1.0, \
     rmin = rrange[0]
     rmax = rrange[1]
 
-  if rmax == None : rmax = boxsize/2
+  if rmax == None : rmax = boxsize.min()/2
 
   r = sqrt(x**2 + y ** 2 + z**2)
   mask = (rmin < r) & (r < rmax)
