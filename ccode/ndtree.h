@@ -4,6 +4,7 @@
 
 #define INDEX_T int
 #define DEFAULT_THRESHOLD 8192
+#define MAX_DEPTH 8
 #define BAR fprintf(stderr, "hit bar %s:%d\n", __FILE__, __LINE__);
 #define STR0(x) #x
 #define STR(x) STR0(x)
@@ -29,6 +30,7 @@ struct _TreeNode {
 	int indices_size;
 	int indices_length;
 	NDTree * tree;
+	int depth;
 };
 
 struct _NDTree {
@@ -39,8 +41,10 @@ struct _NDTree {
 	float origin[D];
 	TreeNode root;
 	int node_count;
-	int threshold;
+	int depth;
 	int periodical;
+	int threshold;
+	int max_depth;
 };
 
 
@@ -50,6 +54,7 @@ static void TreeNode_init(TreeNode * node, NDTree * tree,
 	memcpy(node->width, width, sizeof(float) * D);
 	node->children[0] = NULL;
 	node->tree = tree;
+	node->depth = 0;
 	tree->node_count++;
 }
 static int TreeNode_isleaf(TreeNode * node) {
@@ -74,6 +79,7 @@ static void TreeNode_clear(TreeNode * node) {
 static void TreeNode_setchild(TreeNode * node, int chindex, TreeNode * child) {
 	node->children[chindex] = child;
 	child->parent = node;
+    child->depth = node->depth + 1;
 }
 static void TreeNode_append(TreeNode * node, INDEX_T index) {
 	if(node->indices_size == 0) {
@@ -146,6 +152,9 @@ static int TreeNode_split(TreeNode * node) {
 		TreeNode_init(child, node->tree, topleft, w2);
 
 		TreeNode_setchild(node, i, child);
+		if(child->depth > node->tree->depth) {
+			node->tree->depth = child->depth;
+		}
 		int count = 0;
 		for(p = 0; p < node->indices_length; p++) {
 			INDEX_T index = node->indices[p];
@@ -163,20 +172,20 @@ static int TreeNode_split(TreeNode * node) {
 }
 
 static void TreeNode_insert(TreeNode * node, INDEX_T index) {
+	int i;
 	if(!TreeNode_touch_i(node, index)) return;
 	if(!TreeNode_isleaf(node)) {
-		int i;
 		for(i = 0; i < (1 << D); i++) {
 			TreeNode_insert(node->children[i], index);
 		}
 	} else {
 		int threshold = node->tree->threshold;
-		if(node->indices_length >= threshold) {
-			int length = TreeNode_split(node);
-			if(length == threshold) {
-				node->tree->threshold *= 2;
+		int max_depth = node->tree->max_depth;
+		if(node->depth < max_depth && node->indices_length >= threshold) {
+			TreeNode_split(node);
+			for(i = 0; i < (1 << D); i++) {
+				TreeNode_insert(node->children[i], index);
 			}
-			TreeNode_insert(node, index);
 		} else {
 			TreeNode_append(node, index);
 		}
@@ -239,6 +248,8 @@ static int NDTree_init(NDTree * self,
 	}
 	self->node_count = 0;
 	self->threshold = DEFAULT_THRESHOLD;
+	self->depth = 0;
+	self->max_depth = MAX_DEPTH;
 	self->periodical = periodical;
 	float topleft[D];
 	float w[D];
@@ -259,12 +270,16 @@ static int NDTree_init(NDTree * self,
 }
 
 static PyObject * NDTree_str(NDTree * self) {
-	return PyString_FromFormat("%s %p, nodes=%d, threshold=%d, periodical=%d", STR(CLASS), self, self->node_count, self->threshold, self->periodical);
+	return PyString_FromFormat(
+	"%s %p, nodes=%d, depth=%d, threshold=%d, periodical=%d", 
+	STR(CLASS), self, 
+	self->node_count, self->depth, 
+	self->threshold, self->periodical);
 }
 
 static PyObject * NDTree_list(NDTree * self, 
 	PyObject * args, PyObject * kwds) {
-	float pos[D + 10] = {0};
+	float pos[3] = {0};
 	static char * kwlist[] = {"x", "y", "z", NULL};
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "ff|f", kwlist,
 		&pos[0], &pos[1], &pos[2])) {
