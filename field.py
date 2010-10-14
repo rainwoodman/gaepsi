@@ -3,6 +3,7 @@ from numpy import ones,zeros
 from matplotlib import is_string_like
 from quadtree import QuadTree
 from octtree import OctTree
+from remap import remap
 
 class Field:
   """
@@ -109,4 +110,26 @@ A field has three elements:
       S = self['sml']
       self.octtree = OctTree(pos, S, self.origin, self.boxsize, self.periodical)
       
-  
+  def unfold(self, M):
+    """ unfold the field position by transformation M
+        the field shall be periodic. M is an
+        list of column integer vectors of the shearing
+        vectors. abs(det(M)) = 1
+    """
+    if self.periodical == False: 
+      raise ValueError("the field must be periodic")
+    boxsize = self.boxsize[0]
+    for b in self.boxsize:
+      if b != boxsize:
+        raise ValueError("the box has to be cubic.")
+
+    pos = self['locations']
+    pos /= boxsize
+    newpos,QT,newboxsize, badmask = remap(M, pos)
+    if badmask.any(): 
+      raise ValueError("failed to remap some points")
+    newpos *= boxsize
+    self['locations'] = newpos
+    self.boxsize = newboxsize * boxsize
+    
+     
