@@ -40,7 +40,7 @@ class _Schema(Schema):
       mask = mask | (snapshot.type_index == ptype)
     sortind = argsort(snapshot.type_index[find(mask)], kind="mergesort")
     
-    snapshot.D[name] = snapshot.D[name][sortind]
+    snapshot.P['all'][name] = snapshot.P['all'][name][sortind]
     Schema.reindex(self, snapshot, name)
 
 schemas['D6subgroup'] = _Schema([

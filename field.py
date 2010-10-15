@@ -21,13 +21,11 @@ A field has three elements:
    
     # using a snapshot
     if snap != None:
+      if ptype == None: ptype = 'all'
       snap.push()
       if locations == None:
         snap.load('pos')
-        if ptype != None:
-          locations = snap.P[ptype]['pos']
-        else :
-          locations = snap.D['pos']
+        locations = snap.P[ptype]['pos']
         origin = zeros(3)
         boxsize = ones(3) * snap.header['boxsize']
 # shall use the schema to determine if a sml is in the snap
@@ -36,10 +34,7 @@ A field has three elements:
         sml = snap.P[0]['sml']
       if is_string_like(value):
         snap.load(value)
-        if ptype != None:
-          value = snap.P[ptype][value]
-        else :
-          value = snap.D[value]
+        value = snap.P[ptype][value]
       snap.pop()
 
     # boxsize using given fields

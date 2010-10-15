@@ -47,12 +47,12 @@ class Schema(list):
     return self.__dict.has_key(name)
 
   def reindex(self, snapshot, name):
-    """ reindex data block 'name' in D['name'] into P[ptype]['name']"""
+    """ reindex data block 'name' in P['all']['name'] into P[ptype]['name']"""
     Nstart = 0
     blockschema = self.__dict[name]
     for ptype in blockschema.ptypes:
       N = snapshot.Nparticle[ptype]
-      snapshot.P[ptype][name] = ndarray(N, blockschema.dtype, snapshot.D[name].data,
+      snapshot.P[ptype][name] = ndarray(N, blockschema.dtype, snapshot.P['all'][name].data,
           blockschema.dtype.itemsize * Nstart)
       Nstart += N
 
