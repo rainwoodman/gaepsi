@@ -70,14 +70,16 @@ def remap(M, XY) :
 
   # in the original coord, the new bounding box is E
   E = Q * diag(abs(diag(R)))
+  QT = Q.T
+
+  """
   print 'matrix M', M
   print 'unfolded box size', BOX
-  QT = Q.T
   print 'unity check QT * Q'
   print QT * Q
   print 'singular check q'
   print det(Q)
-
+  """
   # XY is not a numpy matrix
   # inner in numpy reduces the last index of both matrix,
   # therefore we use Q.T the transpose of Q.
@@ -91,9 +93,10 @@ def remap(M, XY) :
   min, max = AABB(E.T)
   IMAX = int32(ceil(max))
   IMIN = int32(floor(min))
+  """
   print min, max
   print IMIN, IMAX
-
+  """
   # Find the suitable cells that intersects the bounding box
   if D == 2:
     r = mgrid[IMIN[0]:IMAX[0]+1, IMIN[1]:IMAX[1]+1]
@@ -129,7 +132,9 @@ def remap(M, XY) :
     TXY[newinMASK,:] = tmp[notnewMASK]
     # update the mask of out-of-box points
     outMASK[outMASK] = newMASK
+    """
     print I, n, '/', r.shape[0]
+    """
     if not newMASK.any(): 
       break;
   print "finished."
