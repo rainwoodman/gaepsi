@@ -10,7 +10,7 @@ class Field:
 A field has three elements:
   location, default, and sml(smoothing length)
   """
-  def __init__(self, locations=None, sml=None, periodical = True, value=None, snap=None, ptype=0):
+  def __init__(self, locations=None, sml=None, periodical = True, value=None, snap=None, ptype=None):
     self.dict = {}
     self.snap = snap
     self.ptype = ptype
@@ -24,16 +24,22 @@ A field has three elements:
       snap.push()
       if locations == None:
         snap.load('pos')
-        locations = snap.P[ptype]['pos']
+        if ptype != None:
+          locations = snap.P[ptype]['pos']
+        else :
+          locations = snap.D['pos']
         origin = zeros(3)
         boxsize = ones(3) * snap.header['boxsize']
 # shall use the schema to determine if a sml is in the snap
       if sml == None and ptype == 0 :
         snap.load('sml')
-        sml = snap.P[ptype]['sml']
+        sml = snap.P[0]['sml']
       if is_string_like(value):
         snap.load(value)
-        value = snap.P[ptype][value]
+        if ptype != None:
+          value = snap.P[ptype][value]
+        else :
+          value = snap.D[value]
       snap.pop()
 
     # boxsize using given fields
