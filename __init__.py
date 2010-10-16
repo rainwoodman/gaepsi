@@ -1,16 +1,16 @@
-
-schemas = {}
-import schema
-import schemadefs.d4
-import schemadefs.hydro3200
-import schemadefs.hydro3200tab
-import schemadefs.sphray
-import schemadefs.d6subgroup
-import schemadefs.hydro3200group
-
-from snapshot import Snapshot as snapshot
-from field import Field as field
 from constant.GADGET import *
 import constant.SI as SI
 import cosmology
+import reader
+import field
+import readers.hydro3200
+import readers.sphray
+import snapshot
 
+Field = field.Field
+Snapshot = snapshot.Snapshot
+
+Readers = dict(
+   hydro3200 = readers.hydro3200.Reader(),
+   sphray = readers.sphray.Reader(),
+  )

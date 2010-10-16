@@ -2,7 +2,7 @@ from distutils.core import setup, Extension
 from numpy import get_include
 setup(name="gadget", version="1.0",
       packages = [
-        '', 'constant', 'plot', 'schemadefs'
+        '', 'constant', 'plot', 'readers'
       ],
       ext_modules = [
         Extension("quadtree", ["ccode/quadtree.c"], 

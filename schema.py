@@ -1,12 +1,6 @@
 from numpy import dtype
 from numpy import ndarray
 from numpy import NaN
-class _BlockSchema:
-  def __init__(self, name, dtype, ptypes):
-    self.name = name;
-    self.dtype = dtype;
-    self.ptypes = ptypes;
-    self.conditions = [];
 
 class Schema(list):
   def __init__(self, bl, header, padding=256):
@@ -26,9 +20,9 @@ class Schema(list):
     self.__dict = {}
 
     for x in bl :
-      sb = _BlockSchema(x[0], dtype(x[1]), x[2])
+      sb = dict(name = x[0], dtype = dtype(x[1]), ptypes = x[2], conditions=[])
       for i in range(3, len(x)) :
-        sb.conditions.append(x[i])
+        sb['conditions'].append(x[i])
       self.append(sb)
       self.__dict[x[0]] = sb
       dt = dtype(header)
@@ -46,16 +40,6 @@ class Schema(list):
   def has_key(self, name) :
     return self.__dict.has_key(name)
 
-  def reindex(self, snapshot, name):
-    """ reindex data block 'name' in P['all']['name'] into P[ptype]['name']"""
-    Nstart = 0
-    blockschema = self.__dict[name]
-    for ptype in blockschema.ptypes:
-      N = snapshot.Nparticle[ptype]
-      snapshot.P[ptype][name] = ndarray(N, blockschema.dtype, snapshot.P['all'][name].data,
-          blockschema.dtype.itemsize * Nstart)
-      Nstart += N
-
   def open(self, snapshot, fname):
     if hasattr(fname, 'read_record') :
       snapshot.file = fname;
@@ -65,32 +49,27 @@ class Schema(list):
   def update_meta(self, snapshot):
     raise Error("override this method")
 
-  def pad(self, original_size):
-    raise Error("override this method")
-
   def post_init(self, snapshot) :
     pass
 
   def update_offsets(self, snapshot):
-    pos = self.pad(self.header.itemsize);
-    for blockschema in self:
+    blockpos = snapshot.file.get_size(snapshot.header.size));
+    for bs in self:
       cease_existing = False
-      for condition in blockschema.conditions:
-        if snapshot.header[condition] == 0 : cease_existing = True
+      for cond in bs['conditions']:
+        if snapshot.header[cond] == 0 : cease_existing = True
 
       if cease_existing :
-        snapshot.sizes[blockschema.name] = None
-        snapshot.offsets[blockschema.name] = None
+        snapshot.sizes[bs['name']] = None
+        snapshot.offsets[bs['name']] = None
         continue
 
-      N = 0L;
-      for ptype in blockschema.ptypes:
-        N = N + snapshot.Nparticle[ptype];
+      for ptype in bs.ptypes:
+        N += snapshot.Nparticle[ptype]
+      blocksize = N * bs.dtype.itemsize
 
-      size = N * blockschema.dtype.itemsize;
-      snapshot.sizes[blockschema.name] = size;
-      snapshot.offsets[blockschema.name] = pos;
-
-      if size != 0 :
-        pos += self.pad(size);
+      snapshot.sizes[bs.name] = blocksize
+      snapshot.offsets[bs.name] = blockpos
+      if size != 0 : 
+        blockpos += self.get_size(blocksize);
 

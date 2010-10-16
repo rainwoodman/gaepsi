@@ -24,20 +24,20 @@ class _Schema(Schema):
       snapshot.file = F77File(fname, 'r')
     
 schemas['hydro3200'] = _Schema([
-      ('pos', ('f4', 3), [0, 1, 4, 5]),
-      ('vel', ('f4', 3), [0, 1, 4, 5]),
-      ('id', 'u8', [0, 1, 4, 5]),
-      ('mass', 'f4', [0, 4, 5]),
-      ('ie', 'f4', [0]),
-      ('rho', 'f4', [0]),
-      ('ea', 'f4', [0]),
-      ('nha', 'f4', [0]),
-      ('sml', 'f4', [0]),
-      ('sfr', 'f4', [0], 'flag_sfr'),
-      ('sft', 'f4', [4], 'flag_sft'),
-      ('met', 'f4', [0, 4], 'flag_met'),
-      ('bhmass', 'f4', [5]),
-      ('bhmdot', 'f4', [5])
+      ('pos', ('f4', 3), [0, 1, 4, 5], []),
+      ('vel', ('f4', 3), [0, 1, 4, 5], []),
+      ('id', 'u8', [0, 1, 4, 5], []),
+      ('mass', 'f4', [0, 4, 5], []),
+      ('ie', 'f4', [0], []),
+      ('rho', 'f4', [0], []),
+      ('ea', 'f4', [0], []),
+      ('nha', 'f4', [0], []),
+      ('sml', 'f4', [0], []),
+      ('sfr', 'f4', [0], ['flag_sfr']),
+      ('sft', 'f4', [4], ['flag_sft']),
+      ('met', 'f4', [0, 4], ['flag_met']),
+      ('bhmass', 'f4', [5], []),
+      ('bhmdot', 'f4', [5], [])
     ],
     [
       ('Nparticle', ('u4', 6)),
@@ -60,5 +60,5 @@ schemas['hydro3200'] = _Schema([
       ('flag_double', 'i4'),
       ('flag_ic_info', 'i4'),
       ('flag_lpt_scalingfactor', 'i4'),
-#      ('unused', ('i4', 12)),
+      ('unused', ('i4', 12)),
   ]);
