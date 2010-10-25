@@ -2,6 +2,8 @@
 #include <structmember.h>
 #include <numpy/arrayobject.h>
 
+#define HIDDEN __attribute__ ((visibility ("hidden")))  
+
 #define INDEX_T int
 #define DEFAULT_THRESHOLD 8192
 #define MAX_DEPTH 8
@@ -326,8 +328,9 @@ static PyMethodDef NDTree_methods[] = {
 
 #define ENTRY0(m) init ## m
 #define ENTRY(m) ENTRY0(m)
-void ENTRY(MODULE) (PyObject * m) {
+void HIDDEN ENTRY(MODULE) (PyObject * m) {
 
+	import_array();
 	NDTreeType.tp_dealloc = (destructor) NDTree_dealloc;
 	NDTreeType.tp_new = NDTree_new;
 	NDTreeType.tp_init = (initproc) NDTree_init;

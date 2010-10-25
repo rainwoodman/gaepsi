@@ -9,7 +9,7 @@ setup(name="gadget", version="1.0",
              ["ccode/quadtree.c", 
               "ccode/module.c", 
               "ccode/octtree.c"], 
-             include_dirs=[get_include()]
+             include_dirs=[get_include()],
         ),
       ])
 

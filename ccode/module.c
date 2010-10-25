@@ -1,8 +1,9 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 
-extern void initquadtree(PyObject * m);
-extern void initocttree(PyObject * m);
+#define HIDDEN __attribute__ ((visibility ("hidden")))  
+extern HIDDEN void initquadtree(PyObject * m);
+extern HIDDEN void initocttree(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}
