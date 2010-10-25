@@ -50,8 +50,10 @@ struct _NDTree {
 
 static void TreeNode_init(TreeNode * node, NDTree * tree,
 	float topleft[D], float width[D]) {
-	memcpy(node->topleft, topleft, sizeof(float) * D);
-	memcpy(node->width, width, sizeof(float) * D);
+	if(topleft != NULL && width != NULL) {
+		memcpy(node->topleft, topleft, sizeof(float) * D);
+		memcpy(node->width, width, sizeof(float) * D);
+	}
 	node->children[0] = NULL;
 	node->tree = tree;
 	node->depth = 0;
@@ -206,6 +208,7 @@ static TreeNode * TreeNode_find(TreeNode * node, float pos[D]) {
 	}
 }
 static void NDTree_dealloc(NDTree * self) {
+	fprintf(stderr, "NDTree dispose %p refcount = %u\n", self, (unsigned int)self->ob_refcnt);
 	TreeNode_clear(&(self->root));
 	self->ob_type->tp_free((PyObject*) self);
 }
@@ -214,6 +217,8 @@ static PyObject * NDTree_new(PyTypeObject * type,
 	PyObject * args, PyObject * kwds) {
 	NDTree * self;
 	self = (NDTree *)type->tp_alloc(type, 0);
+	fprintf(stderr, "allocated a NDTree at %p\n", self);
+	TreeNode_init(&(self->root), self, NULL, NULL);
 	return (PyObject *) self;
 }
 
@@ -228,6 +233,7 @@ static int NDTree_init(NDTree * self,
 	int i;
 	int d;
 	static char * kwlist[] = {"POS", "S", "origin", "boxsize", "periodical", NULL};
+    fprintf(stderr, "NDTree_init on %p\n", self);
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!|i", kwlist,
 		&PyArray_Type, &POS, 
 		&PyArray_Type, &S,

@@ -10,13 +10,12 @@ class Field:
 A field has three elements:
   location, default, and sml(smoothing length)
   """
-  def __init__(self, snap=None, ptype=None, locations=None, sml=None, periodical = True, value=None):
+  def __init__(self, snap=None, ptype=None, locations=None, boxsize=None, origin=None, sml=None, periodical = True, value=None):
     self.dict = {}
     self.snap = snap
     self.ptype = ptype
     self.periodical = periodical
-    boxsize = None
-    origin = None
+
     numpoints = 0
    
     # using a snapshot
@@ -25,8 +24,10 @@ A field has three elements:
       if locations == None:
         snap.load('pos', ptype)
         locations = snap.P[ptype]['pos']
-        origin = zeros(3)
-        boxsize = ones(3) * snap.C['L']
+        if origin == None:
+          origin = zeros(3)
+        if boxsize == None:
+          boxsize = ones(3) * snap.C['L']
 # shall use the schema to determine if a sml is in the snap
       if sml == None and ptype == 0 :
         snap.load('sml', 0)
@@ -44,7 +45,6 @@ A field has three elements:
     numpoints = locations.shape[0]
     if value != None:
       if isscalar(value):
-        print "scalar value"
         value = ones(numpoints) * value
       self.dict['default'] = value
     if sml != None:
@@ -55,10 +55,9 @@ A field has three elements:
     self.numpoints = numpoints
     self.boxsize = boxsize
     self.origin = origin
-    self.quadtree = None
-    self.octtree = None
     self.dict['locations'] = locations
-
+    self.quadtree_cache = None
+    self.octtree_cache = None
 
   def __str__(self) :
     return str(self.dict)
@@ -95,17 +94,39 @@ A field has three elements:
       return self.dict.has_key(index)
     return True
 
-  def ensure_quadtree(self):
-    if self.quadtree == None:
-      pos = self['locations']
-      S = self['sml']
-      self.quadtree = QuadTree(pos, S, self.origin, self.boxsize, self.periodical)
+  def quadtree(self, origin=None, boxsize=None, periodical=None):
+    if self.quadtree_cache != None:
+      return self.quadtree_cache
 
-  def ensure_octtree(self):
-    if self.octtree == None:
-      pos = self['locations']
-      S = self['sml']
-      self.octtree = OctTree(pos, S, self.origin, self.boxsize, self.periodical)
+    pos = self['locations']
+    S = self['sml']
+
+    if origin == None:
+      origin = self.origin
+    if boxsize == None:
+      boxsize = self.boxsize
+    if periodical == None:
+      periodical = self.periodical
+    print "makeing a quadtree"
+    self.quadtree_cache = QuadTree(pos, S, origin, boxsize, periodical)
+    return self.quadtree_cache
+
+  def octtree(self, origin=None, boxsize=None, periodical=None):
+    if self.octtree_cache != None:
+      return self.octtree_cache
+
+    pos = self['locations']
+    S = self['sml']
+
+    if origin == None:
+      origin = self.origin
+    if boxsize == None:
+      boxsize = self.boxsize
+    if periodical == None:
+      periodical = self.periodical
+
+    self.octtree_cache = OctTree(pos, S, origin, boxsize, periodical)
+    return self.octtree_cache
       
   def unfold(self, M):
     """ unfold the field position by transformation M

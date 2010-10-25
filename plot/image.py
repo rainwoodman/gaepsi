@@ -1,5 +1,5 @@
 from matplotlib import is_string_like
-from numpy import array, zeros_like
+from numpy import array, zeros_like, zeros
 from numpy import linspace, logspace
 from numpy import meshgrid
 from scipy.weave import inline
@@ -7,6 +7,7 @@ from scipy.weave import inline
 from gadget.kernel import kernel_box_values 
 from gadget.kernel import kernel_box_bins
 from gadget.kernel import kernel_box_deta
+from numpy import who
 import time
 
 def image(field, npixels=[10,10], xrange=None, yrange=None, zrange=None) :
@@ -16,15 +17,13 @@ def image(field, npixels=[10,10], xrange=None, yrange=None, zrange=None) :
   if yrange == None: yrange = [origin[1], origin[1] + boxsize[1]]
   if zrange == None: zrange = [origin[2], origin[2] + boxsize[2]]
 
-  field.ensure_quadtree()
-  quadtree = field.quadtree
+  quadtree = field.quadtree()
 
   pixelsize = 1.0 * array([xrange[1] - xrange[0], 
               yrange[1] - yrange[0]]) / npixels
   pixelX = (linspace(xrange[0], xrange[1], npixels[0] + 1) + 0.5 * pixelsize[0])[:-1]
   pixelY = (linspace(yrange[0], yrange[1], npixels[1] + 1) + 0.5 * pixelsize[1])[:-1]
-  X, Y = meshgrid(pixelX, pixelY)
-  image = zeros_like(X)
+  image = zeros(npixels, dtype='f4')
 
   pos = field['locations']
   sml = field['sml']
@@ -35,32 +34,33 @@ def image(field, npixels=[10,10], xrange=None, yrange=None, zrange=None) :
   print "making image %d x %d" % (npixels[0], npixels[1])
 
   image_flat = image.ravel()
-  X_flat = X.ravel()
-  Y_flat = Y.ravel()
 
   oldkey = 0
   plist = array([])
   keys = {}
+
   print time.clock()
   for ipixel in range(image.size):
-    xpixel = X_flat[ipixel]
-    ypixel = Y_flat[ipixel]
+    xpixel = pixelX[ipixel / npixels[1]]
+    ypixel = pixelY[ipixel % npixels[1]]
     fullplist, key = quadtree.list(xpixel, ypixel)
     if not keys.has_key(key):
       z = pos[fullplist, 2]
-      plist = fullplist[ (z > zrange[0]) & (z < zrange[1])]
-      keys[key] = plist
+      pmask = (z > zrange[0]) & (z < zrange[1])
+      keys[key] = pmask
+#      print "creating key, ", xpixel, ypixel, key, pmask.dtype.itemsize * pmask.size, len(keys)
+      print ipixel, image.size, "done", time.clock()
     else :
-      plist = keys[key]
+      pmask = keys[key]
 
-    image_flat[ipixel] += render_plist(plist, pos, sml, value, xpixel, ypixel, pixelsize)
-      
+    image_flat[ipixel] += render_plist(fullplist[pmask], pos, sml, value, xpixel, ypixel, pixelsize)
+    del fullplist
+
   del keys
   print time.clock()
   return image
 
-def render_plist(plist, pos, sml, value, xpixel, ypixel, pixelsize) :
-  ccode = r"""
+render_plist_ccode = r"""
 #line 28 "test.py"
 int bins = kernel_box_bins;
 
@@ -207,11 +207,12 @@ double rt = 0.0;
 			rt += addbit * value[ip];
 			continue;
 		}
-		printf("unhandled %lf; %lf %lf %lf %lf; %lf %lf %lf %lf\n", center, left, right, top, bottom, x0y0, x0y1, x1y1, x1y0);
+		printf("unhandled x0=%d, x1=%d, y0=%d, y1=%d", x0, x1, y0, y1);
 	}
 	return_val = PyFloat_FromDouble(rt);
   """
-  return inline(ccode,
+def render_plist(plist, pos, sml, value, xpixel, ypixel, pixelsize) :
+  return inline(render_plist_ccode,
          ['xpixel', 'ypixel',
           'pos', 'plist',
           'pixelsize', 'sml',

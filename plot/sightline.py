@@ -9,9 +9,9 @@ def sightline(field, x0,y0, npixels=100) :
   """ returns the field density samples along a sightline"""
   boxsize = field.boxsize
 
-  field.ensure_quadtree()
+  quadtree = field.quadtree()
 
-  plist = field.quadtree.list(x0, y0)
+  plist = quadtree.list(x0, y0)[0]
   pixelsize = boxsize[2] / npixels
 
   pos = field['locations']
@@ -43,7 +43,7 @@ def sightline(field, x0,y0, npixels=100) :
     linekernel = kernel_line(d[ip]/sml[ip]) / sml[ip] ** 2
     sumkernel = sum(kernels) * pixelsize
     if  sumkernel > 0.0 :
-      fac = (linekernel / (sum(kernels) * pixelsize))
+      fac = linekernel / sumkernel
       if fac > 2 or fac < 0.5: 
         print fac, linekernel, kernels
         bad = bad +1

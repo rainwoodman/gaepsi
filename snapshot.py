@@ -1,4 +1,5 @@
 import gadget
+from matplotlib import is_string_like
     
 class Snapshot:
   def __init__(self, file=None, reader=None):
@@ -15,7 +16,11 @@ class Snapshot:
     self.offsets = {}
 
     self.N = None
-    reader = gadget.Readers[reader]
+    if reader == None: return
+
+    if is_string_like(reader) :
+      reader = gadget.Readers[reader]
+
     reader.prepare(self, file)
 
   def load(self, blocknames, ptype=None) :
