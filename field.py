@@ -1,9 +1,9 @@
 from numpy import isscalar
 from numpy import ones,zeros
 from matplotlib import is_string_like
-from ccode import QuadTree
-from ccode import OctTree
 from remap import remap
+from ccode import NDTree
+
 
 class Field:
   """
@@ -151,3 +151,22 @@ A field has three elements:
     self.boxsize = newboxsize * boxsize
     
      
+class OctTree(NDTree):
+  def __init__(self, POS, SML, origin, boxsize, periodical=True):
+    NDTree.__init__(self,
+      D = 3, 
+      POS = POS,
+      SML = SML,
+      origin = origin,
+      boxsize = boxsize,
+      periodical = periodical)
+
+class QuadTree(NDTree):
+  def __init__(self, POS, SML, origin, boxsize, periodical=True):
+    NDTree.__init__(self,
+      D = 2, 
+      POS = POS,
+      SML = SML,
+      origin = origin,
+      boxsize = boxsize,
+      periodical = periodical)

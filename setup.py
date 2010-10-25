@@ -6,9 +6,8 @@ setup(name="gadget", version="1.0",
       ],
       ext_modules = [
         Extension("ccode", 
-             ["ccode/quadtree.c", 
-              "ccode/module.c", 
-              "ccode/octtree.c"], 
+             ["ccode/module.c", 
+              "ccode/ndtree.c"], 
              include_dirs=[get_include()],
         ),
       ])
