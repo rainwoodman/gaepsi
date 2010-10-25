@@ -324,15 +324,9 @@ static PyMethodDef NDTree_methods[] = {
 	{NULL}
 };
 
-static PyMethodDef module_methods[] = {
-	{NULL}
-};
-
 #define ENTRY0(m) init ## m
 #define ENTRY(m) ENTRY0(m)
-void ENTRY(MODULE) (void) {
-	PyObject * m;
-	import_array();
+void ENTRY(MODULE) (PyObject * m) {
 
 	NDTreeType.tp_dealloc = (destructor) NDTree_dealloc;
 	NDTreeType.tp_new = NDTree_new;
@@ -345,8 +339,6 @@ void ENTRY(MODULE) (void) {
 
 	if (PyType_Ready(&NDTreeType) < 0) return;
 
-	m = Py_InitModule3(STR(MODULE), module_methods, STR(CLASS) " module");
-	if (m == NULL) return;
 	Py_INCREF(&NDTreeType);
 	PyModule_AddObject(m, STR(CLASS), (PyObject *) &NDTreeType);
 }

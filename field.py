@@ -1,8 +1,8 @@
 from numpy import isscalar
 from numpy import ones,zeros
 from matplotlib import is_string_like
-from quadtree import QuadTree
-from octtree import OctTree
+from ccode import QuadTree
+from ccode import OctTree
 from remap import remap
 
 class Field:

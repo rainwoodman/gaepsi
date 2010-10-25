@@ -5,11 +5,11 @@ setup(name="gadget", version="1.0",
         '', 'constant', 'plot', 'readers'
       ],
       ext_modules = [
-        Extension("quadtree", ["ccode/quadtree.c"], 
+        Extension("ccode", 
+             ["ccode/quadtree.c", 
+              "ccode/module.c", 
+              "ccode/octtree.c"], 
              include_dirs=[get_include()]
         ),
-        Extension("octtree", ["ccode/octtree.c"], 
-             include_dirs=[get_include()]
-        )
       ])
 
