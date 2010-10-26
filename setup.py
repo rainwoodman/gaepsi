@@ -7,6 +7,7 @@ setup(name="gadget", version="1.0",
       ext_modules = [
         Extension("ccode", 
              ["ccode/module.c", 
+              "ccode/image.c", 
               "ccode/ndtree.c"], 
              include_dirs=[get_include()],
         ),
