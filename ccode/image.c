@@ -155,6 +155,9 @@ static PyObject * image(PyObject * self,
 	int ic = 0;
 	int pc = 0;
 
+	int cache_size = 1048576;
+	float * cache = malloc(cache_size * sizeof(float));
+	
 	for(p = 0; p < length; p++) {
 		float x = *((float*)PyArray_GETPTR2(locations, p, 0));
 		float y = *((float*)PyArray_GETPTR2(locations, p, 1));
@@ -180,27 +183,42 @@ static PyObject * image(PyObject * self,
 		float psizeYsml = psizeY / (sml * deta);
 		float pxmin0 =  (- x / sml + 1.0) / deta;
 		float pymin0 =  (- y / sml + 1.0) / deta;
-		for(i = ipixelmin; i < ipixelmax; 
-			i++)  {
+		float sum = 0.0;
+		int k = 0;
+		int desired_cache_size = (ipixelmax - ipixelmin + 1) * (jpixelmax - jpixelmin + 1);
+		if(desired_cache_size > cache_size) {
+			while(desired_cache_size > cache_size) {
+				cache_size *= 2;
+			}
+			free(cache);
+			cache = malloc(sizeof(float) * cache_size);
+			printf("growing cache to %d\n", cache_size);
+		}
+		for(i = ipixelmin; i < ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
 			int x0 = pxmin;
 			int x1 = pxmax;
-			if(x1 < 0) continue;
-			if(x0 >= bins) continue;
+			if(x1 < 0 || x0 >=bins) {
+				for(j = jpixelmin; j < jpixelmax; j++) {
+					cache[k++] = 0.0;
+				}
+				continue;
+			}
 			if(x0 < 0) x0 = 0;
 			if(x1 < 0) x1 = 0;
 			if(x0 >= bins) x0 = bins - 1;
 			if(x1 >= bins) x1 = bins - 1;
-			for(j = jpixelmin; j < jpixelmax; 
-				j++) {
+			for(j = jpixelmin; j < jpixelmax; j++) {
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
 				int y0 = pymin;
 				int y1 = pymax;
-				if(y0 > bins) continue;
-				if(y1 < 0) continue;
+				if(y0 > bins || y1 < 0 ) {
+					cache[k++] = 0.0;
+					continue;
+				}
 				pc++;
 
 				/* possible if pxmax == 2.0 or pymax == 2.0*/
@@ -214,13 +232,23 @@ static PyObject * image(PyObject * self,
 					KERNEL_BOX_VALUES4(x0, y0, x1, y1)
 					:
 					find_kernel(kernel_box_values, bins, x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
-			*((float*)PyArray_GETPTR2(result,i,j)) += value * addbit;
+				sum += addbit;
+				cache[k++] = addbit;
+			}
+		}
+		k = 0;
+		float suminv = 1.0 / sum;
+		for(i = ipixelmin; i < ipixelmax; i++)  {
+			for(j = jpixelmin; j < jpixelmax; j++) {
+
+			*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
 			
 			}
 		}
 	}
 	ptime("render");
 	printf("ic = %d pc = %d \n", ic, pc);
+	free(cache);
  	Py_DECREF(S);
  	Py_DECREF(locations);
  	Py_DECREF(V);
