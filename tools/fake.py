@@ -1,16 +1,10 @@
-class FakeSnapShot :
-  def push(self): pass
-  def load(self, field): pass
-  def pop(self): pass
-  def __init__(self):
-    self.P = [{}]
-    self.header = {}
-    self.P[0]['pos'] = array([
-     [1, 1, 1],
-     [1.1, 1.3, 1],
-     [3, 3, 1]])
-    self.P[0]['mass'] = array([
-     1, 1, 1])
-    self.P[0]['sml'] = array([0.2,0.2,0.2])
-    self.Nparticle = array([3, 0, 0, 0, 0, 0])
-    self.header['boxsize'] = 4.0
+import gadget
+from numpy import array
+
+
+locations = array([[10.0, 10.0, 10.0], [5,5,10]])
+sml = array([10.0, 10.0])
+value = array([1.0, 1.0])
+
+field = gadget.Field(locations = locations, sml = sml, value = value,
+            origin=array([0,0,0]), boxsize=[20,20,20], periodical = False)
