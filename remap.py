@@ -5,13 +5,16 @@ from numpy import diag
 from numpy import sign
 from numpy import dot,inner
 from matplotlib.pyplot import *
-from numpy import float64,int32
+from numpy import float64,int32,float32
 from numpy import sum
 from numpy import bitwise_or
 from numpy.linalg import det
 from numpy import zeros, ones, arange
 from numpy import ceil, floor
 from numpy import newaxis
+
+import gadget.ccode
+
 def AABB(E, O = None): 
   "construct the AABB of a box given by E a list of edge row vectors"
   D = E.shape[0]
@@ -84,7 +87,7 @@ def remap(M, XY) :
   # inner in numpy reduces the last index of both matrix,
   # therefore we use Q.T the transpose of Q.
   # TXY = XY * Q (TXY and XY are row vectors, thus we use Q on the right)
-  TXY = inner(XY, QT)
+  TXY = float32(inner(XY, QT))
 
   # calculate the bounding box,
   # and the min/max cell vector
@@ -93,54 +96,9 @@ def remap(M, XY) :
   min, max = AABB(E.T)
   IMAX = int32(ceil(max))
   IMIN = int32(floor(min))
-  """
-  print min, max
-  print IMIN, IMAX
-  """
-  # Find the suitable cells that intersects the bounding box
-  if D == 2:
-    r = mgrid[IMIN[0]:IMAX[0]+1, IMIN[1]:IMAX[1]+1]
-  if D == 3:
-    r = mgrid[IMIN[0]:IMAX[0]+1, IMIN[1]:IMAX[1]+1, IMIN[2]:IMAX[2]+1]
-  r.shape = (r.shape[0], -1)
-  r = r.T
-  # now we start shifting the points into the bounding box
-  # outMASK == the points not in the box
-  outMASK = cutmask(TXY,BOX)
-  print 'trying', r.shape[0], 'cells'
-  n = 0
-  for I in r:
-    n = n + 1
-    O = inner(QT,  I)
-    # a matrix is a collection of column vectors, 
-    # AABB takes row vectors, thus the transposing.
-    min, max = AABB(QT.A.T, O)
-    # if the cell doesn't intersect the box, skip it
-    if (max < 0).any() or (min > BOX).any():
-      continue
-    # only shfit the arrays that are not in the box
-    tmp = TXY[outMASK,:] + O
-    # newMASK: points still not in the box
-    newMASK = cutmask(tmp, BOX)
-    # notnewMASK: points newly shifted into the box
-    notnewMASK = ~ newMASK
-    # prepare a mask for the points newly shifted into the box
-    # with respect to the entire set of points
-    newinMASK = outMASK.copy()
-    newinMASK[outMASK] = notnewMASK
-    # save the newly shifted-in points
-    TXY[newinMASK,:] = tmp[notnewMASK]
-    # update the mask of out-of-box points
-    outMASK[outMASK] = newMASK
-    """
-    print I, n, '/', r.shape[0]
-    """
-    if not newMASK.any(): 
-      break;
-  print "finished."
-  print newMASK.sum(), outMASK.sum()
 
-  return TXY,QT,BOX,outMASK
+  gadget.ccode.remap.shift(POS=TXY, ROWVECTORS = QT.T, BOX=BOX, MIN=IMIN, MAX=IMAX);
+  return TXY,BOX
 
 """
 N = 100

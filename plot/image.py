@@ -1,5 +1,6 @@
 import gadget
 import gadget.ccode
+from colormap import render
 
 from gadget.kernel import kernel_box_values 
 from gadget.kernel import kernel_box_bins

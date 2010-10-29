@@ -9,6 +9,7 @@ import readers.hydro3200iso
 import readers.sphray
 import snapshot
 import snapdir
+
 Field = field.Field
 Snapshot = snapshot.Snapshot
 Snapdir = snapdir.Snapdir

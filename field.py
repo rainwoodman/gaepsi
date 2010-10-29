@@ -143,9 +143,7 @@ A field has three elements:
 
     pos = self['locations']
     pos /= boxsize
-    newpos,QT,newboxsize, badmask = remap(M, pos)
-    if badmask.any(): 
-      raise ValueError("failed to remap some points")
+    newpos,newboxsize = remap(M, pos)
     newpos *= boxsize
     self['locations'] = newpos
     self.boxsize = newboxsize * boxsize
