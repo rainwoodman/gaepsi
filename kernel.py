@@ -87,7 +87,7 @@ def init_kernel_box(bins=100) :
      }
    }
   """
-  scipy.weave.inline(ccode, ['bins', 'a', 'kl', 'rowsum'], extra_compile_args = ['-Wno-unused'], force = True);
+  scipy.weave.inline(ccode, ['bins', 'a', 'kl', 'rowsum'], extra_compile_args = ['-Wno-unused']);
   norm = max(a[0,0,:,:])
   print "normalization = ", norm * kernel_box_deta ** 2
   a /= norm
