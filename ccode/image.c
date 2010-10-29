@@ -175,10 +175,6 @@ static PyObject * image(PyObject * self,
 		int jpixelmax = ceil((y + sml) / psizeY);
 		int i, j;
 		ic++;
-		if(ipixelmin < 0 ) ipixelmin = 0;
-		if(jpixelmin < 0 ) jpixelmin = 0;
-		if(ipixelmax >= npixelx) ipixelmax = npixelx - 1;
-		if(jpixelmax >= npixely) jpixelmax = npixely - 1;
 		float psizeXsml = psizeX / (sml * deta);
 		float psizeYsml = psizeY / (sml * deta);
 		float pxmin0 =  (- x / sml + 1.0) / deta;
@@ -194,7 +190,7 @@ static PyObject * image(PyObject * self,
 			cache = malloc(sizeof(float) * cache_size);
 			printf("growing cache to %d\n", cache_size);
 		}
-		for(i = ipixelmin; i < ipixelmax; i++)  {
+		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
 			int x0 = pxmin;
@@ -209,7 +205,7 @@ static PyObject * image(PyObject * self,
 			if(x1 < 0) x1 = 0;
 			if(x0 >= bins) x0 = bins - 1;
 			if(x1 >= bins) x1 = bins - 1;
-			for(j = jpixelmin; j < jpixelmax; j++) {
+			for(j = jpixelmin; j <= jpixelmax; j++) {
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
@@ -238,11 +234,16 @@ static PyObject * image(PyObject * self,
 		}
 		k = 0;
 		float suminv = 1.0 / sum;
-		for(i = ipixelmin; i < ipixelmax; i++)  {
-			for(j = jpixelmin; j < jpixelmax; j++) {
-
-			*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
-			
+		for(i = ipixelmin; i <= ipixelmax; i++)  {
+			if(i < 0 || i >= npixelx) {
+				k += (jpixelmax - jpixelmin + 1);
+				continue;
+			} 
+			for(j = jpixelmin; j <= jpixelmax; j++) {
+				if(j < 0 || j >= npixely) {
+					k++; continue;
+				}
+				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
 			}
 		}
 	}
