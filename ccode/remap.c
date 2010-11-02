@@ -6,7 +6,7 @@
 "keywords: POS, ROWVECTORS, BOX, MIN, MAX"\
 "modifies the POS in place such that each point is shifted into the BOX by integer times of ROWVECTORS."
 
-static inline int inbox(double pos[], double box[], int D) {
+static inline int inbox(float pos[], float box[], int D) {
 	int i;
 #define ERR 1e-6
 	for(i = 0; i < D; i++) {
@@ -15,8 +15,8 @@ static inline int inbox(double pos[], double box[], int D) {
 	}
 	return 1;
 }
-static inline void tryshift(double original[], double shifted[], 
-	double rowvectors[3][3], int I[], int D) {
+static inline void tryshift(float original[], float shifted[], 
+	float rowvectors[3][3], int I[], int D) {
 	int i, j;	
 	for(i = 0; i < D; i++) {
 		shifted[i] = original[i];
@@ -43,19 +43,20 @@ static PyObject * shift(PyObject * self,
 	int p;
 	amin = (PyArrayObject *) PyArray_Cast(amin, NPY_INT);
 	amax = (PyArrayObject *) PyArray_Cast(amax, NPY_INT);
-	abox = (PyArrayObject *) PyArray_Cast(abox, NPY_DOUBLE);
-	arowvectors = (PyArrayObject *) PyArray_Cast(arowvectors, NPY_DOUBLE);
+	abox = (PyArrayObject *) PyArray_Cast(abox, NPY_FLOAT);
+	arowvectors = (PyArrayObject *) PyArray_Cast(arowvectors, NPY_FLOAT);
 	int min[3] = {0}, max[3] = {0};
-	double box[3];
-	double rowvectors[3][3];
+	float box[3];
+	float rowvectors[3][3];
 	for(i = 0; i < D; i++) {
 		min[i] = *((int*)PyArray_GETPTR1(amin, i));
 		max[i] = *((int*)PyArray_GETPTR1(amax, i));
-		box[i] = *((double*)PyArray_GETPTR1(abox, i));
+		box[i] = *((float*)PyArray_GETPTR1(abox, i));
 		for(j = 0; j < D; j++) {
-			rowvectors[i][j] = *((double*)PyArray_GETPTR2(arowvectors, i, j));
+			rowvectors[i][j] = *((float*)PyArray_GETPTR2(arowvectors, i, j));
 		}
 	}
+#if 0
 	printf("box = %f %f %f\n", box[0], box[1], box[2]);
 	printf("min = %d %d %d\n", min[0], min[1], min[2]);
 	printf("max = %d %d %d\n", max[0], max[1], max[2]);
@@ -63,12 +64,13 @@ static PyObject * shift(PyObject * self,
 	printf("rowvectors = %f %f %f\n", rowvectors[1][0], rowvectors[1][1], rowvectors[1][2]);
 	printf("rowvectors = %f %f %f\n", rowvectors[2][0], rowvectors[2][1], rowvectors[2][2]);
 	printf("D = %d\n", D);
+#endif
 	int I[3] = {0,0,0};
 	int failed_count = 0;
 	for(p = 0; p < length; p++) {
 		float * ppos[3];
-		double shifted[3];
-		double original[3];
+		float shifted[3];
+		float original[3];
 		for(i = 0; i < D; i++) {
 			ppos[i] = (float *) PyArray_GETPTR2(pos, p, i);
 			original[i] = *(ppos[i]);
@@ -102,7 +104,9 @@ static PyObject * shift(PyObject * self,
 			*(ppos[i]) = shifted[i];
 		}
 	}
+#if 0
 	printf("failed = %d\n", failed_count);
+#endif 
 	Py_DECREF(abox);
 	Py_DECREF(amax);
 	Py_DECREF(amin);

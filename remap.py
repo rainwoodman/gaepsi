@@ -97,7 +97,7 @@ def remap(M, XY) :
   IMAX = int32(ceil(max))
   IMIN = int32(floor(min))
 
-  gadget.ccode.remap.shift(POS=TXY, ROWVECTORS = QT.T, BOX=BOX, MIN=IMIN, MAX=IMAX);
+  gadget.ccode.remap.shift(POS=TXY, ROWVECTORS = float32(QT.T), BOX=float32(BOX), MIN=int32(IMIN), MAX=int32(IMAX));
   return TXY,BOX
 
 """
