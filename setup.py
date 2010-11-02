@@ -1,11 +1,12 @@
 from distutils.core import setup, Extension
 from numpy import get_include
 setup(name="gadget", version="1.0",
+      package_dir = {'gadget': '.'},
       packages = [
-        '', 'constant', 'plot', 'readers'
+        'gadget', 'gadget.constant', 'gadget.plot', 'gadget.readers'
       ],
       ext_modules = [
-        Extension("ccode", 
+        Extension("gadget.ccode", 
              ["ccode/module.c", 
               "ccode/image.c", 
               "ccode/ndtree.c",

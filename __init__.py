@@ -6,6 +6,7 @@ import field
 import readers.hydro3200
 import readers.d4
 import readers.hydro3200iso
+import readers.hydro3200tab
 import readers.sphray
 import snapshot
 import snapdir
@@ -17,6 +18,7 @@ Snapdir = snapdir.Snapdir
 Readers = dict(
    hydro3200 = readers.hydro3200.Reader(),
    hydro3200iso = readers.hydro3200iso.Reader(),
+   hydro3200tab = readers.hydro3200tab.Reader(),
    sphray = readers.sphray.Reader(),
    d4 = readers.d4.Reader(),
   )
