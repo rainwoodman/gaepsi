@@ -137,7 +137,6 @@ static PyObject * image(PyObject * self,
 		&kernel_box_values, &bins, &deta,
 		&quick)) return NULL;
 
-	printf("quick = %d\n", quick);
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
 	S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
 	V = (PyArrayObject*) PyArray_Cast(V, NPY_FLOAT);
@@ -247,8 +246,10 @@ static PyObject * image(PyObject * self,
 			}
 		}
 	}
+#if 0
 	ptime("render");
 	printf("ic = %d pc = %d \n", ic, pc);
+#endif
 	free(cache);
  	Py_DECREF(S);
  	Py_DECREF(locations);
