@@ -196,7 +196,7 @@ static PyObject * image(PyObject * self,
 			int x0 = pxmin;
 			int x1 = pxmax;
 			if(x1 < 0 || x0 >=bins) {
-				for(j = jpixelmin; j < jpixelmax; j++) {
+				for(j = jpixelmin; j <= jpixelmax; j++) {
 					cache[k++] = 0.0;
 				}
 				continue;
