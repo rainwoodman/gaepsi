@@ -3,7 +3,7 @@ from numpy import get_include
 setup(name="gadget", version="1.0",
       package_dir = {'gadget': '.'},
       packages = [
-        'gadget', 'gadget.constant', 'gadget.plot', 'gadget.readers'
+        'gadget', 'gadget.constant', 'gadget.plot', 'gadget.readers', 'gadget.tools'
       ],
       ext_modules = [
         Extension("gadget.ccode", 
