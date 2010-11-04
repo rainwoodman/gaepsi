@@ -1,36 +1,31 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <time.h>
+#include "defines.h"
+
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
 
 #define image_doc_string \
 "keywords: locations, sml, value,"\
 " xmin, ymin, xmax, ymax, npixelx, npixely, zmin, zmax."\
-" kernel_box_values, kernel_box_bins, kernel_box_deta" \
 " returns an image of given size."
-/*
-#define KERNEL_BOX_VALUES4(x0,y0,x1,y1) \
-	(*(float*)(PyArray_GETPTR4(kernel_box_values, x0,y0,x1,y1)))*/
-#define KERNEL_BOX_VALUES4(x0,y0,x1,y1) \
-	(((float*)(kernel_box_values->data))[((((x0) * bins + (y0)) * bins + (x1)) * bins) + (y1)])
 
-static inline float find_kernel_quick(PyArrayObject * kernel_box_values, int bins, int x0,  int y0, int x1, int y1) {
-	return KERNEL_BOX_VALUES4(x0,y0,x1,y1);
-}
+extern HIDDEN float kline[];
+extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 
-static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int x0, int y0, int x1, int y1,
+static inline float find_kernel(int x0, int y0, int x1, int y1,
 	float pxmin, float pymin, float pxmax, float pymax) {
 
 	float addbit = 0;
 
-#define RW(a) ((a) > bins -1)?(bins - 1):(a)
+#define RW(a) ((a) > KOVERLAP_BINS -1)?(KOVERLAP_BINS - 1):(a)
 #define LW(a) ((a) < 0)?0:(a)
-	float x0y0 = KERNEL_BOX_VALUES4(x0, y0, x0, y0);
+	float x0y0 = koverlap[x0][y0][x0][y0];
 	if(x1 == x0 && y0 == y1) {
 		addbit = x0y0 * (pymax - pymin) * (pxmax - pxmin) ;
 		return addbit;
 	}
-	float x0y1 = KERNEL_BOX_VALUES4(x0, y1, x0, y1);
+	float x0y1 = koverlap[x0][y1][x0][y1];
 	float ldy = (y0 + 1) - pymin;
 	float rdy = pymax - y1;
 	if(x1 == x0 && y1 == y0 + 1) {
@@ -38,7 +33,7 @@ static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int
 		addbit += x0y1 * rdy * (pxmax - pxmin) ;
 		return addbit;
 	}
-	float x1y0 = KERNEL_BOX_VALUES4(x1, y0, x1, y0);
+	float x1y0 = koverlap[x1][y0][x1][y0];
 	float ldx = (x0 + 1) - pxmin;
 	float rdx = pxmax - x1;
 	if(x1 == x0 + 1 && y1 == y0) {
@@ -46,7 +41,7 @@ static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int
 		addbit += x1y0 * rdx * (pymax - pymin);
 		return addbit;
 	}
-	float x1y1 = KERNEL_BOX_VALUES4(x1, y1, x1, y1);
+	float x1y1 = koverlap[x1][y1][x1][y1];
 	if(x1 == x0 + 1 && y1 == y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -54,21 +49,21 @@ static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int
 		addbit += x1y1 * rdx * rdy;
 		return addbit;
 	}
-	float left = KERNEL_BOX_VALUES4(x0, RW(y0 + 1), x0, LW(y1 - 1));
+	float left = koverlap[x0][RW(y0 + 1)][x0][LW(y1 - 1)];
 	if(x1 == x0 && y1 > y0 + 1) {
 		addbit += x0y0 * ldy * (pxmax - pxmin);
 		addbit += x0y1 * rdy * (pxmax - pxmin);
 		addbit += left * (pxmax - pxmin);
 		return addbit;
 	}
-	float top = KERNEL_BOX_VALUES4(RW(x0 + 1), y0, LW(x1 - 1), y0);
+	float top = koverlap[RW(x0 + 1)][y0][LW(x1 - 1)][y0];
 	if(x1 > x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * (pymax - pymin);
 		addbit += x1y0 * rdx * (pymax - pymin);
 		addbit += top * (pymax - pymin);
 		return addbit;
 	}
-	float right = KERNEL_BOX_VALUES4(x1, RW(y0 + 1), x1, LW(y1 - 1));
+	float right = koverlap[x1][RW(y0 + 1)][x1][LW(y1 - 1)];
 	if(x1 == x0 + 1 && y1 > y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -78,7 +73,7 @@ static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int
 		addbit += right * rdx;
 		return addbit;
 	}
-	float bottom = KERNEL_BOX_VALUES4(RW(x0 + 1), y1, LW(x1 - 1), y1);
+	float bottom = koverlap[RW(x0 + 1)][y1][LW(x1 - 1)][y1];
 	if(x1 > x0 + 1 && y1 == y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -88,7 +83,7 @@ static inline float find_kernel(PyArrayObject * kernel_box_values, int bins, int
 		addbit += bottom * rdy;
 		return addbit;
 	}
-	float center = KERNEL_BOX_VALUES4(RW(x0 + 1), RW(y0 + 1), LW(x1 - 1), RW(y1 - 1));
+	float center = koverlap[RW(x0 + 1)][RW(y0 + 1)][LW(x1 - 1)][RW(y1 - 1)];
 	if(x1 > x0 + 1 && y1 > y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -115,26 +110,21 @@ static PyObject * image(PyObject * self,
 		"locations", "sml", "value", 
 		"xmin", "ymin", "xmax", "ymax",
 		"npixelx", "npixely", "zmin", "zmax",
-		"kernel_box_values", "kernel_box_bins", "kernel_box_deta",
-		"quick"
+		"quick", NULL
 	};
 	PyArrayObject * locations, * S, *V;
-	PyArrayObject * kernel_box_values;
 	float xmin, ymin, xmax, ymax, zmin, zmax;
 	int npixelx, npixely;
-	int bins;
 	int length;
-	float deta;
+	float deta = 2.0 / KOVERLAP_BINS;
 	int p;
 	int quick;
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!ffffiiffO!ifi", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!ffffiiffi", kwlist,
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &S, 
 		&PyArray_Type, &V, 
 		&xmin, &ymin, &xmax, &ymax,
 		&npixelx, &npixely, &zmin, &zmax,
-		&PyArray_Type, 
-		&kernel_box_values, &bins, &deta,
 		&quick)) return NULL;
 
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
@@ -194,7 +184,7 @@ static PyObject * image(PyObject * self,
 			float pxmax = pxmin + psizeXsml;
 			int x0 = pxmin;
 			int x1 = pxmax;
-			if(x1 < 0 || x0 >=bins) {
+			if(x1 < 0 || x0 >= KOVERLAP_BINS) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
 					cache[k++] = 0.0;
 				}
@@ -202,15 +192,15 @@ static PyObject * image(PyObject * self,
 			}
 			if(x0 < 0) x0 = 0;
 			if(x1 < 0) x1 = 0;
-			if(x0 >= bins) x0 = bins - 1;
-			if(x1 >= bins) x1 = bins - 1;
+			if(x0 >= KOVERLAP_BINS) x0 = KOVERLAP_BINS - 1;
+			if(x1 >= KOVERLAP_BINS) x1 = KOVERLAP_BINS - 1;
 			for(j = jpixelmin; j <= jpixelmax; j++) {
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
 				int y0 = pymin;
 				int y1 = pymax;
-				if(y0 > bins || y1 < 0 ) {
+				if(y0 > KOVERLAP_BINS || y1 < 0 ) {
 					cache[k++] = 0.0;
 					continue;
 				}
@@ -219,14 +209,14 @@ static PyObject * image(PyObject * self,
 				/* possible if pxmax == 2.0 or pymax == 2.0*/
 				if(y0 < 0) y0 = 0;
 				if(y1 < 0) y1 = 0;
-				if(y0 >= bins) y0 = bins - 1;
-				if(y1 >= bins) y1 = bins - 1;
+				if(y0 >= KOVERLAP_BINS) y0 = KOVERLAP_BINS - 1;
+				if(y1 >= KOVERLAP_BINS) y1 = KOVERLAP_BINS - 1;
 
 				float addbit = quick
 					?
-					KERNEL_BOX_VALUES4(x0, y0, x1, y1)
+					koverlap[x0][y0][x1][y1]
 					:
-					find_kernel(kernel_box_values, bins, x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
+					find_kernel(x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
 				sum += addbit;
 				cache[k++] = addbit;
 			}

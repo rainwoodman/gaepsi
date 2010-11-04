@@ -1,0 +1,4 @@
+#define KLINE_BINS 1024
+#define KOVERLAP_BINS  64
+
+

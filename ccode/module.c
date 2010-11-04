@@ -17,4 +17,5 @@ void initccode (void) {
 	initNDTree(m);
 	initimage(m);
 	initremap(m);
+	initkernel(m);
 }
