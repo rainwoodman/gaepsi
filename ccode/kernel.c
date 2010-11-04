@@ -5,11 +5,11 @@
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
 #define k0_doc_string \
-""
+"return the spline kernel given the input between 0-1.0"
 #define kline_doc_string \
-""
+"return the integrated spline kernel along a line, the parameter is the distance to the center"
 #define koverlap_doc_string \
-""
+"return the rough integrated kernel overlaping the given rectangle"
 /* these arrays are calculated in python code, the c modules only use them */
 float HIDDEN kline[KLINE_BINS];
 float HIDDEN koverlap[KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
