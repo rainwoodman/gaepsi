@@ -28,7 +28,7 @@ static inline void tryshift(float original[], float shifted[],
 static PyObject * shift(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
 	PyArrayObject * pos, * arowvectors, *abox, *amin, *amax;
-	static char * kwlist[] = {"POS", "ROWVECTORS", "BOX", "MIN", "MAX"};
+	static char * kwlist[] = {"POS", "ROWVECTORS", "BOX", "MIN", "MAX", NULL};
 	if(!PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!", kwlist,
 		&PyArray_Type, &pos,
 		&PyArray_Type, &arowvectors,
