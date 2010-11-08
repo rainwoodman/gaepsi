@@ -12,7 +12,9 @@
 
 extern HIDDEN float kline[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
-
+static inline int overlap_index(float f) {
+	return f * (KOVERLAP_BINS / 2) + KOVERLAP_BINS / 2;
+}
 static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 	float pxmin, float pymin, float pxmax, float pymax) {
 
@@ -29,16 +31,16 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 		goto exit;
 	}
 	float x0y1 = koverlap[x0][y1][x0][y1];
-	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS / 2);
-	float rdy = pymax * (KOVERLAP_BINS / 2) - y1;
+	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS / 2) - (KOVERLAP_BINS / 2);
+	float rdy = pymax * (KOVERLAP_BINS / 2) + (KOVERLAP_BINS / 2) - y1;
 	if(x1 == x0 && y1 == y0 + 1) {
 		addbit += x0y0 * ldy * dpx;
 		addbit += x0y1 * rdy * dpx;
 		goto exit;
 	}
 	float x1y0 = koverlap[x1][y0][x1][y0];
-	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS / 2);
-	float rdx = pxmax * (KOVERLAP_BINS / 2) - x1;
+	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS / 2) - (KOVERLAP_BINS / 2);
+	float rdx = pxmax * (KOVERLAP_BINS / 2) + (KOVERLAP_BINS / 2) - x1;
 	if(x1 == x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * (pymax - pymin);
 		addbit += x1y0 * rdx * (pymax - pymin);
@@ -147,9 +149,9 @@ static PyObject * image(PyObject * self,
 	int ic = 0;
 	int pc = 0;
 
-	int cache_size = 1048576;
-	float * cache = malloc(cache_size * sizeof(float));
-	
+	int cache_size = 1024;
+	float * cache = malloc(sizeof(float) * cache_size);
+
 	for(p = 0; p < length; p++) {
 		float x = *((float*)PyArray_GETPTR2(locations, p, 0));
 		float y = *((float*)PyArray_GETPTR2(locations, p, 1));
@@ -158,33 +160,71 @@ static PyObject * image(PyObject * self,
 		if(y > ymax+smlmax || y < ymin-smlmax) continue;
 		if(z > zmax || z < zmin) continue;
 		float sml = *((float*)PyArray_GETPTR1(S, p));
-		float value = *((float*)PyArray_GETPTR1(V, p));
 		x -= xmin;
 		y -= ymin;
-		int ipixelmin = floor((x - sml) / psizeX);
-		int ipixelmax = ceil((x + sml) / psizeX);
-		int jpixelmin = floor((y - sml) / psizeY);
-		int jpixelmax = ceil((y + sml) / psizeY);
 		int i, j;
-		ic++;
 		float psizeXsml = psizeX / (sml);
 		float psizeYsml = psizeY / (sml);
 		float pxmin0 =  - x / sml;
 		float pymin0 =  - y / sml;
-		float sum = 0.0; /* sum for normalization */
-		int k = 0; /*index in the cache*/
+		float imxmin = - x / sml;
+		float imymin = - x / sml;
+		float imxmax = imxmin + npixelx * psizeXsml;
+		float imymax = imymin + npixely * psizeYsml;
+		/* imxmin0, imxmax0, imymin0, imymax0 crops the particle within the image*/	
+		if(imxmax < -1) continue;
+		if(imymax < -1) continue;
+		if(imxmin > 1) continue;
+		if(imymin > 1) continue;
+		int imx0 = overlap_index(imxmin);
+		int imx1 = overlap_index(imxmax);
+		int imy0 = overlap_index(imymin);
+		int imy1 = overlap_index(imymax);
+		if(imx1 < 0) continue;
+		if(imy1 < 0) continue;
+		if(imx0 >= KOVERLAP_BINS) continue;
+		if(imy0 >= KOVERLAP_BINS) continue;
+
+		if(imx0 < 0) imx0 = 0;
+		if(imy0 < 0) imy0 = 0;
+		if(imx1 >= KOVERLAP_BINS) imx1 = KOVERLAP_BINS - 1;
+		if(imy1 >= KOVERLAP_BINS) imy1 = KOVERLAP_BINS - 1;
+		if(imxmin < -1) imxmin = -1;
+		if(imymin < -1) imymin = -1;
+		if(imxmax > 1) imxmax = 1;
+		if(imymax > 1) imymax = 1;
+		float norm = interp_koverlap(imx0, imy0, imx1, imy1,
+							imxmin, imymin, imxmax, imymax);
+		
+		if(norm == 0.0) continue;
+		printf("%d: %d %d %d %d %f\n", p, imx0, imy0, imx1, imy1, koverlap[imx0][imy0][imx1][imy1]);
+		printf("%d: %f %f %f %f %f\n", p, imxmin, imymin, imxmax, imymax, norm);
+		int ipixelmin = floor((x - sml) / psizeX);
+		int ipixelmax = ceil((x + sml) / psizeX);
+		int jpixelmin = floor((y - sml) / psizeY);
+		int jpixelmax = ceil((y + sml) / psizeY);
+		float value = *((float*)PyArray_GETPTR1(V, p));
+
+		ic++;
+#define PIXEL_IN_IMAGE (i >=0 && i < npixelx && j >=0 && j < npixely)
+		
+		if(ipixelmin < 0) ipixelmin = 0;
+		if(ipixelmax >= npixelx) ipixelmax = npixelx - 1;
+		if(jpixelmin < 0) jpixelmin = 0;
+		if(jpixelmax >= npixely) jpixelmax = npixely - 1;
+
+		int k;
 		int desired_cache_size = (ipixelmax - ipixelmin + 1) * (jpixelmax - jpixelmin + 1);
-		if(desired_cache_size > npixelx * npixely) 
-			desired_cache_size = npixelx * npixely;
 		if(desired_cache_size > cache_size) {
 			while(desired_cache_size > cache_size) {
-				cache_size *= 2;
+					cache_size *= 2;
 			}
 			free(cache);
 			cache = malloc(sizeof(float) * cache_size);
-			printf("growing cache to %d\n", cache_size);
 		}
-#define PIXEL_IN_IMAGE (i >=0 && i < npixelx && j >=0 && j < npixely)
+
+		k = 0;
+		float sum = 0;
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
@@ -192,8 +232,7 @@ static PyObject * image(PyObject * self,
 			int x1 = pxmax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 			if(x1 < 0 || x0 >= KOVERLAP_BINS) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
-					if(PIXEL_IN_IMAGE)
-						cache[k++] = 0.0;
+					cache[k++] = 0.0;
 				}
 				continue;
 			}
@@ -206,8 +245,7 @@ static PyObject * image(PyObject * self,
 				int y0 = pymin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 				int y1 = pymax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 				if(y0 >= KOVERLAP_BINS || y1 < 0 ) {
-					if(PIXEL_IN_IMAGE)
-						cache[k++] = 0.0;
+					cache[k++] = 0.0;
 					continue;
 				}
 				pc++;
@@ -235,21 +273,18 @@ static PyObject * image(PyObject * self,
 						addbit = interp_koverlap(x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
 					}
 				}
+				cache[k++] = addbit;
 				sum += addbit;
-				if(PIXEL_IN_IMAGE)
-					cache[k++] = addbit;
 			}
 		}
+		printf("k = %d, desired = %d\n",k, desired_cache_size);
+		float fac = norm / sum;
 		k = 0;
-		float suminv = 1.0 / sum;
-		if(ipixelmin < 0) ipixelmin = 0;
-		if(ipixelmax >= npixelx) ipixelmax = npixelx - 1;
-		if(jpixelmin < 0) jpixelmin = 0;
-		if(jpixelmax >= npixely) jpixelmax = npixely - 1;
-
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			for(j = jpixelmin; j <= jpixelmax; j++) {
-				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
+				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k] * fac;
+					
+				k++;
 			}
 		}
 	}
