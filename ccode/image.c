@@ -13,8 +13,11 @@
 extern HIDDEN float kline[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 
-static inline float find_kernel(int x0, int y0, int x1, int y1,
+static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 	float pxmin, float pymin, float pxmax, float pymax) {
+
+	const float dpx = (pxmax - pxmin) * (KOVERLAP_BINS / 2);
+	const float dpy = (pymax - pymin) * (KOVERLAP_BINS / 2);
 
 	float addbit = 0;
 
@@ -22,24 +25,24 @@ static inline float find_kernel(int x0, int y0, int x1, int y1,
 #define LW(a) ((a) < 0)?0:(a)
 	float x0y0 = koverlap[x0][y0][x0][y0];
 	if(x1 == x0 && y0 == y1) {
-		addbit = x0y0 * (pymax - pymin) * (pxmax - pxmin) ;
-		return addbit;
+		addbit = x0y0 * dpy * dpx ;
+		goto exit;
 	}
 	float x0y1 = koverlap[x0][y1][x0][y1];
-	float ldy = (y0 + 1) - pymin;
-	float rdy = pymax - y1;
+	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS / 2);
+	float rdy = pymax * (KOVERLAP_BINS / 2) - y1;
 	if(x1 == x0 && y1 == y0 + 1) {
-		addbit += x0y0 * ldy * (pxmax - pxmin) ;
-		addbit += x0y1 * rdy * (pxmax - pxmin) ;
-		return addbit;
+		addbit += x0y0 * ldy * dpx;
+		addbit += x0y1 * rdy * dpx;
+		goto exit;
 	}
 	float x1y0 = koverlap[x1][y0][x1][y0];
-	float ldx = (x0 + 1) - pxmin;
-	float rdx = pxmax - x1;
+	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS / 2);
+	float rdx = pxmax * (KOVERLAP_BINS / 2) - x1;
 	if(x1 == x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * (pymax - pymin);
 		addbit += x1y0 * rdx * (pymax - pymin);
-		return addbit;
+		goto exit;
 	}
 	float x1y1 = koverlap[x1][y1][x1][y1];
 	if(x1 == x0 + 1 && y1 == y0 + 1) {
@@ -47,21 +50,21 @@ static inline float find_kernel(int x0, int y0, int x1, int y1,
 		addbit += x1y0 * rdx * ldy;
 		addbit += x0y1 * ldx * rdy;
 		addbit += x1y1 * rdx * rdy;
-		return addbit;
+		goto exit;
 	}
 	float left = koverlap[x0][RW(y0 + 1)][x0][LW(y1 - 1)];
 	if(x1 == x0 && y1 > y0 + 1) {
-		addbit += x0y0 * ldy * (pxmax - pxmin);
-		addbit += x0y1 * rdy * (pxmax - pxmin);
-		addbit += left * (pxmax - pxmin);
-		return addbit;
+		addbit += x0y0 * ldy * dpx;
+		addbit += x0y1 * rdy * dpx;
+		addbit += left * dpx;
+		goto exit;
 	}
 	float top = koverlap[RW(x0 + 1)][y0][LW(x1 - 1)][y0];
 	if(x1 > x0 + 1 && y1 == y0) {
-		addbit += x0y0 * ldx * (pymax - pymin);
-		addbit += x1y0 * rdx * (pymax - pymin);
-		addbit += top * (pymax - pymin);
-		return addbit;
+		addbit += x0y0 * ldx * dpy;
+		addbit += x1y0 * rdx * dpy;
+		addbit += top * dpy;
+		goto exit;
 	}
 	float right = koverlap[x1][RW(y0 + 1)][x1][LW(y1 - 1)];
 	if(x1 == x0 + 1 && y1 > y0 + 1) {
@@ -71,7 +74,7 @@ static inline float find_kernel(int x0, int y0, int x1, int y1,
 		addbit += x1y1 * rdx * rdy;
 		addbit += left * ldx;
 		addbit += right * rdx;
-		return addbit;
+		goto exit;
 	}
 	float bottom = koverlap[RW(x0 + 1)][y1][LW(x1 - 1)][y1];
 	if(x1 > x0 + 1 && y1 == y0 + 1) {
@@ -81,7 +84,7 @@ static inline float find_kernel(int x0, int y0, int x1, int y1,
 		addbit += x1y1 * rdx * rdy;
 		addbit += top * ldy;
 		addbit += bottom * rdy;
-		return addbit;
+		goto exit;
 	}
 	float center = koverlap[RW(x0 + 1)][RW(y0 + 1)][LW(x1 - 1)][RW(y1 - 1)];
 	if(x1 > x0 + 1 && y1 > y0 + 1) {
@@ -94,10 +97,11 @@ static inline float find_kernel(int x0, int y0, int x1, int y1,
 		addbit += top * ldy;
 		addbit += bottom * rdy;
 		addbit += center;
-		return addbit;
+		goto exit;
 	}
 	printf("unhandled x0=%d, x1=%d, y0=%d, y1=%d", x0, x1, y0, y1);
-	return 0.0;
+	exit:
+	return addbit;
 }
 static time_t _ptime_t = 0;
 static void ptime(char * str) {
@@ -116,7 +120,6 @@ static PyObject * image(PyObject * self,
 	float xmin, ymin, xmax, ymax, zmin, zmax;
 	int npixelx, npixely;
 	int length;
-	float deta = 2.0 / KOVERLAP_BINS;
 	int p;
 	int quick;
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!ffffiiffi", kwlist,
@@ -164,13 +167,15 @@ static PyObject * image(PyObject * self,
 		int jpixelmax = ceil((y + sml) / psizeY);
 		int i, j;
 		ic++;
-		float psizeXsml = psizeX / (sml * deta);
-		float psizeYsml = psizeY / (sml * deta);
-		float pxmin0 =  (- x / sml + 1.0) / deta;
-		float pymin0 =  (- y / sml + 1.0) / deta;
-		float sum = 0.0;
-		int k = 0;
+		float psizeXsml = psizeX / (sml);
+		float psizeYsml = psizeY / (sml);
+		float pxmin0 =  - x / sml;
+		float pymin0 =  - y / sml;
+		float sum = 0.0; /* sum for normalization */
+		int k = 0; /*index in the cache*/
 		int desired_cache_size = (ipixelmax - ipixelmin + 1) * (jpixelmax - jpixelmin + 1);
+		if(desired_cache_size > npixelx * npixely) 
+			desired_cache_size = npixelx * npixely;
 		if(desired_cache_size > cache_size) {
 			while(desired_cache_size > cache_size) {
 				cache_size *= 2;
@@ -179,14 +184,16 @@ static PyObject * image(PyObject * self,
 			cache = malloc(sizeof(float) * cache_size);
 			printf("growing cache to %d\n", cache_size);
 		}
+#define PIXEL_IN_IMAGE (i >=0 && i < npixelx && j >=0 && j < npixely)
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
-			int x0 = pxmin;
-			int x1 = pxmax;
+			int x0 = pxmin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
+			int x1 = pxmax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 			if(x1 < 0 || x0 >= KOVERLAP_BINS) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
-					cache[k++] = 0.0;
+					if(PIXEL_IN_IMAGE)
+						cache[k++] = 0.0;
 				}
 				continue;
 			}
@@ -198,10 +205,11 @@ static PyObject * image(PyObject * self,
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
-				int y0 = pymin;
-				int y1 = pymax;
+				int y0 = pymin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
+				int y1 = pymax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 				if(y0 > KOVERLAP_BINS || y1 < 0 ) {
-					cache[k++] = 0.0;
+					if(PIXEL_IN_IMAGE)
+						cache[k++] = 0.0;
 					continue;
 				}
 				pc++;
@@ -212,25 +220,34 @@ static PyObject * image(PyObject * self,
 				if(y0 >= KOVERLAP_BINS) y0 = KOVERLAP_BINS - 1;
 				if(y1 >= KOVERLAP_BINS) y1 = KOVERLAP_BINS - 1;
 
-				float addbit = quick
-					?
-					koverlap[x0][y0][x1][y1]
-					:
-					find_kernel(x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
+				float addbit = 0.0;
+				if((x1 - x0 < 2 && y1 - y0 < 2)) {
+					float centerx = (pxmax + pxmin);
+					float centery = (pymax + pymin);
+					int d = 0.5 * sqrt(centerx * centerx + centery * centery) * KLINE_BINS;
+					
+					if(d >= KLINE_BINS) d = KLINE_BINS - 1;
+					addbit = kline[d] * (pxmax - pxmin) * (pymax - pymin);
+				} else {
+					if(quick) {
+						addbit = koverlap[x0][y0][x1][y1];
+					} else {
+						addbit = interp_koverlap(x0, y0, x1, y1, pxmin, pymin, pxmax, pymax);
+					}
+				}
 				sum += addbit;
-				cache[k++] = addbit;
+				if(PIXEL_IN_IMAGE)
+					cache[k++] = addbit;
 			}
 		}
 		k = 0;
 		float suminv = 1.0 / sum;
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
-			if(i < 0 || i >= npixelx) {
-				k += (jpixelmax - jpixelmin + 1);
+			if(i < 0 || i >= npixelx)
 				continue;
-			} 
 			for(j = jpixelmin; j <= jpixelmax; j++) {
 				if(j < 0 || j >= npixely) {
-					k++; continue;
+					continue;
 				}
 				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
 			}
