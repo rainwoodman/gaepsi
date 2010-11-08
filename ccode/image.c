@@ -198,8 +198,6 @@ static PyObject * image(PyObject * self,
 				continue;
 			}
 			if(x0 < 0) x0 = 0;
-			if(x1 < 0) x1 = 0;
-			if(x0 >= KOVERLAP_BINS) x0 = KOVERLAP_BINS - 1;
 			if(x1 >= KOVERLAP_BINS) x1 = KOVERLAP_BINS - 1;
 			for(j = jpixelmin; j <= jpixelmax; j++) {
 
@@ -207,7 +205,7 @@ static PyObject * image(PyObject * self,
 				float pymax = pymin + psizeYsml;
 				int y0 = pymin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
 				int y1 = pymax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
-				if(y0 > KOVERLAP_BINS || y1 < 0 ) {
+				if(y0 >= KOVERLAP_BINS || y1 < 0 ) {
 					if(PIXEL_IN_IMAGE)
 						cache[k++] = 0.0;
 					continue;
@@ -216,18 +214,20 @@ static PyObject * image(PyObject * self,
 
 				/* possible if pxmax == 2.0 or pymax == 2.0*/
 				if(y0 < 0) y0 = 0;
-				if(y1 < 0) y1 = 0;
-				if(y0 >= KOVERLAP_BINS) y0 = KOVERLAP_BINS - 1;
 				if(y1 >= KOVERLAP_BINS) y1 = KOVERLAP_BINS - 1;
 
 				float addbit = 0.0;
 				if((x1 - x0 < 2 && y1 - y0 < 2)) {
 					float centerx = (pxmax + pxmin);
 					float centery = (pymax + pymin);
-					int d = 0.5 * sqrt(centerx * centerx + centery * centery) * KLINE_BINS;
+					float d = 0.5 * sqrt(centerx * centerx + centery * centery) * KLINE_BINS;
 					
-					if(d >= KLINE_BINS) d = KLINE_BINS - 1;
-					addbit = kline[d] * (pxmax - pxmin) * (pymax - pymin);
+					int dfloor = floor(d);
+					int dceil = ceil(d);
+					if(dfloor >= KLINE_BINS) dfloor = KLINE_BINS - 1;
+					if(dceil >= KLINE_BINS) dceil = KLINE_BINS - 1;
+					float value = (kline[dceil] - kline[dfloor]) * (d - dfloor) + kline[dfloor];
+					addbit = value * (pxmax - pxmin) * (pymax - pymin);
 				} else {
 					if(quick) {
 						addbit = koverlap[x0][y0][x1][y1];
@@ -242,13 +242,13 @@ static PyObject * image(PyObject * self,
 		}
 		k = 0;
 		float suminv = 1.0 / sum;
+		if(ipixelmin < 0) ipixelmin = 0;
+		if(ipixelmax >= npixelx) ipixelmax = npixelx - 1;
+		if(jpixelmin < 0) jpixelmin = 0;
+		if(jpixelmax >= npixely) jpixelmax = npixely - 1;
+
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
-			if(i < 0 || i >= npixelx)
-				continue;
 			for(j = jpixelmin; j <= jpixelmax; j++) {
-				if(j < 0 || j >= npixely) {
-					continue;
-				}
 				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k++] * suminv;
 			}
 		}
