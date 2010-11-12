@@ -1,9 +1,9 @@
 from numpy import fromfile
 from numpy import zeros, dtype
 from numpy import uint8, array, linspace
-from numpy import int32
+from numpy import int32, float32
 from scipy.weave import inline
-
+from numpy import log10
 def icmap(levels, cmap, bins):
   cmap = array(cmap)
   detail = zeros(bins)
@@ -14,19 +14,26 @@ def icmap(levels, cmap, bins):
   detail[-1] = cmap[-1]
   return detail
 
-def circle(target, X, Y, R, color=[0,0,0]): 
+def circle(target, X, Y, R, scale=1.0, min=None, max=None, logscale=False, color=[0,0,0]): 
   if len(target.shape) != 3:
      raise ValueError("has to be a rgb bitmap! expecting shape=(#,#,3)")
   image = target
   X = int32(X)
   Y = int32(Y)
-  R = int32(R)
+  if logscale: R = log10(R)
+  if min == None: min = R.min()
+  if max == None: max = R.max()
+  print min, max
+  R = int32((R - min) * scale / (max - min))
+  print R.min(), R.max()
+  color = float32(color)
   ccode = r"""
 int i;
 unsigned char r = (float)color[0] * 255;
 unsigned char g = (float)color[1] * 255;
 unsigned char b = (float)color[2] * 255;
 printf("%d\n", NR[0]);
+printf("%d %d %d\n", Nimage[0], Nimage[1], Nimage[2]);
 for(i = 0; i < NR[0]; i++) {
 #define SET(x, y) { \
 	if(x>=0 && x<Nimage[0] && y>=0 && y<Nimage[1]) {\

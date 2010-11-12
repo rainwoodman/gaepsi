@@ -6,7 +6,7 @@ from numpy import zeros, array, empty, nonzero, float32
 from pmkfield import pmkfield
 
 def pannotate(comm, snapfile, imagesize, M, ptype, value):
-  field, snap = pmkfield(comm, snapfile, M, ptype, values=[value])
+  field = pmkfield(comm, snapfile, M, ptype, values=[value])
 
   field['default'] = field[value]
 

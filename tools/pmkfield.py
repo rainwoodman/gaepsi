@@ -29,8 +29,6 @@ def pmkfield(comm, snapfile, M, ptype, values):
     pos = snap.P[ptype]['pos']
   else :
     pos = empty(dtype='f4', shape = 0)
-  snap.load(values, ptype = ptype)
-
 
   if comm.rank == 0: print 'start unfold', clock()
 
@@ -44,6 +42,8 @@ def pmkfield(comm, snapfile, M, ptype, values):
 
   field = gadget.Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
 
+  if comm.rank == 0:
+    snap.load(values, ptype = ptype)
   for value in values:
     if comm.rank == 0:
       v = snap.P[ptype][value]
@@ -52,7 +52,7 @@ def pmkfield(comm, snapfile, M, ptype, values):
     comm.Bcast([v, MPI.FLOAT], 0)
     field[value] = v     
 
-  return field, snap
+  return field
 
 def premap(comm, M, pos, N, boxsize):
   newpos = empty(dtype=('f4', 3), shape = N)
@@ -75,7 +75,10 @@ def premap(comm, M, pos, N, boxsize):
     newboxsize = float32(newboxsize * boxsize)
   if tail < N:
     if comm.rank == 0:
-      leftover, newboxsize = remap(M, pos[tail:, :])
+      local_pos = pos[tail:, :]
+      local_pos /= boxsize
+      leftover, newboxsize = remap(M, local_pos)
+      leftover *= boxsize
       newboxsize = float32(newboxsize * boxsize)
     else:
       leftover = empty(dtype=('f4', 3), shape = N - tail)
