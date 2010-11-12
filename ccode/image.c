@@ -168,7 +168,7 @@ static PyObject * image(PyObject * self,
 		float pxmin0 =  - x / sml;
 		float pymin0 =  - y / sml;
 		float imxmin = - x / sml;
-		float imymin = - x / sml;
+		float imymin = - y / sml;
 		float imxmax = imxmin + npixelx * psizeXsml;
 		float imymax = imymin + npixely * psizeYsml;
 		/* imxmin0, imxmax0, imymin0, imymax0 crops the particle within the image*/	
@@ -197,8 +197,8 @@ static PyObject * image(PyObject * self,
 							imxmin, imymin, imxmax, imymax);
 		
 		if(norm == 0.0) continue;
-		printf("%d: %d %d %d %d %f\n", p, imx0, imy0, imx1, imy1, koverlap[imx0][imy0][imx1][imy1]);
-		printf("%d: %f %f %f %f %f\n", p, imxmin, imymin, imxmax, imymax, norm);
+	//	printf("%d: %d %d %d %d %f\n", p, imx0, imy0, imx1, imy1, koverlap[imx0][imy0][imx1][imy1]);
+	//	printf("%d: %f %f %f %f %f\n", p, imxmin, imymin, imxmax, imymax, norm);
 		int ipixelmin = floor((x - sml) / psizeX);
 		int ipixelmax = ceil((x + sml) / psizeX);
 		int jpixelmin = floor((y - sml) / psizeY);
@@ -264,7 +264,9 @@ static PyObject * image(PyObject * self,
 					int dceil = ceil(d);
 					if(dfloor >= KLINE_BINS) dfloor = KLINE_BINS - 1;
 					if(dceil >= KLINE_BINS) dceil = KLINE_BINS - 1;
-					float value = (kline[dceil] - kline[dfloor]) * (d - dfloor) + kline[dfloor];
+					float value = 0.0;
+					if(dfloor == dceil) value = kline[dceil];
+					else value = (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d));
 					addbit = value * (pxmax - pxmin) * (pymax - pymin);
 				} else {
 					if(quick) {
@@ -277,7 +279,7 @@ static PyObject * image(PyObject * self,
 				sum += addbit;
 			}
 		}
-		printf("k = %d, desired = %d\n",k, desired_cache_size);
+		if(sum == 0) continue;
 		float fac = norm / sum;
 		k = 0;
 		for(i = ipixelmin; i <= ipixelmax; i++)  {

@@ -1,7 +1,6 @@
 import gadget
 import gadget.ccode
 import gadget.kernel
-from colormap import render
 
 def image(field, xrange, yrange, zrange, npixels, quick=True):
     return gadget.ccode.image.image(field['locations'],

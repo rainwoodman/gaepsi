@@ -5,6 +5,7 @@
 extern HIDDEN void initNDTree(PyObject * m);
 extern HIDDEN void initimage(PyObject * m);
 extern HIDDEN void initremap(PyObject * m);
+extern HIDDEN void initkernel(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}

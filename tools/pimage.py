@@ -4,7 +4,7 @@ from gadget.remap import remap
 from mpi4py import MPI
 from time import clock
 from numpy import array, zeros, empty, float32
-
+from pmkfield import premap
 
 def pimage(comm, snapfile, imagesize, M):
   """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
@@ -42,16 +42,7 @@ def pimage(comm, snapfile, imagesize, M):
   newpos = empty(dtype=('f4', 3), shape = N[0])
 
   if comm.rank == 0: print 'start unfold', clock()
-  bufsize = N[0] / comm.size * 3
-  local_pos = empty(shape = bufsize / 3, dtype=('f4', 3))
-  comm.Scatter([pos, bufsize, MPI.FLOAT], 
-               [local_pos, bufsize, MPI.FLOAT], root = 0)
-  local_pos /= boxsize
-  local_newpos, newboxsize = remap(M, local_pos)
-  local_newpos *= boxsize
-  comm.Allgather([local_newpos, bufsize, MPI.FLOAT], 
-                 [newpos, bufsize, MPI.FLOAT])
-  newboxsize = float32(newboxsize * boxsize)
+  newpos, newboxsize = premap(comm, M, pos, N[0], boxsize)
   if comm.rank == 0: print 'newboxsize =', newboxsize
   if comm.rank == 0: print 'pos', newpos.max(axis=0), newpos.min(axis=0)
   if comm.rank == 0: print 'done unfold', clock()
@@ -74,7 +65,7 @@ def pimage(comm, snapfile, imagesize, M):
   yrange = [0, field.boxsize[1]]
   zrange = [0, field.boxsize[2]]
   if comm.rank == 0: print 'start image', clock()
-  tmpim = image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels = npixels)
+  tmpim = image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels = npixels, quick=False)
   comm.Barrier()
   if comm.rank == 0: print 'done image', clock()
 
