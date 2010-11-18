@@ -113,18 +113,21 @@ static void ptime(char * str) {
 static PyObject * image(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
 	static char * kwlist[] = {
+		"target", 
 		"locations", "sml", "value", 
 		"xmin", "ymin", "xmax", "ymax",
 		"npixelx", "npixely", "zmin", "zmax",
 		"quick", NULL
 	};
+	PyArrayObject * target;
 	PyArrayObject * locations, * S, *V;
 	float xmin, ymin, xmax, ymax, zmin, zmax;
 	int npixelx, npixely;
 	int length;
 	int p;
 	int quick;
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!ffffiiffi", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffiiffi", kwlist,
+		&PyArray_Type, &target, 
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &S, 
 		&PyArray_Type, &V, 
@@ -137,7 +140,8 @@ static PyObject * image(PyObject * self,
 	V = (PyArrayObject*) PyArray_Cast(V, NPY_FLOAT);
 	length = PyArray_Size((PyObject*)S);
 	npy_intp im_dims[] = {npixelx, npixely};
-	PyArrayObject * result = (PyArrayObject*)PyArray_ZEROS(2, im_dims, NPY_FLOAT, 0);
+
+	int single_precision = (PyArray_ITEMSIZE(target) == 4);
 	float psizeX = (xmax - xmin) / npixelx;
 	float psizeY = (ymax - ymin) / npixely;
 
@@ -284,7 +288,10 @@ static PyObject * image(PyObject * self,
 		k = 0;
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			for(j = jpixelmin; j <= jpixelmax; j++) {
-				*((float*)PyArray_GETPTR2(result,i,j)) += value * cache[k] * fac;
+				if(single_precision)
+					*((float*)PyArray_GETPTR2(target,i,j)) += value * cache[k] * fac;
+				else
+					*((double*)PyArray_GETPTR2(target,i,j)) += (double)( value * cache[k] * fac);
 					
 				k++;
 			}
@@ -298,9 +305,8 @@ static PyObject * image(PyObject * self,
  	Py_DECREF(S);
  	Py_DECREF(locations);
  	Py_DECREF(V);
-	return (PyObject*)result;
+	Py_RETURN_NONE;
 }
-
 static PyMethodDef module_methods[] = {
 	{"image", image, METH_KEYWORDS, image_doc_string },
 	{NULL}

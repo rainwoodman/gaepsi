@@ -3,17 +3,53 @@ from gadget.plot.image import image
 from gadget.remap import remap
 from mpi4py import MPI
 from time import clock
-from numpy import array, zeros, empty, float32
-from pmkfield import premap
+from numpy import array, zeros, empty, float32, fromfile
 
-def pimage(comm, snapfile, imagesize, M):
-  """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
-  strip_px_start = imagesize[0] * comm.rank / comm.size
-  strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
-  npixels = [strip_px_end - strip_px_start, imagesize[1]]
-  if snapfile == None: # create a zero image
-    return zeros(dtype='f4', shape=npixels)
+class Stripe():
+  def __init__(self, comm, imagesize):
+    strip_px_start = imagesize[0] * comm.rank / comm.size
+    strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
+    self.npixels = [strip_px_end - strip_px_start, imagesize[1]]
+  
+    self.image = zeros(dtype='f4', shape = self.npixels)
+    self.px_start = strip_px_start
+    self.px_end = strip_px_end
+    self.imagesize = imagesize
+    self.comm = comm
 
+  def add(self, field):
+    """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
+
+    xrange = [self.px_start * field.boxsize[0] / self.imagesize[0],
+              self.px_end * field.boxsize[0] / self.imagesize[0]]
+    yrange = [0, field.boxsize[1]]
+    zrange = [0, field.boxsize[2]]
+    if self.comm.rank == 0: print 'start image', clock()
+    image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels=self.npixels, quick=False, target=self.image)
+    self.comm.Barrier()
+    if self.comm.rank == 0: print 'done image', clock()
+
+  def pminmax(self):
+    maxsend = array([self.image.max()], 'f4')
+    minsend = array([self.image.min()], 'f4')
+    maxrecv = array([0], 'f4')
+    minrecv = array([0], 'f4')
+
+    self.comm.Allreduce([maxsend, MPI.FLOAT], [maxrecv, MPI.FLOAT], op = MPI.MAX)
+    self.comm.Allreduce([minsend, MPI.FLOAT], [minrecv, MPI.FLOAT], op = MPI.MIN)
+    return minrecv, maxrecv
+
+  def tofile(self, file):
+    self.image.tofile(file)
+  def fromfile(self, file):
+    self.image = fromfile(file)
+    self.image.shape = self.npixels[0], self.npixels[1]
+
+def mkfield(comm, snapfile, M, ptype, values):
+  """ make a field on all processes in comm from snapfile, unfold with 
+      matrix M, based on particle type ptype, and loadin the blocks in
+      the list values
+   """
   if comm.rank == 0:
     print snapfile[0], snapfile[1]
     snap = gadget.Snapshot(snapfile[0], snapfile[1])
@@ -30,70 +66,67 @@ def pimage(comm, snapfile, imagesize, M):
 
   if comm.rank == 0:
     print "start reading", clock()
-    snap.load(['pos', 'sml', 'mass'], ptype = 0)
-    pos = snap.P[0]['pos']
-    sml = snap.P[0]['sml']
-    value = snap.P[0]['mass']
+    snap.load(['pos'], ptype = ptype)
+    pos = snap.P[ptype]['pos']
   else :
-    sml = empty(dtype='f4', shape = N[0])
-    value = empty(dtype='f4', shape = N[0])
     pos = empty(dtype='f4', shape = 0)
 
-  newpos = empty(dtype=('f4', 3), shape = N[0])
-
   if comm.rank == 0: print 'start unfold', clock()
-  newpos, newboxsize = premap(comm, M, pos, N[0], boxsize)
+
+  newpos, newboxsize = premap(comm, M, pos, N[ptype], boxsize)
+
   if comm.rank == 0: print 'newboxsize =', newboxsize
   if comm.rank == 0: print 'pos', newpos.max(axis=0), newpos.min(axis=0)
   if comm.rank == 0: print 'done unfold', clock()
 
   comm.Barrier()
 
-  if comm.rank == 0: print 'start comm', clock()
-  comm.Bcast([sml, MPI.FLOAT], 0)
-  comm.Bcast([value, MPI.FLOAT], 0)
-  comm.Barrier()
-  if comm.rank == 0: print 'end comm', clock()
+  field = gadget.Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
 
-  field = gadget.Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'), ptype = 0)
+  if comm.rank == 0:
+    snap.load(values, ptype = ptype)
+  for value in values:
+    if comm.rank == 0:
+      v = snap.P[ptype][value]
+    else :
+      v = empty(dtype='f4', shape = N[ptype])
+    comm.Bcast([v, MPI.FLOAT], 0)
+    field[value] = v     
 
-  field['sml'] = sml
-  field['default'] = value
+  return field
 
-  xrange = [strip_px_start * field.boxsize[0] / imagesize[0],
-            strip_px_end   * field.boxsize[0] / imagesize[0]]
-  yrange = [0, field.boxsize[1]]
-  zrange = [0, field.boxsize[2]]
-  if comm.rank == 0: print 'start image', clock()
-  tmpim = image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels = npixels, quick=False)
-  comm.Barrier()
-  if comm.rank == 0: print 'done image', clock()
+def premap(comm, M, pos, N, boxsize):
+  newpos = empty(dtype=('f4', 3), shape = N)
+  bufsize = N / comm.size
+  tail = bufsize * comm.size
 
-  max = tmpim.max()
-  min = tmpim.min()
-
-  if max > 1000 or min < 0:
-    print 'bad values in im', 
-    print 'fid = ', snapfile, 'rank = ', comm.rank
-    print 'xyzrange =', xrange, yrange, zrange
-    print 'value = ', value.min(), value.max()
-    print 'sml = ', sml.min(), sml.max()
-    print 'pos = ', newpos.min(axis=0), newpos.max(axis=0)
-    print 'boxsize = ', field.boxsize
-    print 'origin = ', field.origin
-    print 'num of violations: min', sum(tmpim.ravel() < 0)
-    print 'num of violations: max', sum(tmpim.ravel() > 1000)
+  if N == 0:
+    e, newboxsize = remap(M, pos)
   
-  return tmpim
-
-def pminmax(comm, im): 
-  maxsend = array([im.max()], 'f4')
-  minsend = array([im.min()], 'f4')
-  maxrecv = array([0], 'f4')
-  minrecv = array([0], 'f4')
-
-#  print 'maxsend = ', maxsend, 'maxrecv = ', maxrecv, comm.rank
-  comm.Allreduce([maxsend, MPI.FLOAT], [maxrecv, MPI.FLOAT], op = MPI.MAX)
-  comm.Allreduce([minsend, MPI.FLOAT], [minrecv, MPI.FLOAT], op = MPI.MIN)
-  return minrecv, maxrecv
+  if bufsize > 0 :
+    local_pos = empty(shape = bufsize, dtype=('f4', 3))
+    comm.Scatter([pos, bufsize * 3, MPI.FLOAT], 
+                 [local_pos, bufsize * 3, MPI.FLOAT], root = 0)
   
+    local_pos /= boxsize
+    local_newpos, newboxsize = remap(M, local_pos)
+    local_newpos *= boxsize
+    comm.Allgather([local_newpos, bufsize * 3, MPI.FLOAT], 
+                   [newpos, bufsize * 3, MPI.FLOAT])
+    newboxsize = float32(newboxsize * boxsize)
+  if tail < N:
+    if comm.rank == 0:
+      local_pos = pos[tail:, :]
+      local_pos /= boxsize
+      leftover, newboxsize = remap(M, local_pos)
+      leftover *= boxsize
+      newboxsize = float32(newboxsize * boxsize)
+    else:
+      leftover = empty(dtype=('f4', 3), shape = N - tail)
+      newboxsize = empty(dtype='f4', shape = 3)
+
+    comm.Bcast([leftover, 3 * (N - tail), MPI.FLOAT], root = 0)
+    comm.Bcast([newboxsize,MPI.FLOAT], root = 0)
+    newpos[tail:, :] = leftover
+
+  return newpos, newboxsize

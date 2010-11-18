@@ -23,9 +23,15 @@ def circle(target, X, Y, R, scale=1.0, min=None, max=None, logscale=False, color
   if logscale: R = log10(R)
   if min == None: min = R.min()
   if max == None: max = R.max()
-  print min, max
+  if min == max: 
+    min = min - 0.5
+    max = max + 0.5
+  print 'internal min, max = ', R.min(), R.max()
+
   R = int32((R - min) * scale / (max - min))
-  print R.min(), R.max()
+  print 'pixel min, max =', R.min(), R.max()
+  R[R < 0] = 0
+  R[R > scale ] = scale
   color = float32(color)
   ccode = r"""
 int i;
@@ -73,7 +79,7 @@ for(i = 0; i < NR[0]; i++) {
 	}
 }
 """
-  inline(ccode, ['X', 'Y', 'image', 'color', 'R'])
+  inline(ccode, ['X', 'Y', 'image', 'color', 'R', 'scale'])
 
 def render(array, min, max, logscale=True, levels = [0, 0.2, 0.4, 0.6, 1.0], rmap =[0, 0.5, 1.0, 1.0, 0.2], gmap=[0, 0.0, 0.5, 1.0, 0.2], bmap=[0.0, 0.0, 0.0, 0.3, 1.0], target=None):
 
