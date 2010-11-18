@@ -1,4 +1,5 @@
 import gadget
+import numpy
 from gadget.plot.image import image
 from gadget.remap import remap
 from mpi4py import MPI
@@ -6,17 +7,17 @@ from time import clock
 from numpy import array, zeros, empty, float32, fromfile
 
 class Stripe():
-  def __init__(self, comm, imagesize):
+  def __init__(self, comm, imagesize, dtype='f4'):
     strip_px_start = imagesize[0] * comm.rank / comm.size
     strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
     self.npixels = [strip_px_end - strip_px_start, imagesize[1]]
   
-    self.image = zeros(dtype='f4', shape = self.npixels)
+    self.image = zeros(dtype=dtype, shape = self.npixels)
     self.px_start = strip_px_start
     self.px_end = strip_px_end
     self.imagesize = imagesize
     self.comm = comm
-
+    self.dtype = dtype
   def add(self, field):
     """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
 
@@ -29,20 +30,27 @@ class Stripe():
     self.comm.Barrier()
     if self.comm.rank == 0: print 'done image', clock()
 
-  def pminmax(self):
-    maxsend = array([self.image.max()], 'f4')
-    minsend = array([self.image.min()], 'f4')
-    maxrecv = array([0], 'f4')
-    minrecv = array([0], 'f4')
+  def stat(self):
+    """ returns the min, max, and sum of the image across all processors"""
+    maxsend = self.image.max()
+    minsend = self.image.min()
+    sumsend = self.image.sum()
+    maxrecv = self.comm.allreduce(maxsend, op = MPI.MAX)
+    minrecv = self.comm.allreduce(minsend, op = MPI.MAX)
+    sumrecv = self.comm.allreduce(sumsend, op = MPI.SUM)
+    return minrecv, maxrecv, sumrecv
 
-    self.comm.Allreduce([maxsend, MPI.FLOAT], [maxrecv, MPI.FLOAT], op = MPI.MAX)
-    self.comm.Allreduce([minsend, MPI.FLOAT], [minrecv, MPI.FLOAT], op = MPI.MIN)
-    return minrecv, maxrecv
+  def tofile(self, file, dtype='f4'):
+    if dtype != self.dtype:
+      numpy.dtype(dtype).type(self.image).tofile(file)
+    else:
+      self.image.tofile(file)
 
-  def tofile(self, file):
-    self.image.tofile(file)
-  def fromfile(self, file):
-    self.image = fromfile(file)
+  def fromfile(self, file, dtype='f4'):
+    if dtype != self.dtype:
+      self.image = numpy.dtype(self.dtype).type(fromfile(file, dtype=dtype))
+    else:
+      self.image = fromfile(file, dtype=dtype)
     self.image.shape = self.npixels[0], self.npixels[1]
 
 def mkfield(comm, snapfile, M, ptype, values):
