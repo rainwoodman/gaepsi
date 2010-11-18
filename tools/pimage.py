@@ -73,7 +73,7 @@ def mkfield(comm, snapfile, M, ptype, values):
   comm.Bcast([boxsize, MPI.FLOAT], root = 0)
 
   if comm.rank == 0:
-    print "start reading", clock()
+    print "constructing field", clock()
     snap.load(['pos'], ptype = ptype)
     pos = snap.P[ptype]['pos']
   else :
@@ -101,6 +101,7 @@ def mkfield(comm, snapfile, M, ptype, values):
     comm.Bcast([v, MPI.FLOAT], 0)
     field[value] = v     
 
+  if comm.rank == 0: print 'done construction', clock()
   return field
 
 def premap(comm, M, pos, N, boxsize):
