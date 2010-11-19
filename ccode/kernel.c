@@ -104,7 +104,6 @@ static PyObject * fill_koverlap(PyObject * self, PyObject * unused) {
 				}
 			}
 		}
-	printf("%d %d %d %d\n", i0, j0, i1, j1);
 	Py_RETURN_NONE;
 }
 static void * k0_data[] = {(void*) k0f, (void*) k0d};
