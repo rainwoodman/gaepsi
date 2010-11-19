@@ -78,6 +78,35 @@ double HIDDEN koverlapd(double x0, double y0, double x1, double y1) {
 	if(indy1 >= KOVERLAP_BINS) indy1 = KOVERLAP_BINS - 1;
 	return koverlap[indx0][indy0][indx1][indy1];
 }
+
+static PyObject * fill_koverlap(PyObject * self, PyObject * unused) {
+	float rowsum[KOVERLAP_BINS][KOVERLAP_BINS];
+	int i0, j0, i1, j1;
+	for(i0 = 0; i0 < KOVERLAP_BINS; i0++)
+		for(j0 = 0; j0 < KOVERLAP_BINS; j0++) {
+			for(i1 = i0; i1 < KOVERLAP_BINS; i1++) {
+				int d1 = (i1 - KOVERLAP_BINS/2);
+				int d2 = (j0 - KOVERLAP_BINS/2);
+				rowsum[i1][j0] = 
+				klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
+				for(j1 = j0 + 1; j1 < KOVERLAP_BINS; j1++) {
+					int d1 = (i1 - KOVERLAP_BINS/2);
+					int d2 = (j1 - KOVERLAP_BINS/2);
+					rowsum[i1][j1] = rowsum[i1][j1-1] +
+					klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
+				}
+			}
+
+			for(j1 = j0; j1 < KOVERLAP_BINS; j1++) {
+				koverlap[i0][j0][i0][j1] = rowsum[i0][j1];
+				for(i1 = i0 + 1; i1 < KOVERLAP_BINS; i1++) {
+					koverlap[i0][j0][i1][j1] = koverlap[i0][j0][i1 - 1][j1] + rowsum[i1][j1];
+				}
+			}
+		}
+	printf("%d %d %d %d\n", i0, j0, i1, j1);
+	Py_RETURN_NONE;
+}
 static void * k0_data[] = {(void*) k0f, (void*) k0d};
 static void * kline_data[] = {(void*) klinef, (void*) klined};
 static void * koverlap_data[] = {(void*) koverlapf, (void *) koverlapd};
@@ -90,7 +119,7 @@ static char koverlap_signatures[] = {
 	PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, };
 
 static PyMethodDef module_methods[] = {
-//	{"k0", k0, METH_O, k0_doc_string},
+	{"fill_koverlap", fill_koverlap, METH_NOARGS, ""},
 	{NULL}
 };
 
