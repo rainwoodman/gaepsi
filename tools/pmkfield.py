@@ -1,9 +1,10 @@
-import gadget
-from gadget.remap import remap
 from mpi4py import MPI
 from numpy import array, zeros, empty, float32
 from time import clock
 
+from remap import remap
+from snapshot import Snapshot
+from field import Field
 def pmkfield(comm, snapfile, M, ptype, values):
   """ make a field on all processes in comm from snapfile, unfold with 
       matrix M, based on particle type ptype, and loadin the blocks in
@@ -11,7 +12,7 @@ def pmkfield(comm, snapfile, M, ptype, values):
    """
   if comm.rank == 0:
     print snapfile[0], snapfile[1]
-    snap = gadget.Snapshot(snapfile[0], snapfile[1])
+    snap = Snapshot(snapfile[0], snapfile[1])
     N = snap.N.copy()
     boxsize = array([snap.C['L']], dtype='f4')
     print "N = ", N
@@ -40,7 +41,7 @@ def pmkfield(comm, snapfile, M, ptype, values):
 
   comm.Barrier()
 
-  field = gadget.Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
+  field = Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
 
   if comm.rank == 0:
     snap.load(values, ptype = ptype)

@@ -1,10 +1,12 @@
-import gadget
 import numpy
-from gadget.plot.image import image
-from gadget.remap import remap
 from mpi4py import MPI
 from time import clock
 from numpy import array, zeros, empty, float32, fromfile
+
+from gadget.plot.image import image
+from gadget.remap import remap
+from gadget.snapshot import Snapshot
+from gadget.field import Field
 
 class Stripe():
   def __init__(self, comm, imagesize, dtype='f4'):
@@ -53,14 +55,39 @@ class Stripe():
       self.image = fromfile(file, dtype=dtype)
     self.image.shape = self.npixels[0], self.npixels[1]
 
-def mkfield(comm, snapfile, M, ptype, values):
+def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None):
+  values = ['mass', 'sml']
+  if fieldname != None:
+    values = values + [fieldname]
+
+  if FIDS != None:
+    for fid in FIDS:
+      field = mkfield(stripe.comm, snapname % fid, format, M=M, ptype=0, values=values)
+      if fieldname==None:
+        field['default'] = field['mass']
+      else:
+        field['default'] = field[fieldname] * field['mass']
+      stripe.add(field)
+  else:
+    field = mkfield(stripe.comm, snapname, format, M=M, ptype=0, values=values)
+    if fieldname==None:
+      field['default'] = field['mass']
+    else:
+      field['default'] = field[fieldname] * field['mass']
+    stripe.add(field)
+
+  min, max, sum = stripe.stat()
+  if stripe.comm.rank == 0:
+    print "max = ", max, "min = ", min, "stat = ", sum
+
+def mkfield(comm, snapname, format, M, ptype, values):
   """ make a field on all processes in comm from snapfile, unfold with 
       matrix M, based on particle type ptype, and loadin the blocks in
       the list values
    """
   if comm.rank == 0:
-    print snapfile[0], snapfile[1]
-    snap = gadget.Snapshot(snapfile[0], snapfile[1])
+    print snapname, format
+    snap = Snapshot(snapname, format, mode='r', buffering=1048576*32)
     N = snap.N.copy()
     boxsize = array([snap.C['L']], dtype='f4')
     print "N = ", N
@@ -73,12 +100,14 @@ def mkfield(comm, snapfile, M, ptype, values):
   comm.Bcast([boxsize, MPI.FLOAT], root = 0)
 
   if comm.rank == 0:
-    print "constructing field", clock()
+    print "constructing field(pos", values, ")", clock()
     snap.load(['pos'], ptype = ptype)
     pos = snap.P[ptype]['pos']
+    snap.load(values, ptype = ptype)
   else :
     pos = empty(dtype='f4', shape = 0)
 
+  comm.Barrier()
   if comm.rank == 0: print 'start unfold', clock()
 
   newpos, newboxsize = premap(comm, M, pos, N[ptype], boxsize)
@@ -89,16 +118,14 @@ def mkfield(comm, snapfile, M, ptype, values):
 
   comm.Barrier()
 
-  field = gadget.Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
+  field = Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
 
-  if comm.rank == 0:
-    snap.load(values, ptype = ptype)
   for value in values:
     if comm.rank == 0:
       v = snap.P[ptype][value]
     else :
       v = empty(dtype='f4', shape = N[ptype])
-    comm.Bcast([v, MPI.FLOAT], 0)
+    comm.Bcast(v)
     field[value] = v     
 
   if comm.rank == 0: print 'done construction', clock()
@@ -139,3 +166,4 @@ def premap(comm, M, pos, N, boxsize):
     newpos[tail:, :] = leftover
 
   return newpos, newboxsize
+

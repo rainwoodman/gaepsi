@@ -1,9 +1,9 @@
-import gadget.reader
-from gadget.io import F77File
+from reader import Reader as Base
+from io import F77File
 
-class Reader(gadget.reader.Reader):
+class Reader(Base):
   def __init__(self) :
-    gadget.reader.Reader.__init__(self, 
+    Base.__init__(self, 
     F77File, 
     header = [
       ('N', ('u4', 6)),

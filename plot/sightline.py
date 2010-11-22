@@ -2,8 +2,8 @@ from matplotlib.mlab import find
 from numpy import array, ones_like, zeros
 from numpy import sqrt, int32
 from numpy import arange
-from gadget.kernel import kernel
-from gadget.kernel import kernel_line
+from gadget.kernel import k0
+from gadget.kernel import kline
 
 def sightline(field, x0,y0, npixels=100) :
   """ returns the field density samples along a sightline"""
@@ -39,8 +39,8 @@ def sightline(field, x0,y0, npixels=100) :
     pzp[pzp >= npixels] = pzp[pzp >= npixels] - npixels
     pzp[pzp < 0] = pzp[pzp < 0] + npixels
     eta = sqrt((d[ip]**2 + (pz - z[ip])**2)) / sml[ip]
-    kernels = array([kernel(ETA) for ETA in eta]) / sml[ip] ** 3
-    linekernel = kernel_line(d[ip]/sml[ip]) / sml[ip] ** 2
+    kernels = array([d0(ETA) for ETA in eta]) / sml[ip] ** 3
+    linekernel = kline(d[ip]/sml[ip]) / sml[ip] ** 2
     sumkernel = sum(kernels) * pixelsize
     if  sumkernel > 0.0 :
       fac = linekernel / sumkernel

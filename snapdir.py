@@ -1,11 +1,12 @@
-import gadget
+import io
+from snapshot import Snapshot
 from numpy import dtype
 from numpy import floor, ceil
 from numpy import int32
 
 class Snapmap:
   def __init__(self, file):
-    self.file = gadget.io.F77File(file)
+    self.file = io.F77File(file)
     dt = dtype([
       ('Ncell1d', 'u4'),
       ('Ncells', 'u4'),
@@ -60,7 +61,7 @@ class Snapdir:
     self.reader = reader
     self.map = Snapmap(mapfile)
   def open(self, id):
-    return gadget.Snapshot(self.template % id, self.reader) 
+    return Snapshot(self.template % id, self.reader) 
 
   def get_ids(self, corner1, corner2):
     return self.map.get_ids(corner1, corner2) 

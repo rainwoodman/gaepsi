@@ -1,7 +1,6 @@
 from numpy import dtype
 from numpy import array
 from numpy import NaN
-from snapshot import Snapshot
 class Reader:
   def __init__(self, file_class, header, schemas):
     self.header = dtype(header)
@@ -14,13 +13,8 @@ class Reader:
     for s in self.schemas:
       self.hash[s['name']] = s
 
-  def open(self, file):
-    snapshot = Snapshot()
-    self.prepare(snapshot, file)
-    return snapshot
-
-  def prepare(self, snapshot, file):
-    snapshot.file = self.file_class(file)
+  def prepare(self, snapshot, file, *args, **kwargs):
+    snapshot.file = self.file_class(file, *args, **kwargs)
     snapshot.reader = self
     snapshot.header = snapshot.file.read_record(self.header, 1)[0]
     self.setup_constants(snapshot)

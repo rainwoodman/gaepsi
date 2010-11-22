@@ -1,9 +1,9 @@
-import gadget.reader
-from gadget.io import CFile
+from reader import Reader as Base
+from io import CFile
 
-class Reader(gadget.reader.Reader):
+class Reader(Base):
   def __init__(self) :
-    gadget.reader.Reader.__init__(self, 
+    Base.__init__(self, 
     CFile, 
     header = [
       ('N', ('u8', 6)),

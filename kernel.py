@@ -3,12 +3,12 @@ from scipy.integrate import quad
 from numpy import max
 from numpy import array
 from numpy import sqrt
-import gadget.ccode
-k0 = gadget.ccode.kernel.k0
-kline = gadget.ccode.kernel.kline
-koverlap = gadget.ccode.kernel.koverlap
-akline = gadget.ccode.kernel.akline
-akoverlap = gadget.ccode.kernel.akoverlap
+import ccode
+k0 = ccode.kernel.k0
+kline = ccode.kernel.kline
+koverlap = ccode.kernel.koverlap
+akline = ccode.kernel.akline
+akoverlap = ccode.kernel.akoverlap
 
 def kernel(eta) :
   """ dimensionless sph kernel
@@ -29,7 +29,7 @@ def init_akline() :
   return 
 
 def init_akoverlap() :
-  gadget.ccode.kernel.fill_koverlap()
+  ccode.kernel.fill_koverlap()
   akoverlap[:,:,:,:] /= akoverlap.max()
 
 init_akline()

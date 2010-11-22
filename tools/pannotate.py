@@ -1,6 +1,5 @@
-import gadget
-from gadget.plot.annotate import annotate
-from gadget.remap import remap
+from plot.annotate import annotate
+from remap import remap
 from mpi4py import MPI
 from numpy import zeros, array, empty, nonzero, float32
 from pmkfield import pmkfield

@@ -1,8 +1,7 @@
-import gadget
 from matplotlib import is_string_like
-    
+from readers import Readers
 class Snapshot:
-  def __init__(self, file=None, reader=None):
+  def __init__(self, file=None, reader=None, *args, **kwargs):
     # constants (cosmology and stuff)
     self.C = {}
     # particle data
@@ -19,9 +18,9 @@ class Snapshot:
     if reader == None: return
 
     if is_string_like(reader) :
-      reader = gadget.Readers[reader]
+      reader = Readers[reader]
 
-    reader.prepare(self, file)
+    reader.prepare(self, file = file, *args, **kwargs)
 
   def load(self, blocknames, ptype=None) :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
