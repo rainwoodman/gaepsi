@@ -14,6 +14,7 @@ setup(name="gadget", version="1.0",
               "ccode/kernel.c",
              ], 
              include_dirs=[get_include()],
+             depends = ["ccode/defines.h"]
         ),
       ])
 
