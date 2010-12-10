@@ -85,13 +85,13 @@ static PyObject * fill_koverlap(PyObject * self, PyObject * unused) {
 	for(i0 = 0; i0 < KOVERLAP_BINS; i0++)
 		for(j0 = 0; j0 < KOVERLAP_BINS; j0++) {
 			for(i1 = i0; i1 < KOVERLAP_BINS; i1++) {
-				int d1 = (i1 - KOVERLAP_BINS/2);
-				int d2 = (j0 - KOVERLAP_BINS/2);
+				float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
+				float d2 = (j0 - KOVERLAP_BINS/2) + 0.5;
 				rowsum[i1][j0] = 
 				klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
 				for(j1 = j0 + 1; j1 < KOVERLAP_BINS; j1++) {
-					int d1 = (i1 - KOVERLAP_BINS/2);
-					int d2 = (j1 - KOVERLAP_BINS/2);
+					float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
+					float d2 = (j1 - KOVERLAP_BINS/2) + 0.5;
 					rowsum[i1][j1] = rowsum[i1][j1-1] +
 					klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
 				}
