@@ -8,7 +8,7 @@ from gadget.remap import remap
 from gadget.snapshot import Snapshot
 from gadget.field import Field
 
-class Stripe():
+class Stripe:
   def __init__(self, comm, imagesize, dtype='f4'):
     strip_px_start = imagesize[0] * comm.rank / comm.size
     strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
