@@ -55,26 +55,33 @@ class Stripe:
       self.image = fromfile(file, dtype=dtype)
     self.image.shape = self.npixels[0], self.npixels[1]
 
-def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None):
-  values = ['mass', 'sml']
+def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=None):
+  values = ['mass']
+  if fakesml == None:
+    values = values + ['sml']
   if fieldname != None:
     values = values + [fieldname]
 
   if FIDS != None:
     for fid in FIDS:
-      field = mkfield(stripe.comm, snapname % fid, format, M=M, ptype=0, values=values)
+      field = mkfield(stripe.comm, snapname % fid, format, M=M, ptype=ptype, values=values)
       if fieldname==None:
         field['default'] = field['mass']
       else:
         field['default'] = field[fieldname] * field['mass']
+      if fakesml != None:
+        field['sml'] = fakesml
       stripe.add(field)
   else:
-    field = mkfield(stripe.comm, snapname, format, M=M, ptype=0, values=values)
+    field = mkfield(stripe.comm, snapname, format, M=M, ptype=ptype, values=values)
     if fieldname==None:
       field['default'] = field['mass']
     else:
       field['default'] = field[fieldname] * field['mass']
+    if fakesml != None:
+      field['sml'] = fakesml
     stripe.add(field)
+
 
   min, max, sum = stripe.stat()
   if stripe.comm.rank == 0:
@@ -108,7 +115,7 @@ def mkfield(comm, snapname, format, M, ptype, values):
     pos = empty(dtype='f4', shape = 0)
 
   comm.Barrier()
-  if comm.rank == 0: print 'start unfold', clock()
+  if comm.rank == 0: print 'start unfold', ptype, N[ptype], clock()
 
   newpos, newboxsize = premap(comm, M, pos, N[ptype], boxsize)
 

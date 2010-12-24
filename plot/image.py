@@ -3,7 +3,6 @@ from gadget import ccode
 # are not initialized.
 import gadget.kernel
 from numpy import zeros
-
 def image(field, xrange, yrange, zrange, npixels, quick=True, target=None):
   if target == None: 
     target = zeros(shape = npixels, dtype='f4')
@@ -14,3 +13,4 @@ def image(field, xrange, yrange, zrange, npixels, quick=True, target=None):
           xrange[0], yrange[0], xrange[1], yrange[1],
           npixels[0], npixels[1], zrange[0], zrange[1], quick)
   return target
+rasterize = image
