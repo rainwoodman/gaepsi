@@ -2,19 +2,20 @@ from numpy import dtype
 from numpy import array
 from numpy import NaN
 class Reader:
-  def __init__(self, file_class, header, schemas):
-    self.header = dtype(header)
+  def __init__(self, file_class, header, schemas, endian='<'):
+    self.header = dtype(header).newbyteorder(endian)
     self.schemas = [dict(name = sch[0], 
-                    dtype=dtype(sch[1]), 
+                    dtype=dtype(sch[1]).newbyteorder(endian),
                     ptypes=sch[2], 
                     conditions=sch[3]) for sch in schemas]
     self.file_class = file_class
+    self.endian = endian
     self.hash = {}
     for s in self.schemas:
       self.hash[s['name']] = s
 
   def prepare(self, snapshot, file, *args, **kwargs):
-    snapshot.file = self.file_class(file, *args, **kwargs)
+    snapshot.file = self.file_class(file, endian=self.endian, *args, **kwargs)
     snapshot.reader = self
     snapshot.header = snapshot.file.read_record(self.header, 1)[0]
     self.setup_constants(snapshot)
