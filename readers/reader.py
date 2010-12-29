@@ -3,9 +3,9 @@ from numpy import array
 from numpy import NaN
 class Reader:
   def __init__(self, file_class, header, schemas, endian='<'):
-    self.header = dtype(header).newbyteorder(endian)
+    self.header = dtype(header)
     self.schemas = [dict(name = sch[0], 
-                    dtype=dtype(sch[1]).newbyteorder(endian),
+                    dtype=dtype(sch[1]),
                     ptypes=sch[2], 
                     conditions=sch[3]) for sch in schemas]
     self.file_class = file_class

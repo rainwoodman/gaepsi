@@ -2,7 +2,7 @@ from numpy import fromfile
 from numpy import int32
 from numpy import array
 from numpy import dtype
-
+from numpy import little_endian
 class CFile(file):
   def get_size(size):
     return size
@@ -39,8 +39,10 @@ class F77File(file):
     except KeyError:
       self.endian = 'N'
     
-    file.__init__(self, *args, **kwargs)
     self.bsdtype = dtype('i4').newbyteorder(self.endian)
+    self.little_endian = ( self.bsdtype.byteorder == '<' or (
+                     self.bsdtype.byteorder == '=' and little_endian))
+    file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=None, nread=None) :
     if length == 0: return array([])
@@ -58,12 +60,15 @@ class F77File(file):
     size2 = fromfile(self, self.bsdtype, 1)[0]
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
+    if self.little_endian != little_endian: X.byteswap(True)
     return X
 
   def write_record(self, a):
     if a.size == 0: return
     size = int32(a.size * a.dtype.itemsize)
     array([size], dtype=self.bsdtype).tofile(self)
+    
+    if self.little_endian != little_endian: a.byteswap(True)
     a.tofile(self)
     array([size], dtype=self.bsdtype).tofile(self)
 
