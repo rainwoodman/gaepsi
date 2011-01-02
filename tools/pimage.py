@@ -55,8 +55,10 @@ class Stripe:
       self.image = fromfile(file, dtype=dtype)
     self.image.shape = self.npixels[0], self.npixels[1]
 
-def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=None):
-  values = ['mass']
+def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=None, fakemass=None):
+  values = []
+  if fakemass == None:
+    values = values + ['mass']
   if fakesml == None:
     values = values + ['sml']
   if fieldname != None:
@@ -65,6 +67,8 @@ def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=No
   if FIDS != None:
     for fid in FIDS:
       field = mkfield(stripe.comm, snapname % fid, format, M=M, ptype=ptype, values=values)
+      if fakemass != None:
+        field['mass'] = fakemass
       if fieldname==None:
         field['default'] = field['mass']
       else:
@@ -74,6 +78,8 @@ def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=No
       stripe.add(field)
   else:
     field = mkfield(stripe.comm, snapname, format, M=M, ptype=ptype, values=values)
+    if fakemass != None:
+      field['mass'] = fakemass
     if fieldname==None:
       field['default'] = field['mass']
     else:
