@@ -12,6 +12,7 @@ setup(name="gadget", version="1.0",
               "ccode/ndtree.c",
               "ccode/remap.c",
               "ccode/kernel.c",
+              "ccode/render.c",
              ], 
              include_dirs=[get_include()],
              depends = ["ccode/defines.h"]

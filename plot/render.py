@@ -81,12 +81,10 @@ class Colormap:
       ai = ones(bins)
     self.ai = ai
 
-def circle(target, X, Y, R, scale=1.0, min=None, max=None, logscale=False, color=[0,0,0]): 
+def circle(target, X, Y, R, scale=1.0, min=None, max=None, logscale=False, color=[0,0,0,1]): 
   if len(target.shape) != 3:
      raise ValueError("has to be a rgb bitmap! expecting shape=(#,#,3)")
   image = target
-  X = int32(X)
-  Y = int32(Y)
   if logscale: R = log10(R)
   if min == None: min = R.min()
   if max == None: max = R.max()
@@ -95,58 +93,13 @@ def circle(target, X, Y, R, scale=1.0, min=None, max=None, logscale=False, color
     max = max + 0.5
   print 'internal min, max = ', R.min(), R.max()
 
-  R = int32((R - min) * scale / (max - min))
+  R = ((R - min) * scale / (max - min))
   print 'pixel min, max =', R.min(), R.max()
   R[R < 0] = 0
   R[R > scale ] = scale
-  color = float32(color)
-  ccode = r"""
-int i;
-unsigned char r = (float)color[0] * 255;
-unsigned char g = (float)color[1] * 255;
-unsigned char b = (float)color[2] * 255;
-printf("%d\n", NR[0]);
-printf("%d %d %d\n", Nimage[0], Nimage[1], Nimage[2]);
-for(i = 0; i < NR[0]; i++) {
-#define SET(x, y) { \
-	if(x>=0 && x<Nimage[0] && y>=0 && y<Nimage[1]) {\
-		IMAGE3(x,y,0) = r; \
-		IMAGE3(x,y,1) = g; \
-		IMAGE3(x,y,2) = b; \
-	} \
-	}
-	int radius = R[i];
-	int cx = X[i];
-	int cy = Y[i];
-	int error = - radius;
-	int x = radius;
-	int y = 0;
-	if(radius == 0) {
-		SET(cx, cy);
-	}
-	while(x >= y) {
-		SET(cx + x, cy + y);
-		if(x) SET(cx - x, cy + y);
-		if(y) SET(cx + x, cy - y);
-		if(x && y) SET(cx - x, cy - y);
-		if(x != y) {
-			SET(cx + y, cy + x);
-			if(y) SET(cx - y, cy + x);
-			if(x) SET(cx + y, cy - x);
-			if(x && y) SET(cx - y, cy - x);
-		}
-		error += y;
-		++y;
-		error += y;
-		if(error >= 0) {
-			--x;
-			error -= x;
-			error -= x;
-		}
-	}
-}
-"""
-  inline(ccode, ['X', 'Y', 'image', 'color', 'R', 'scale'])
+  if len(color)==3: 
+    color = array([color[0], color[1], color[2], 1.0])
+  gadget.ccode.render.color(target = target, X = X, Y = Y, R = R, color = color)
 
 def render(array, min, max, logscale=True, colormap=None, target=None):
   if colormap == None:

@@ -19,4 +19,5 @@ void initccode (void) {
 	initimage(m);
 	initremap(m);
 	initkernel(m);
+	initrender(m);
 }
