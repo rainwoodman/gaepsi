@@ -8,7 +8,7 @@
 #define image_doc_string \
 "keywords: locations, sml, value,"\
 " xmin, ymin, xmax, ymax, npixelx, npixely, zmin, zmax."\
-" returns an image of given size."
+" returns an raster image of given size; the sums are calculated but no averaging is done."
 
 extern HIDDEN float kline[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
