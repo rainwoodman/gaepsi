@@ -14,46 +14,56 @@ class Stripe:
     strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
     self.npixels = [strip_px_end - strip_px_start, imagesize[1]]
   
-    self.image = zeros(dtype=dtype, shape = self.npixels)
+    self.images = {}
     self.px_start = strip_px_start
     self.px_end = strip_px_end
     self.imagesize = imagesize
     self.comm = comm
     self.dtype = dtype
-  def add(self, field):
+
+  def set_remapping(self, M):
+    self.M = M
+
+  def load(self, snapname, reader, ptype, values):
+    self.field = mkfield(self.comm, snapname, reader, self.M, ptype, values)
+
+  def rasterize(self, fieldname):
     """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
 
+    field = self.field
     xrange = [self.px_start * field.boxsize[0] / self.imagesize[0],
               self.px_end * field.boxsize[0] / self.imagesize[0]]
     yrange = [0, field.boxsize[1]]
     zrange = [0, field.boxsize[2]]
     if self.comm.rank == 0: print 'start image', clock()
-    image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels=self.npixels, quick=False, target=self.image)
+    field['default'] = field[fieldname]
+    self.images[fieldname] = zeros(dtype=self.dtype, shape = self.npixels)
+    image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels=self.npixels, quick=False, target=self.images[fieldname])
     self.comm.Barrier()
     if self.comm.rank == 0: print 'done image', clock()
 
-  def stat(self):
+  def stat(self, fieldname):
     """ returns the min, max, and sum of the image across all processors"""
-    maxsend = self.image.max()
-    minsend = self.image.min()
-    sumsend = self.image.sum()
+    maxsend = self.images[fieldname].max()
+    minsend = self.images[fieldname].min()
+    sumsend = self.images[fieldname].sum()
     maxrecv = self.comm.allreduce(maxsend, op = MPI.MAX)
     minrecv = self.comm.allreduce(minsend, op = MPI.MAX)
     sumrecv = self.comm.allreduce(sumsend, op = MPI.SUM)
     return minrecv, maxrecv, sumrecv
 
-  def tofile(self, file, dtype='f4'):
+  def tofile(self, file, fieldname, dtype='f4'):
     if dtype != self.dtype:
-      numpy.dtype(dtype).type(self.image).tofile(file)
+      numpy.dtype(dtype).type(self.images[fieldname]).tofile(file)
     else:
-      self.image.tofile(file)
+      self.images[fieldname].tofile(file)
 
-  def fromfile(self, file, dtype='f4'):
+  def fromfile(self, file, fieldname, dtype='f4'):
     if dtype != self.dtype:
-      self.image = numpy.dtype(self.dtype).type(fromfile(file, dtype=dtype))
+      self.images[fieldname] = numpy.dtype(self.dtype).type(fromfile(file, dtype=dtype))
     else:
-      self.image = fromfile(file, dtype=dtype)
-    self.image.shape = self.npixels[0], self.npixels[1]
+      self.images[fieldname] = fromfile(file, dtype=dtype)
+    self.images[fieldname].shape = self.npixels[0], self.npixels[1]
 
 def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=None, fakemass=None):
   values = []
