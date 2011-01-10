@@ -1,119 +1,21 @@
-import numpy
 from mpi4py import MPI
 from time import clock
-from numpy import array, zeros, empty, float32, fromfile
+from numpy import array, zeros, empty, float32
 
-from gadget.plot.image import image
 from gadget.remap import remap
 from gadget.snapshot import Snapshot
 from gadget.field import Field
 
-class Stripe:
-  def __init__(self, comm, imagesize, dtype='f4'):
-    strip_px_start = imagesize[0] * comm.rank / comm.size
-    strip_px_end = imagesize[0] * (comm.rank + 1) / comm.size
-    self.npixels = [strip_px_end - strip_px_start, imagesize[1]]
-  
-    self.images = {}
-    self.px_start = strip_px_start
-    self.px_end = strip_px_end
-    self.imagesize = imagesize
-    self.comm = comm
-    self.dtype = dtype
-
-  def set_remapping(self, M):
-    self.M = M
-
-  def load(self, snapname, reader, ptype, values):
-    self.field = mkfield(self.comm, snapname, reader, self.M, ptype, values)
-
-  def rasterize(self, fieldname):
-    """ parallelly do unfolding with matrix M and image an snapshot file into imagesize. The returned array is the image local stored on the process. snapfile is a tuple (filename, reader) (reader ='hydro3200', for example)"""
-
-    field = self.field
-    xrange = [self.px_start * field.boxsize[0] / self.imagesize[0],
-              self.px_end * field.boxsize[0] / self.imagesize[0]]
-    yrange = [0, field.boxsize[1]]
-    zrange = [0, field.boxsize[2]]
-    if self.comm.rank == 0: print 'start image', clock()
-    field['default'] = field[fieldname]
-    self.images[fieldname] = zeros(dtype=self.dtype, shape = self.npixels)
-    image(field, xrange = xrange, yrange = yrange, zrange = zrange, npixels=self.npixels, quick=False, target=self.images[fieldname])
-    self.comm.Barrier()
-    if self.comm.rank == 0: print 'done image', clock()
-
-  def stat(self, fieldname):
-    """ returns the min, max, and sum of the image across all processors"""
-    maxsend = self.images[fieldname].max()
-    minsend = self.images[fieldname].min()
-    sumsend = self.images[fieldname].sum()
-    maxrecv = self.comm.allreduce(maxsend, op = MPI.MAX)
-    minrecv = self.comm.allreduce(minsend, op = MPI.MAX)
-    sumrecv = self.comm.allreduce(sumsend, op = MPI.SUM)
-    return minrecv, maxrecv, sumrecv
-
-  def tofile(self, file, fieldname, dtype='f4'):
-    if dtype != self.dtype:
-      numpy.dtype(dtype).type(self.images[fieldname]).tofile(file)
-    else:
-      self.images[fieldname].tofile(file)
-
-  def fromfile(self, file, fieldname, dtype='f4'):
-    if dtype != self.dtype:
-      self.images[fieldname] = numpy.dtype(self.dtype).type(fromfile(file, dtype=dtype))
-    else:
-      self.images[fieldname] = fromfile(file, dtype=dtype)
-    self.images[fieldname].shape = self.npixels[0], self.npixels[1]
-
-def mkimage(stripe, snapname, format, FIDS, M, ptype, fieldname=None, fakesml=None, fakemass=None):
-  values = []
-  if fakemass == None:
-    values = values + ['mass']
-  if fakesml == None:
-    values = values + ['sml']
-  if fieldname != None:
-    values = values + [fieldname]
-
-  if FIDS != None:
-    for fid in FIDS:
-      field = mkfield(stripe.comm, snapname % fid, format, M=M, ptype=ptype, values=values)
-      if fakemass != None:
-        field['mass'] = fakemass
-      if fieldname==None:
-        field['default'] = field['mass']
-      else:
-        field['default'] = field[fieldname] * field['mass']
-      if fakesml != None:
-        field['sml'] = fakesml
-      stripe.add(field)
-  else:
-    field = mkfield(stripe.comm, snapname, format, M=M, ptype=ptype, values=values)
-    if fakemass != None:
-      field['mass'] = fakemass
-    if fieldname==None:
-      field['default'] = field['mass']
-    else:
-      field['default'] = field[fieldname] * field['mass']
-    if fakesml != None:
-      field['sml'] = fakesml
-    stripe.add(field)
-
-
-  min, max, sum = stripe.stat()
-  if stripe.comm.rank == 0:
-    print "max = ", max, "min = ", min, "stat = ", sum
-
-def mkfield(comm, snapname, format, M, ptype, values):
+def mkfield(comm, snapname, format, ptype, values):
   """ make a field on all processes in comm from snapfile, unfold with 
       matrix M, based on particle type ptype, and loadin the blocks in
       the list values
    """
   if comm.rank == 0:
-    print snapname, format
     snap = Snapshot(snapname, format, mode='r', buffering=1048576*32)
     N = snap.N.copy()
     boxsize = array([snap.C['L']], dtype='f4')
-    print "N = ", N
+    print N
   else :
     N = zeros(6, dtype='u4')
     boxsize = zeros(1, dtype='f4')
@@ -123,25 +25,13 @@ def mkfield(comm, snapname, format, M, ptype, values):
   comm.Bcast([boxsize, MPI.FLOAT], root = 0)
 
   if comm.rank == 0:
-    print "constructing field(pos", values, ")", clock()
     snap.load(['pos'], ptype = ptype)
     pos = snap.P[ptype]['pos']
     snap.load(values, ptype = ptype)
-  else :
-    pos = empty(dtype='f4', shape = 0)
+  else:
+    pos = empty(N[ptype], dtype = ('f4', 3))
 
-  comm.Barrier()
-  if comm.rank == 0: print 'start unfold', ptype, N[ptype], clock()
-
-  newpos, newboxsize = premap(comm, M, pos, N[ptype], boxsize)
-
-  if comm.rank == 0: print 'newboxsize =', newboxsize
-  if comm.rank == 0: print 'pos', newpos.max(axis=0), newpos.min(axis=0)
-  if comm.rank == 0: print 'done unfold', clock()
-
-  comm.Barrier()
-
-  field = Field(locations = newpos, boxsize=newboxsize, origin = zeros(3, 'f4'))
+  field = Field(locations = pos, boxsize=boxsize, origin = zeros(3, 'f4'))
 
   for value in values:
     if comm.rank == 0:
@@ -149,44 +39,37 @@ def mkfield(comm, snapname, format, M, ptype, values):
     else :
       v = empty(dtype='f4', shape = N[ptype])
     comm.Bcast(v)
-    field[value] = v     
+    field[value] = v
 
-  if comm.rank == 0: print 'done construction', clock()
+  comm.Barrier()
   return field
 
-def premap(comm, M, pos, N, boxsize):
-  newpos = empty(dtype=('f4', 3), shape = N)
-  bufsize = N / comm.size
-  tail = bufsize * comm.size
+def unfold(comm, field, M):
+  N = field['locations'].shape[0]
+  if comm.rank == 0:
+    oldpos = field['locations'].copy()
+  else:
+    oldpos = empty(dtype=('f4', 3), shape = 0)
+  newpos = field['locations'].view()
 
-  if N == 0:
-    e, newboxsize = remap(M, pos)
+  comm.Barrier()
+  displs = [ i * N / comm.size * 3 for i in range(comm.size)]
+  counts = [ (i+1) * N / comm.size * 3 - i * N / comm.size * 3for i in range(comm.size)]
+
+  local_pos = empty(shape = counts[comm.rank], dtype='f4')
+  comm.Scatterv([oldpos, counts, displs, MPI.FLOAT], 
+                 [local_pos, MPI.FLOAT], root = 0)
   
-  if bufsize > 0 :
-    local_pos = empty(shape = bufsize, dtype=('f4', 3))
-    comm.Scatter([pos, bufsize * 3, MPI.FLOAT], 
-                 [local_pos, bufsize * 3, MPI.FLOAT], root = 0)
-  
-    local_pos /= boxsize
-    local_newpos, newboxsize = remap(M, local_pos)
-    local_newpos *= boxsize
-    comm.Allgather([local_newpos, bufsize * 3, MPI.FLOAT], 
-                   [newpos, bufsize * 3, MPI.FLOAT])
-    newboxsize = float32(newboxsize * boxsize)
-  if tail < N:
-    if comm.rank == 0:
-      local_pos = pos[tail:, :]
-      local_pos /= boxsize
-      leftover, newboxsize = remap(M, local_pos)
-      leftover *= boxsize
-      newboxsize = float32(newboxsize * boxsize)
-    else:
-      leftover = empty(dtype=('f4', 3), shape = N - tail)
-      newboxsize = empty(dtype='f4', shape = 3)
+  local_pos.shape = -1, 3
+  local_pos /= field.boxsize
+  local_newpos, newboxsize = remap(M, local_pos)
+  local_newpos *= field.boxsize
+  local_pos.shape = -1
+  comm.Allgatherv([local_newpos, MPI.FLOAT], 
+                 [newpos, counts, displs, MPI.FLOAT])
+  newboxsize = float32(newboxsize * field.boxsize)
 
-    comm.Bcast([leftover, 3 * (N - tail), MPI.FLOAT], root = 0)
-    comm.Bcast([newboxsize,MPI.FLOAT], root = 0)
-    newpos[tail:, :] = leftover
-
-  return newpos, newboxsize
+  comm.Barrier()
+  field.boxsize = newboxsize
+  comm.Barrier()
 

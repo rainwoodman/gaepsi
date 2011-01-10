@@ -86,6 +86,8 @@ A field has three elements:
 
   def __delitem__(self, index):
     del self.dict[index]    
+    if self.snap != None:
+      self.snap.clear(index, self.ptype)
 
   def __contains__(self, index):
     if not isscalar(index): 
@@ -93,6 +95,9 @@ A field has three elements:
     if is_string_like(index):
       return self.dict.has_key(index)
     return True
+  def describe(self, index):
+    v = self[index]
+    return dict(min=v.min(axis=0), max=v.max(axis=0))
 
   def quadtree(self, origin=None, boxsize=None, periodical=None):
     if self.quadtree_cache != None:

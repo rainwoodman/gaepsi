@@ -3,12 +3,12 @@
 #include <time.h>
 #include "defines.h"
 
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
+#define HIDDEN __attribute__ ((visibility ("hidden")))
 
 #define image_doc_string \
 "keywords: locations, sml, value,"\
-" xmin, ymin, xmax, ymax, npixelx, npixely, zmin, zmax."\
-" returns an raster image of given size; the sums are calculated but no averaging is done."
+" xmin, ymin, xmax, ymax, zmin, zmax."\
+" rasterizes into an raster image the sums are calculated but no averaging is done."
 
 extern HIDDEN float kline[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
@@ -116,7 +116,7 @@ static PyObject * image(PyObject * self,
 		"target", 
 		"locations", "sml", "value", 
 		"xmin", "ymin", "xmax", "ymax",
-		"npixelx", "npixely", "zmin", "zmax",
+		"zmin", "zmax",
 		"quick", NULL
 	};
 	PyArrayObject * target;
@@ -126,19 +126,22 @@ static PyObject * image(PyObject * self,
 	int length;
 	int p;
 	int quick;
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffiiffi", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffffi", kwlist,
 		&PyArray_Type, &target, 
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &S, 
 		&PyArray_Type, &V, 
 		&xmin, &ymin, &xmax, &ymax,
-		&npixelx, &npixely, &zmin, &zmax,
+		&zmin, &zmax,
 		&quick)) return NULL;
 
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
 	S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
 	V = (PyArrayObject*) PyArray_Cast(V, NPY_FLOAT);
 	length = PyArray_Size((PyObject*)S);
+	npixelx = PyArray_DIM((PyObject*)target, 0);
+	npixely = PyArray_DIM((PyObject*)target, 1);
+
 	npy_intp im_dims[] = {npixelx, npixely};
 
 	int single_precision = (PyArray_ITEMSIZE(target) == 4);
