@@ -9,12 +9,13 @@ import gadget.plot.render
 from numpy import isinf, inf, nan, isnan
 from matplotlib.pyplot import plot, clf, title, savefig
 from numpy import linspace
-
+from numpy import empty
+from numpy import append as arrayappend
 def _plothist(layer, filename):
   hist,bins = layer.hist()
   if layer.stripe.comm.rank == 0: 
     clf()
-    plot(linspace(0, 1, len(hist)), hist)
+    plot(linspace(0, 1, len(hist)), log10(hist))
     title(filename)
     savefig(filename)
 class Layer:
@@ -81,7 +82,9 @@ class RasterLayer(Layer):
     self.data.tofile(filename)
   def fromfile(self, filename):
     self.data = fromfile(filename, dtype=self.valuedtype)
-    self.data.shape = self.stripe.shape
+    self.pixels = self.data.view()
+    self.pixels.shape = self.stripe.shape
+
   def render(self, target, colormap, min=None, max=None, logscale=True):
     if logscale:
       if min == None: min = log10(self.min(logscale=True))
@@ -101,8 +104,15 @@ class VectorLayer(Layer):
     self.dtype = [('X', 'f4'), ('Y', 'f4'), ('V', self.valuedtype)]
     self.points = None
     if fromfile != None: self.fromfile(fromfile)
-  def allocate(self, npoints):
-    self.points = zeros(dtype=self.dtype, shape=npoints)
+  def append(self, X,Y,V):
+    points = empty(dtype=self.dtype, shape = len(X))
+    points['X'] = X
+    points['Y'] = Y
+    points['V'] = V
+    if self.points!=None:
+      self.points = arrayappend(self.points, points)
+    else :
+      self.points = points
     self.data = self.points['V']
   def tofile(self, filename):
     self.points.tofile(filename)
@@ -132,6 +142,7 @@ class Stripe:
     self.yrange = None
     self.zrange = None
   def set_cut(self, xrange, yrange, zrange):
+    if xrange == None: return
     self.xrange = [
         xrange[0] + self.pixel_start * (xrange[1] - xrange[0]) / self.imagesize[0],
         xrange[0] + self.pixel_end * (xrange[1] - xrange[0]) / self.imagesize[0] ]
@@ -145,17 +156,19 @@ class Stripe:
     else:
       xrange,yrange,zrange = self.xrange, self.yrange, self.zrange
     return xrange, yrange, zrange
-  def mkraster(self, field, fieldname, dtype='f4', quick=False):
+  def mkraster(self, field, fieldname, dtype='f4', layer=None, quick=False):
     xrange,yrange,zrange = self.get_cut(field)
     field['default'] = field[fieldname]
-    layer = RasterLayer(self, valuedtype = dtype)
+    if layer == None:
+      layer = RasterLayer(self, valuedtype = dtype)
     rasterize(target = layer.pixels, field = field, 
                  xrange = xrange, yrange=yrange, zrange=zrange, quick=quick)
     return layer
-  def mkvector(self, field, fieldname, scale):
+  def mkvector(self, field, fieldname, scale, layer=None):
     field['default'] = field[fieldname]
     xrange,yrange,zrange = self.get_cut(field)
-    layer = VectorLayer(self, scale=scale, valuedtype = field['default'].dtype)
+    if layer ==None:
+      layer = VectorLayer(self, scale=scale, valuedtype = field['default'].dtype)
     pos = field['locations'].copy()
     pos[:, 0] -= xrange[0]
     pos[:, 1] -= yrange[0]
@@ -165,8 +178,5 @@ class Stripe:
     mask &= (pos[:, 0] <= (self.shape[0]+scale))
     mask &= (pos[:, 1] >= (-scale))
     mask &= (pos[:, 1] <= (self.shape[1]+scale))
-    layer.allocate(mask.sum())
-    layer.points['X'] = pos[mask, 0]
-    layer.points['Y'] = pos[mask, 1]
-    layer.points['V'] = field['default'][mask]
+    layer.append(pos[mask,0], pos[mask,1], field['default'][mask])
     return layer 
