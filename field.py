@@ -10,7 +10,7 @@ class Field:
 A field has three elements:
   location, default, and sml(smoothing length)
   """
-  def __init__(self, snap=None, ptype=None, locations=None, boxsize=None, origin=None, sml=None, periodical = True, value=None):
+  def __init__(self, snap=None, ptype=None, locations=None, boxsize=None, origin=None, sml=None, periodical = True, value=None, values=None):
     self.dict = {}
     self.snap = snap
     self.ptype = ptype
@@ -51,13 +51,19 @@ A field has three elements:
       if isscalar(sml):
         sml = ones(numpoints) * sml
       self.dict['sml'] = sml
-
+    if values != None:
+      snap.load(values, ptype=ptype)
+      for v in values:
+        self.dict[v] = snap.P[ptype][v]
     self.numpoints = numpoints
     self.boxsize = boxsize
     self.origin = origin
     self.dict['locations'] = locations
     self.quadtree_cache = None
     self.octtree_cache = None
+
+  def __iter__(self):
+    return iter(self.dict)
 
   def __str__(self) :
     return str(self.dict)

@@ -29,6 +29,10 @@ class Reader:
       snapshot.C[c] = v
     snapshot.N = snapshot.C['N']
 
+  def __getitem__(self, key):
+    return self.hash[key]
+  def __contains__(self, key):
+    return key in self.hash
   def constants(self, snapshot):
     return dict(
       N = snapshot.header['N'])

@@ -47,7 +47,7 @@ def cutmask(TXY, BOX):
   MASK = LMASK | RMASK
   return MASK
 
-def remap(M, XY) :
+def remap(M, XY=None) :
   """ cubic remapping: (ref to arxiv1003.3178v1),
       this is an improved algorithm.
       M is the transformation integer matrix. Column vectors
@@ -83,6 +83,7 @@ def remap(M, XY) :
   print 'singular check q'
   print det(Q)
   """
+  if XY == None: return BOX
   # XY is not a numpy matrix
   # inner in numpy reduces the last index of both matrix,
   # therefore we use Q.T the transpose of Q.

@@ -1,14 +1,20 @@
 from mpi4py import MPI
 from time import clock
-from numpy import zeros, fromfile
+from numpy import zeros, fromfile, array
+from numpy import int32
 from numpy import histogram
 from numpy import log10
+from numpy import arange
+from numpy import cumsum
 from gadget.plot.image import rasterize
 import gadget.plot.render
-
+from gadget import Snapshot
+from gadget import Field
 from numpy import isinf, inf, nan, isnan
+from gadget.readers import Readers
 from matplotlib.pyplot import plot, clf, title, savefig
 from numpy import linspace
+from numpy import mean
 from numpy import empty
 from numpy import append as arrayappend
 def _plothist(layer, filename):
@@ -132,51 +138,88 @@ class VectorLayer(Layer):
          scale = self.scale, min = min, max = max, colormap = colormap, logscale = logscale)
 
 class Stripe:
-  def __init__(self, comm, imagesize):
+  def __init__(self, comm, imagesize, boxsize, xcut = None, ycut = None, zcut = None):
     self.imagesize = imagesize
-    self.pixel_start = imagesize[0] * comm.rank / comm.size
-    self.pixel_end = imagesize[0] * (comm.rank + 1)/ comm.size
+    self.pixel_start_all = imagesize[0] * arange(comm.size) / comm.size
+    self.pixel_end_all = imagesize[0] * (arange(comm.size) + 1)/ comm.size
+    self.pixel_start = self.pixel_start_all[comm.rank]
+    self.pixel_end = self.pixel_end_all[comm.rank]
     self.shape = [self.pixel_end - self.pixel_start, imagesize[1]]
     self.comm = comm
-    self.xrange = None
-    self.yrange = None
-    self.zrange = None
-  def set_cut(self, xrange, yrange, zrange):
-    if xrange == None: return
-    self.xrange = [
-        xrange[0] + self.pixel_start * (xrange[1] - xrange[0]) / self.imagesize[0],
-        xrange[0] + self.pixel_end * (xrange[1] - xrange[0]) / self.imagesize[0] ]
-    self.yrange = yrange
-    self.zrange = zrange
-  def get_cut(self, field):
-    if self.xrange == None:
-      xrange = [self.pixel_start * field.boxsize[0] / self.imagesize[0], self.pixel_end * field.boxsize[0] /self.imagesize[0]]
-      yrange = [0, field.boxsize[1]]
-      zrange = [0, field.boxsize[2]]
-    else:
-      xrange,yrange,zrange = self.xrange, self.yrange, self.zrange
-    return xrange, yrange, zrange
+    self.boxsize = boxsize
+    if xcut != None: self.xcut = xcut
+    else: self.xcut = [0, self.boxsize[0]]
+    if ycut != None: self.ycut = ycut
+    else: self.ycut = [0, self.boxsize[1]]
+    if zcut != None: self.zcut = zcut
+    else: self.zcut = [0, self.boxsize[2]]
+    self.x_start_all = self.pixel_start_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
+    self.x_end_all = self.pixel_end_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
+    self.x_start = self.x_start_all[comm.rank]
+    self.x_end = self.x_end_all[comm.rank]
   def mkraster(self, field, fieldname, dtype='f4', layer=None, quick=False):
-    xrange,yrange,zrange = self.get_cut(field)
     field['default'] = field[fieldname]
     if layer == None:
       layer = RasterLayer(self, valuedtype = dtype)
     rasterize(target = layer.pixels, field = field, 
-                 xrange = xrange, yrange=yrange, zrange=zrange, quick=quick)
+                 xrange = [self.x_start, self.x_end], yrange=self.ycut, zrange=self.zcut, quick=quick)
     return layer
   def mkvector(self, field, fieldname, scale, layer=None):
     field['default'] = field[fieldname]
-    xrange,yrange,zrange = self.get_cut(field)
     if layer ==None:
       layer = VectorLayer(self, scale=scale, valuedtype = field['default'].dtype)
     pos = field['locations'].copy()
-    pos[:, 0] -= xrange[0]
-    pos[:, 1] -= yrange[0]
-    pos[:, 0] *= float(self.shape[0]) / (xrange[1] - xrange[0])
-    pos[:, 1] *= float(self.shape[1]) / (yrange[1] - yrange[0])
+    pos[:, 0] -= self.x_start
+    pos[:, 1] -= self.ycut[0]
+    pos[:, 0] *= float(self.imagesize[0]) / (self.xcut[1] - self.xcut[0])
+    pos[:, 1] *= float(self.imagesize[1]) / (self.ycut[1] - self.ycut[0])
     mask = (pos[:, 0] >= - scale)
     mask &= (pos[:, 0] <= (self.shape[0]+scale))
     mask &= (pos[:, 1] >= (-scale))
     mask &= (pos[:, 1] <= (self.shape[1]+scale))
     layer.append(pos[mask,0], pos[mask,1], field['default'][mask])
     return layer 
+
+  def rebalance(self, field0, values, bleeding = None):
+    comm = self.comm
+    senddispl = zeros(comm.size, dtype='i4')
+    sendcount = zeros(comm.size, dtype='i4')
+    recvdispl = zeros(comm.size, dtype='i4')
+    recvcount = zeros(comm.size, dtype='i4')
+    recvtotal = zeros(comm.size, dtype='i4')
+    if bleeding == None:
+      bleeding = field0['sml'].max()
+    else:
+      bleeding = bleeding / self.imagesize[0] * (self.xcut[1] - self.xcut[0])
+    if field0 != None:
+      sortindex = field0['locations'][:,0].argsort()
+      for value in field0:
+        field0[value] = field0[value][sortindex]
+      senddispl = int32(array(field0['locations'][:,0].searchsorted(self.x_start_all - bleeding, 'left')))
+      sendcount = int32(array(field0['locations'][:,0].searchsorted(self.x_end_all + bleeding, 'right')))
+      sendcount = sendcount - senddispl
+
+    recvcount = array(comm.alltoall(sendcount))
+    recvdispl = int32(array(cumsum([0] + list(recvcount[:-1]))))
+    recvtotal_all = comm.allreduce(sendcount, MPI.SUM)
+# locations
+    sendbuf = None
+    recvbuf = zeros(dtype = ('f4', 3), shape = recvtotal_all[comm.rank])
+    if field0 != None:
+      sendbuf = field0['locations']
+
+      comm.Alltoallv([sendbuf, [3 * sendcount, 3 * senddispl]], 
+                    [recvbuf, [3 * recvcount, 3 * recvdispl]])
+#values
+    field = Field(locations = recvbuf, origin = zeros(3), boxsize = self.boxsize)
+    for valuename in values:
+      sendbuf = None
+      if field0 != None:
+        sendbuf = field0[valuename]
+      dtype = Readers['d4'][valuename]['dtype']
+      if len(dtype.shape) > 0: itemcount = dtype.shape[1]
+      else : itemcount = 1
+      recvbuf = zeros(dtype = dtype, shape = recvtotal_all[comm.rank])
+      comm.Alltoallv([sendbuf, [itemcount * sendcount, itemcount * senddispl]], [recvbuf, [itemcount * recvcount, itemcount * recvdispl]])
+      field[valuename] = recvbuf
+    return field
