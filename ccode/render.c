@@ -39,6 +39,8 @@ static PyObject * color(PyObject * self,
 	int Ny = PyArray_DIM((PyObject*)raster, 1);
 	int i, j;
 	float index_factor = Ncmapbins / (max - min);
+	int nans = 0;
+	int badvalues = 0;
 	for(i = 0; i < Nx; i++) {
 	for(j = 0; j < Ny; j++) {
 		float raster_value;
@@ -46,9 +48,15 @@ static PyObject * color(PyObject * self,
 			raster_value = *(float*) PyArray_GETPTR2(raster, i, j);
 		else
 			raster_value = *(double*) PyArray_GETPTR2(raster, i, j);
-		if(isnan(raster_value)) continue;
+		if(isnan(raster_value)) {
+			nans++;
+			continue;
+		}
 		if(logscale) {
-			if(raster_value <= 0.0) continue;
+			if(raster_value <= 0.0) {
+				badvalues++;
+				continue;
+			}
 			raster_value = log10(raster_value);
 		}
 		int index = (raster_value - min) * index_factor;
@@ -57,9 +65,9 @@ static PyObject * color(PyObject * self,
 		float a = cmapa_data[index];
 		float at = 1.0 - a;
 		target_data = PyArray_GETPTR3(target, i, j, 0);
-		target_data[0] = /*(float) target_data[0] * at + */255.0 * cmapr_data[index] * a;
-		target_data[1] = /*(float) target_data[1] * at + */255.0 * cmapg_data[index] * a;
-		target_data[2] = /*(float) target_data[2] * at + */255.0 * cmapb_data[index] * a;
+		target_data[0] = (float) target_data[0] * at + 255.0 * cmapr_data[index] * a;
+		target_data[1] = (float) target_data[1] * at + 255.0 * cmapg_data[index] * a;
+		target_data[2] = (float) target_data[2] * at + 255.0 * cmapb_data[index] * a;
 	}
 	}
 	Py_DECREF(cmapr);
