@@ -156,7 +156,7 @@ static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, v
         *(double *)op1 = f(in1, in2, in3, in4);
 	}
 }
-void HIDDEN initkernel(PyObject * m) {
+void HIDDEN gadget_initkernel(PyObject * m) {
 	import_array();
 	import_ufunc();
 	PyObject * thism = Py_InitModule3("kernel", module_methods, "kernel module");

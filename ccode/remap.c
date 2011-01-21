@@ -118,7 +118,7 @@ static PyMethodDef module_methods[] = {
 	{"shift", shift, METH_KEYWORDS, doc_string },
 	{NULL}
 };
-void HIDDEN initremap(PyObject * m) {
+void HIDDEN gadget_initremap(PyObject * m) {
 	import_array();
 	PyObject * thism = Py_InitModule3("remap", module_methods, "remap module");
 	Py_INCREF(thism);

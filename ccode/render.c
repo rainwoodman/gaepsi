@@ -194,7 +194,7 @@ static PyMethodDef module_methods[] = {
 	{"color", color, METH_KEYWORDS, color_doc_string },
 	{NULL}
 };
-void HIDDEN initrender(PyObject * m) {
+void HIDDEN gadget_initrender(PyObject * m) {
 	import_array();
 	PyObject * thism = Py_InitModule3("render", module_methods, "render module");
 	Py_INCREF(thism);

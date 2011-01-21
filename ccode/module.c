@@ -2,10 +2,10 @@
 #include <numpy/arrayobject.h>
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
-extern HIDDEN void initNDTree(PyObject * m);
-extern HIDDEN void initimage(PyObject * m);
-extern HIDDEN void initremap(PyObject * m);
-extern HIDDEN void initkernel(PyObject * m);
+extern HIDDEN void gadget_initNDTree(PyObject * m);
+extern HIDDEN void gadget_initimage(PyObject * m);
+extern HIDDEN void gadget_initremap(PyObject * m);
+extern HIDDEN void gadget_initkernel(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}
@@ -15,9 +15,9 @@ static PyObject * m = NULL;
 void initccode (void) {
 	import_array();
 	m = Py_InitModule3("ccode", module_methods, "ccode module");
-	initNDTree(m);
-	initimage(m);
-	initremap(m);
-	initkernel(m);
-	initrender(m);
+	gadget_initNDTree(m);
+	gadget_initimage(m);
+	gadget_initremap(m);
+	gadget_initkernel(m);
+	gadget_initrender(m);
 }
