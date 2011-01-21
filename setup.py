@@ -14,7 +14,7 @@ setup(name="gadget", version="1.0",
               "ccode/remap.c",
               "ccode/kernel.c",
               "ccode/render.c",
-              "ccode/array.c",
+              "ccode/pmin.c",
              ], 
              include_dirs=[get_include()],
              depends = ["ccode/defines.h"]

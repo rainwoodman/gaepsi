@@ -203,7 +203,7 @@ class Stripe:
     recvdispl = zeros(comm.size, dtype='i4')
     recvcount = zeros(comm.size, dtype='i4')
     recvtotal = zeros(comm.size, dtype='i4')
-    if field0 != None:
+    if field0 != None and field0.numpoints != 0:
       if bleeding == None:
         bleeding = field0['sml'].max()
       else:
@@ -220,7 +220,7 @@ class Stripe:
     recvtotal_all = comm.allreduce(sendcount, MPI.SUM)
 # locations
     recvbuf = zeros(dtype = ('f4', 3), shape = recvtotal_all[comm.rank])
-    if field0 != None:
+    if field0 != None and field0.numpoints != 0:
       sendbuf = field0['locations']
     else:
       sendbuf = zeros(dtype= ('f4', 3), shape = 1)
@@ -232,7 +232,7 @@ class Stripe:
     for valuename in values:
       dtype = Readers['d4'][valuename]['dtype']
       recvbuf = zeros(dtype = dtype, shape = recvtotal_all[comm.rank])
-      if field0 != None:
+      if field0 != None and field0.numpoints != 0:
         sendbuf = field0[valuename]
       else:
         sendbuf = zeros(dtype = dtype, shape = 1)

@@ -11,7 +11,9 @@
 #define koverlap_doc_string \
 "return the rough integrated kernel overlaping the given rectangle"
 /* these arrays are calculated in python code, the c modules only use them */
-float HIDDEN kline[KLINE_BINS];
+float HIDDEN kline[KLINE_BINS] = {
+	#include "kernel.akline"
+};
 float HIDDEN koverlap[KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 float HIDDEN k0f(const float eta) {
 	if(eta < 0.5) {
@@ -79,8 +81,9 @@ double HIDDEN koverlapd(double x0, double y0, double x1, double y1) {
 	return koverlap[indx0][indy0][indx1][indy1];
 }
 
-static PyObject * fill_koverlap(PyObject * self, PyObject * unused) {
+static void fill_koverlap() {
 	float rowsum[KOVERLAP_BINS][KOVERLAP_BINS];
+	float max = 0.0;
 	int i0, j0, i1, j1;
 	for(i0 = 0; i0 < KOVERLAP_BINS; i0++)
 		for(j0 = 0; j0 < KOVERLAP_BINS; j0++) {
@@ -104,7 +107,13 @@ static PyObject * fill_koverlap(PyObject * self, PyObject * unused) {
 				}
 			}
 		}
-	Py_RETURN_NONE;
+	for(i0 = 0; i0 < KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS; i0++) {
+		float v = ((float*)koverlap)[i0];
+		if(v > max) max = v;
+	}
+	for(i0 = 0; i0 < KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS; i0++) {
+		((float*)koverlap)[i0] /= max;
+	}
 }
 static void * k0_data[] = {(void*) k0f, (void*) k0d};
 static void * kline_data[] = {(void*) klinef, (void*) klined};
@@ -118,7 +127,6 @@ static char koverlap_signatures[] = {
 	PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, };
 
 static PyMethodDef module_methods[] = {
-	{"fill_koverlap", fill_koverlap, METH_NOARGS, ""},
 	{NULL}
 };
 
@@ -159,9 +167,8 @@ static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, v
 void HIDDEN gadget_initkernel(PyObject * m) {
 	import_array();
 	import_ufunc();
-	PyObject * thism = Py_InitModule3("kernel", module_methods, "kernel module");
-	Py_INCREF(thism);
-	PyModule_AddObject(m, "kernel", thism);
+
+	fill_koverlap();
 	npy_intp kline_dims[] = {KLINE_BINS};
 	PyArrayObject * kline_a = (PyArrayObject *)PyArray_SimpleNewFromData(1, kline_dims, NPY_FLOAT, kline);
 	npy_intp koverlap_dims[] = {KOVERLAP_BINS, KOVERLAP_BINS, KOVERLAP_BINS, KOVERLAP_BINS};
@@ -186,9 +193,9 @@ void HIDDEN gadget_initkernel(PyObject * m) {
 					2, 4, 1, PyUFunc_None, 
 					"koverlap", koverlap_doc_string, 0);
 	
-	PyModule_AddObject(thism, "k0", k0_u);
-	PyModule_AddObject(thism, "kline", kline_u);
-	PyModule_AddObject(thism, "koverlap", koverlap_u);
-	PyModule_AddObject(thism, "akline", kline_a);
-	PyModule_AddObject(thism, "akoverlap", koverlap_a);
+	PyModule_AddObject(m, "k0", k0_u);
+	PyModule_AddObject(m, "kline", kline_u);
+	PyModule_AddObject(m, "koverlap", koverlap_u);
+	PyModule_AddObject(m, "akline", kline_a);
+	PyModule_AddObject(m, "akoverlap", koverlap_a);
 }

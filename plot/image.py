@@ -1,7 +1,5 @@
 from gadget import ccode
-# important to import kernel here otherwise the kernel arrays
-# are not initialized.
-import gadget.kernel
+
 from numpy import zeros
 def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
   if type(targets) == list:
@@ -12,7 +10,7 @@ def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
     values = [values]
   V = [field[fieldname] for fieldname in values]
   
-  ccode.image.image(targets = targets, locations = field['locations'],
+  ccode.image(targets = targets, locations = field['locations'],
           sml = field['sml'], values = V,
           xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
           zmin = zrange[0], zmax = zrange[1], quick = quick)

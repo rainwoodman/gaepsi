@@ -3,7 +3,7 @@ from numpy import zeros, dtype, ones
 from numpy import uint8, array, linspace
 from numpy import int32, float32, int16
 from numpy import log10
-import gadget.ccode
+from gadget import ccode
 
 def icmap(levels, cmap, bins):
   cmap = array(cmap)
@@ -91,7 +91,7 @@ def circle(target, X, Y, V, scale, min=None, max=None, logscale=False, colormap=
     min = min - 0.5
     max = max + 0.5
 
-  gadget.ccode.render.circle(target = target, X = X, Y = Y, V = V,
+  ccode.circle(target = target, X = X, Y = Y, V = V,
     min = min, max = max,
     scale = scale,
     logscale=logscale,
@@ -108,7 +108,7 @@ def color(target, raster, min, max, logscale=True, colormap=None):
                          g=[0, 0.0, 0.5, 1.0, 0.2], 
                          b=[0.0, 0.0, 0.0, 0.3, 1.0])
 
-  gadget.ccode.render.color(target=target, raster = raster, min = min, max = max, 
+  ccode.color(target=target, raster = raster, min = min, max = max, 
     logscale = logscale, 
     cmapr=colormap.table['r'],
     cmapg=colormap.table['g'],

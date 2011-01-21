@@ -115,12 +115,14 @@ static PyObject * shift(PyObject * self,
 }
 
 static PyMethodDef module_methods[] = {
-	{"shift", shift, METH_KEYWORDS, doc_string },
+	{"remap_shift", shift, METH_KEYWORDS, doc_string },
 	{NULL}
 };
 void HIDDEN gadget_initremap(PyObject * m) {
 	import_array();
-	PyObject * thism = Py_InitModule3("remap", module_methods, "remap module");
-	Py_INCREF(thism);
-	PyModule_AddObject(m, "remap", thism);
+//	PyObject * thism = Py_InitModule3("remap", module_methods, "remap module");
+//	Py_INCREF(thism);
+//	PyModule_AddObject(m, "remap", thism);
+	PyObject * remap_f = PyCFunction_New(module_methods, NULL);
+	PyModule_AddObject(m, "remap_shift", remap_f);
 }

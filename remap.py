@@ -13,7 +13,7 @@ from numpy import zeros, ones, arange
 from numpy import ceil, floor
 from numpy import newaxis
 
-import ccode
+from gadget import ccode
 
 def AABB(E, O = None): 
   "construct the AABB of a box given by E a list of edge row vectors"
@@ -98,7 +98,7 @@ def remap(M, XY=None) :
   IMAX = int32(ceil(max))
   IMIN = int32(floor(min))
 
-  ccode.remap.shift(POS=TXY, ROWVECTORS = float32(QT.T), BOX=float32(BOX), MIN=int32(IMIN), MAX=int32(IMAX));
+  ccode.remap_shift(POS=TXY, ROWVECTORS = float32(QT.T), BOX=float32(BOX), MIN=int32(IMIN), MAX=int32(IMAX));
   return TXY,BOX
 
 """

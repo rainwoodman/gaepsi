@@ -331,7 +331,9 @@ static PyMethodDef module_methods[] = {
 };
 void HIDDEN gadget_initimage(PyObject * m) {
 	import_array();
-	PyObject * thism = Py_InitModule3("image", module_methods, "image module");
-	Py_INCREF(thism);
-	PyModule_AddObject(m, "image", thism);
+//	PyObject * thism = Py_InitModule3("image", module_methods, "image module");
+//	Py_INCREF(thism);
+	PyObject * image_f = PyCFunction_New(module_methods, NULL);
+//	PyModule_AddObject(m, "image", thism);
+	PyModule_AddObject(m, "image", image_f);
 }

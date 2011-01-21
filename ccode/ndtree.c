@@ -26,6 +26,7 @@ struct _TreeNode {
 	int indices_length;
 	NDTree * tree;
 	int depth;
+	float sml_max;
 };
 
 struct _NDTree {
@@ -53,6 +54,7 @@ static void TreeNode_init(TreeNode * node, NDTree * tree,
 	node->children[0] = NULL;
 	node->tree = tree;
 	node->depth = 0;
+	node->sml_max = 0.0;
 	tree->node_count++;
 }
 static int TreeNode_isleaf(TreeNode * node) {
@@ -90,18 +92,21 @@ static void TreeNode_append(TreeNode * node, INDEX_T index) {
 	}
 	node->indices[node->indices_length] = index;
 	node->indices_length ++;
+	float s = *((float*)PyArray_GETPTR1(node->tree->S,index));
+	if(s > node->sml_max) node->sml_max = s;
 }
 
 static int TreeNode_touch(TreeNode * node, float pos[]) {
 	NDTree * tree = node->tree;
 	int d;
 	float * boxsize = tree->boxsize;
+	float s = node->sml_max;
 	
 	for(d = 0; d < tree->dim; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
 		if(tree->periodical && dist > 0.5 * boxsize[d]) dist = boxsize[d] - dist;
-		if(dist > w2) return 0;
+		if(dist > w2 + s) return 0;
 	}
 	return 1;
 }
@@ -112,14 +117,14 @@ static int TreeNode_touch_i(TreeNode * node, INDEX_T index) {
 	for(d = 0; d < tree->dim; d++) {
 		pos[d] = *((float*)PyArray_GETPTR2(tree->POS, index, d));
 	}
-	float s = *((float*)PyArray_GETPTR1(tree->S,index));
+//	float s = *((float*)PyArray_GETPTR1(tree->S,index));
 	float * boxsize = tree->boxsize;
 	
 	for(d = 0; d < tree->dim; d++) {
 		float w2 = node->width[d] * 0.5;
 		float dist = fabs(pos[d] - node->topleft[d] - w2);
 		if(tree->periodical && dist > 0.5 * boxsize[d]) dist = boxsize[d] - dist;
-		if(dist > w2 + s) return 0;
+		if(dist > w2/* + s*/) return 0;
 	}
 	return 1;
 }
@@ -323,7 +328,7 @@ static PyMethodDef NDTree_methods[] = {
 	{NULL}
 };
 
-void HIDDEN initNDTree (PyObject * m) {
+void HIDDEN gadget_initNDTree (PyObject * m) {
 
 	import_array();
 	NDTreeType.tp_dealloc = (destructor) NDTree_dealloc;

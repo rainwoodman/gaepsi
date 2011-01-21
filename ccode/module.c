@@ -20,5 +20,5 @@ void initccode (void) {
 	gadget_initremap(m);
 	gadget_initkernel(m);
 	gadget_initrender(m);
-	gadget_initarray(m);
+	gadget_initpmin(m);
 }

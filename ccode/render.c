@@ -189,14 +189,15 @@ static PyObject * circle(PyObject * self,
 	Py_DECREF(cmapv);
 	Py_RETURN_NONE;
 }
-static PyMethodDef module_methods[] = {
-	{"circle", circle, METH_KEYWORDS, circle_doc_string },
-	{"color", color, METH_KEYWORDS, color_doc_string },
-	{NULL}
-};
+static PyMethodDef circle_method = 
+	{"circle", circle, METH_KEYWORDS, circle_doc_string };
+static PyMethodDef color_method = 
+	{"color", color, METH_KEYWORDS, color_doc_string };
 void HIDDEN gadget_initrender(PyObject * m) {
 	import_array();
-	PyObject * thism = Py_InitModule3("render", module_methods, "render module");
-	Py_INCREF(thism);
-	PyModule_AddObject(m, "render", thism);
+	PyObject * circle_f = PyCFunction_New(&circle_method, NULL);
+	PyObject * color_f = PyCFunction_New(&color_method, NULL);
+	
+	PyModule_AddObject(m, "circle", circle_f);
+	PyModule_AddObject(m, "color", color_f);
 }
