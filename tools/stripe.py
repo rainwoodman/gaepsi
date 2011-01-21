@@ -3,6 +3,7 @@ from time import clock
 from numpy import zeros, fromfile, array
 from numpy import int32
 from numpy import histogram
+from numpy import logspace
 from numpy import log10
 from numpy import arange
 from numpy import cumsum
@@ -12,18 +13,10 @@ from gadget import Snapshot
 from gadget import Field
 from numpy import isinf, inf, nan, isnan
 from gadget.readers import Readers
-from matplotlib.pyplot import plot, clf, title, savefig
 from numpy import linspace
 from numpy import mean
 from numpy import empty
 from numpy import append as arrayappend
-def _plothist(layer, filename):
-  hist,bins = layer.hist()
-  if layer.stripe.comm.rank == 0: 
-    clf()
-    plot(linspace(0, 1, len(hist)), log10(hist))
-    title(filename)
-    savefig(filename)
 class Layer:
   def __init__(self, stripe, valuedtype):
     self.stripe = stripe
@@ -69,13 +62,13 @@ class Layer:
     if max <= min: max = min + 0.1
     if isnan(min) or isnan(max): min,max = 0,1
     if logscale:
-      h, bins = histogram(log10(self.data), range=(min, max), bins = bins)
+      edges = logspace(min, max, bins + 1)
+      h, bins = histogram(self.data, bins = edges)
+      bins = log10(bins)
     else:
       h, bins = histogram(self.data, range=(min, max), bins = bins)
     h = self.stripe.comm.allreduce(h, op = MPI.SUM)
     return h, bins
-  def plothist(self, filename):
-    _plothist(self, filename)
   
 class RasterLayer(Layer):
   def __init__(self, stripe, valuedtype, fromfile=None):
@@ -87,8 +80,12 @@ class RasterLayer(Layer):
   def tofile(self, filename):
     self.data.tofile(filename)
   def fromfile(self, filename):
+    del self.data
+    del self.pixels
     self.data = fromfile(filename, dtype=self.valuedtype)
     self.pixels = self.data.view()
+    if self.stripe.shape[0] * self.stripe.shape[1] != self.pixels.shape:
+      print "stripe mismatch", self.pixels.shape, self.stripe.shape, self.stripe.rank, self.stripe.total
     self.pixels.shape = self.stripe.shape
 
   def render(self, target, colormap, min=None, max=None, logscale=True):
@@ -138,30 +135,49 @@ class VectorLayer(Layer):
          scale = self.scale, min = min, max = max, colormap = colormap, logscale = logscale)
 
 class Stripe:
-  def __init__(self, comm, imagesize, boxsize, xcut = None, ycut = None, zcut = None):
-    self.imagesize = imagesize
-    self.pixel_start_all = imagesize[0] * arange(comm.size) / comm.size
-    self.pixel_end_all = imagesize[0] * (arange(comm.size) + 1)/ comm.size
-    self.pixel_start = self.pixel_start_all[comm.rank]
-    self.pixel_end = self.pixel_end_all[comm.rank]
-    self.shape = [self.pixel_end - self.pixel_start, imagesize[1]]
+  def __init__(self, imagesize, rank=None, total=None, comm = None, boxsize = None, xcut = None, ycut = None, zcut = None):
+    """if comm is given, the stripes are constructed with rank=comm.rank, and total=comm.size
+       comm is not required if Layer.{hist, max, min} and rebalance are not called.
+       boxsize is not required if the stripe is not used to make layers(ie mkvector/mkraster are not invoked,
+               use the 3D boxsize that will be projected to this image
+       {xyz}cut defaults to the entire space"""
     self.comm = comm
-    self.boxsize = boxsize
-    if xcut != None: self.xcut = xcut
-    else: self.xcut = [0, self.boxsize[0]]
-    if ycut != None: self.ycut = ycut
-    else: self.ycut = [0, self.boxsize[1]]
-    if zcut != None: self.zcut = zcut
-    else: self.zcut = [0, self.boxsize[2]]
-    self.x_start_all = self.pixel_start_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
-    self.x_end_all = self.pixel_end_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
-    self.x_start = self.x_start_all[comm.rank]
-    self.x_end = self.x_end_all[comm.rank]
+    if comm != None:
+      rank = comm.rank
+      total = comm.size
+
+    self.imagesize = imagesize
+    self.pixel_start_all = imagesize[0] * arange(total) / total
+    self.pixel_end_all = imagesize[0] * (arange(total) + 1)/ total
+    self.pixel_start = self.pixel_start_all[rank]
+    self.pixel_end = self.pixel_end_all[rank]
+    self.shape = [self.pixel_end - self.pixel_start, imagesize[1]]
+    self.rank = rank
+    self.total = total
+      
+    if boxsize != None:
+      self.boxsize = boxsize
+      if xcut != None: self.xcut = xcut
+      else: self.xcut = [0, self.boxsize[0]]
+      if ycut != None: self.ycut = ycut
+      else: self.ycut = [0, self.boxsize[1]]
+      if zcut != None: self.zcut = zcut
+      else: self.zcut = [0, self.boxsize[2]]
+      self.x_start_all = self.pixel_start_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
+      self.x_end_all = self.pixel_end_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
+      self.x_start = self.x_start_all[rank]
+      self.x_end = self.x_end_all[rank]
+
   def mkraster(self, field, fieldname, dtype='f4', layer=None, quick=False):
-    field['default'] = field[fieldname]
+    if type(fieldname) != list:
+      fieldname = [fieldname]
+    
     if layer == None:
-      layer = RasterLayer(self, valuedtype = dtype)
-    rasterize(target = layer.pixels, field = field, 
+      layer = [RasterLayer(self, valuedtype = dtype) for f in fieldname]
+    if type(layer) != list:
+      layer = [layer]
+    targets = [l.pixels for l in layer]
+    rasterize(targets = targets, field = field, values = fieldname,
                  xrange = [self.x_start, self.x_end], yrange=self.ycut, zrange=self.zcut, quick=quick)
     return layer
   def mkvector(self, field, fieldname, scale, layer=None):
@@ -187,11 +203,11 @@ class Stripe:
     recvdispl = zeros(comm.size, dtype='i4')
     recvcount = zeros(comm.size, dtype='i4')
     recvtotal = zeros(comm.size, dtype='i4')
-    if bleeding == None:
-      bleeding = field0['sml'].max()
-    else:
-      bleeding = bleeding / self.imagesize[0] * (self.xcut[1] - self.xcut[0])
     if field0 != None:
+      if bleeding == None:
+        bleeding = field0['sml'].max()
+      else:
+        bleeding = bleeding * (self.xcut[1] - self.xcut[0]) / self.imagesize[0]
       sortindex = field0['locations'][:,0].argsort()
       for value in field0:
         field0[value] = field0[value][sortindex]
@@ -203,23 +219,27 @@ class Stripe:
     recvdispl = int32(array(cumsum([0] + list(recvcount[:-1]))))
     recvtotal_all = comm.allreduce(sendcount, MPI.SUM)
 # locations
-    sendbuf = None
     recvbuf = zeros(dtype = ('f4', 3), shape = recvtotal_all[comm.rank])
     if field0 != None:
       sendbuf = field0['locations']
+    else:
+      sendbuf = zeros(dtype= ('f4', 3), shape = 1)
 
-      comm.Alltoallv([sendbuf, [3 * sendcount, 3 * senddispl]], 
+    comm.Alltoallv([sendbuf, [3 * sendcount, 3 * senddispl]], 
                     [recvbuf, [3 * recvcount, 3 * recvdispl]])
 #values
     field = Field(locations = recvbuf, origin = zeros(3), boxsize = self.boxsize)
     for valuename in values:
-      sendbuf = None
+      dtype = Readers['d4'][valuename]['dtype']
+      recvbuf = zeros(dtype = dtype, shape = recvtotal_all[comm.rank])
       if field0 != None:
         sendbuf = field0[valuename]
-      dtype = Readers['d4'][valuename]['dtype']
+      else:
+        sendbuf = zeros(dtype = dtype, shape = 1)
       if len(dtype.shape) > 0: itemcount = dtype.shape[1]
       else : itemcount = 1
-      recvbuf = zeros(dtype = dtype, shape = recvtotal_all[comm.rank])
-      comm.Alltoallv([sendbuf, [itemcount * sendcount, itemcount * senddispl]], [recvbuf, [itemcount * recvcount, itemcount * recvdispl]])
+      
+      comm.Alltoallv([sendbuf, [itemcount * sendcount, itemcount * senddispl]], 
+                     [recvbuf, [itemcount * recvcount, itemcount * recvdispl]])
       field[valuename] = recvbuf
     return field

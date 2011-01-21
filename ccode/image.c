@@ -113,38 +113,46 @@ static void ptime(char * str) {
 static PyObject * image(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
 	static char * kwlist[] = {
-		"target", 
-		"locations", "sml", "value", 
+		"targets", 
+		"locations", "sml", "values", 
 		"xmin", "ymin", "xmax", "ymax",
 		"zmin", "zmax",
-		"quick", NULL
+		"quick", 
+		NULL
 	};
-	PyArrayObject * target;
-	PyArrayObject * locations, * S, *V;
+	PyObject * targets, *Vs;
+	PyArrayObject * locations, * S;
+
 	float xmin, ymin, xmax, ymax, zmin, zmax;
 	int npixelx, npixely;
 	int length;
-	int p;
+	int p; /*particle counter*/
 	int quick;
+	int n; /* target counter */
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffffi", kwlist,
-		&PyArray_Type, &target, 
+		&PyList_Type, &targets, 
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &S, 
-		&PyArray_Type, &V, 
+		&PyList_Type, &Vs, 
 		&xmin, &ymin, &xmax, &ymax,
 		&zmin, &zmax,
 		&quick)) return NULL;
-
+	
+	int Ntargets = PyList_GET_SIZE(targets);
+	PyArrayObject ** target_arrays = malloc(sizeof(void*) * Ntargets);
+	PyArrayObject ** V_arrays = malloc(sizeof(void*) * Ntargets);
+	for(n = 0; n < Ntargets; n++) {
+		target_arrays[n] = PyList_GET_ITEM(targets, n);
+		V_arrays[n] = PyArray_Cast(PyList_GET_ITEM(Vs, n), NPY_FLOAT);
+	}
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
 	S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
-	V = (PyArrayObject*) PyArray_Cast(V, NPY_FLOAT);
 	length = PyArray_Size((PyObject*)S);
-	npixelx = PyArray_DIM((PyObject*)target, 0);
-	npixely = PyArray_DIM((PyObject*)target, 1);
+	npixelx = PyArray_DIM((PyObject*)target_arrays[0], 0);
+	npixely = PyArray_DIM((PyObject*)target_arrays[0], 1);
 
 	npy_intp im_dims[] = {npixelx, npixely};
 
-	int single_precision = (PyArray_ITEMSIZE(target) == 4);
 	float psizeX = (xmax - xmin) / npixelx;
 	float psizeY = (ymax - ymin) / npixely;
 
@@ -210,7 +218,6 @@ static PyObject * image(PyObject * self,
 		int ipixelmax = ceil((x + sml) / psizeX);
 		int jpixelmin = floor((y - sml) / psizeY);
 		int jpixelmax = ceil((y + sml) / psizeY);
-		float value = *((float*)PyArray_GETPTR1(V, p));
 
 		ic++;
 #define PIXEL_IN_IMAGE (i >=0 && i < npixelx && j >=0 && j < npixely)
@@ -288,15 +295,19 @@ static PyObject * image(PyObject * self,
 		}
 		if(sum == 0) continue;
 		float fac = norm / sum;
-		k = 0;
-		for(i = ipixelmin; i <= ipixelmax; i++)  {
+		for(n = 0; n < Ntargets; n++) {
+			k = 0;
+			float value = *((float*)PyArray_GETPTR1(V_arrays[n], p));
+			int single_precision = (PyArray_ITEMSIZE(target_arrays[n]) == 4);
+			for(i = ipixelmin; i <= ipixelmax; i++)  {
 			for(j = jpixelmin; j <= jpixelmax; j++) {
 				if(single_precision)
-					*((float*)PyArray_GETPTR2(target,i,j)) += value * cache[k] * fac;
+					*((float*)PyArray_GETPTR2(target_arrays[n],i,j)) += value * cache[k] * fac;
 				else
-					*((double*)PyArray_GETPTR2(target,i,j)) += (double)( value * cache[k] * fac);
+					*((double*)PyArray_GETPTR2(target_arrays[n],i,j)) += (double)( value * cache[k] * fac);
 					
 				k++;
+			}
 			}
 		}
 	}
@@ -305,16 +316,20 @@ static PyObject * image(PyObject * self,
 	printf("ic = %d pc = %d \n", ic, pc);
 #endif
 	free(cache);
+	for(n = 0; n < Ntargets; n++) {
+		Py_DECREF(V_arrays[n]);
+	}
+	free(target_arrays);
+	free(V_arrays);
  	Py_DECREF(S);
  	Py_DECREF(locations);
- 	Py_DECREF(V);
 	Py_RETURN_NONE;
 }
 static PyMethodDef module_methods[] = {
 	{"image", image, METH_KEYWORDS, image_doc_string },
 	{NULL}
 };
-void HIDDEN initimage(PyObject * m) {
+void HIDDEN gadget_initimage(PyObject * m) {
 	import_array();
 	PyObject * thism = Py_InitModule3("image", module_methods, "image module");
 	Py_INCREF(thism);

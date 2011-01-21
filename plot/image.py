@@ -3,12 +3,21 @@ from gadget import ccode
 # are not initialized.
 import gadget.kernel
 from numpy import zeros
-def rasterize(target, field, xrange, yrange, zrange, quick=True):
-  ccode.image.image(target, field['locations'],
-          field['sml'], field['default'],
-          xrange[0], yrange[0], xrange[1], yrange[1],
-          zrange[0], zrange[1], quick)
+def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
+  if type(targets) == list:
+    if type(values) != list or len(values) != len(targets):
+      raise ValueError('when targets is a list, values also have to be a matching list')
+  else:
+    targets = [targets]
+    values = [values]
+  V = [field[fieldname] for fieldname in values]
+  
+  ccode.image.image(targets = targets, locations = field['locations'],
+          sml = field['sml'], values = V,
+          xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
+          zmin = zrange[0], zmax = zrange[1], quick = quick)
 
+unusedcode= """
 def sparse(field, xrange, yrange, zrange, scale):
   pos = field['locations'].copy()
   pos[:, 0] -= xrange[0]
@@ -25,4 +34,4 @@ def sparse(field, xrange, yrange, zrange, scale):
   target['Y'] = pos[mask, 1]
   target['V'] = field['default'][mask]
   return target
-  
+""" 

@@ -102,8 +102,11 @@ A field has three elements:
       return self.dict.has_key(index)
     return True
   def describe(self, index):
-    v = self[index]
-    return dict(min=v.min(axis=0), max=v.max(axis=0))
+    if self.numpoints > 0:
+      v = self[index]
+      return dict(min=v.min(axis=0), max=v.max(axis=0))
+    else:
+      return dict(min=None, max=None)
 
   def quadtree(self, origin=None, boxsize=None, periodical=None):
     if self.quadtree_cache != None:
