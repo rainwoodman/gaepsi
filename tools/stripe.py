@@ -17,17 +17,16 @@ from numpy import linspace
 from numpy import mean
 from numpy import empty
 from numpy import append as arrayappend
+from gadget import ccode
 class Layer:
   def __init__(self, stripe, valuedtype):
     self.stripe = stripe
     self.data = None
     self.valuedtype = valuedtype
   def min(self, logscale=False):
+    if len(self.data) == 0: return nan
     if logscale:
-      mask = self.data > 0.0
-# if logarithm is undefined everywhere, skip this stripe
-      if mask.sum() == 0: value = inf
-      else: value = self.data[mask].min()
+      value = ccode.pmin.reduce(self.data)
     else: 
       value = self.data.min()
     value = self.stripe.comm.allreduce(value, op = MPI.MIN)
@@ -36,19 +35,14 @@ class Layer:
       if isinf(value): value = nan
     return value
   def max(self, logscale=False):
-    if logscale:
-      mask = self.data > 0.0
-# if logarithm is undefined everywhere, skip this stripe
-      if mask.sum() == 0: value = -inf
-      else: value = self.data[mask].max()
-    else: 
-      value = self.data.max()
+    if len(self.data) == 0: return nan
+    value = self.data.max()
+    if logscale and value <= 0.0:
+      value = nan
     value = self.stripe.comm.allreduce(value, op = MPI.MAX)
-    if logscale:
-# if all stripes are skipped, this layer is all below zero
-      if isinf(value): value = nan
     return value
   def sum(self):
+    if len(self.data) == 0: return 0.0
     value = self.data.sum()
     value = self.stripe.comm.allreduce(value, op = MPI.SUM)
     return value
