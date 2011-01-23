@@ -10,7 +10,7 @@
 static double pmind(double v1, double v2) {
 	if(v1 > 0.0) {
 		if(v2 <= 0.0) return v1;
-		if(v1 < v2) return v1;
+		if(v1 < v2 || isnan(v2)) return v1;
 		else return v2;
 	} else {
 		if(v2 <= 0.0) return NAN;

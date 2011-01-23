@@ -17,6 +17,7 @@ from numpy import linspace
 from numpy import mean
 from numpy import empty
 from numpy import append as arrayappend
+from numpy import fmax
 from gadget import ccode
 class Layer:
   def __init__(self, stripe, valuedtype):
@@ -24,26 +25,34 @@ class Layer:
     self.data = None
     self.valuedtype = valuedtype
   def min(self, logscale=False):
-    if len(self.data) == 0: return nan
-    if logscale:
-      value = ccode.pmin.reduce(self.data)
-    else: 
-      value = self.data.min()
+    if len(self.data) == 0: 
+      value = inf
+    else:
+      if logscale:
+        value = ccode.pmin.reduce(self.data)
+      else: 
+        value = self.data.min()
     value = self.stripe.comm.allreduce(value, op = MPI.MIN)
     if logscale:
 # if all stripes are skipped, this layer is all below zero
       if isinf(value): value = nan
     return value
   def max(self, logscale=False):
-    if len(self.data) == 0: return nan
-    value = self.data.max()
-    if logscale and value <= 0.0:
-      value = nan
+    if len(self.data) == 0: 
+      value = -inf
+    else:
+      value = fmax.reduce(self.data)
+      if logscale and value <= 0.0:
+        value = -inf
     value = self.stripe.comm.allreduce(value, op = MPI.MAX)
+    if logscale and value == -inf:
+      value = nan
     return value
   def sum(self):
-    if len(self.data) == 0: return 0.0
-    value = self.data.sum()
+    if len(self.data) == 0: 
+      value = 0.0
+    else:
+      value = self.data.sum()
     value = self.stripe.comm.allreduce(value, op = MPI.SUM)
     return value
   def hist(self, bins=100, min = None, max = None, logscale=True):
