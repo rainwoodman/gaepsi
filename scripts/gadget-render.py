@@ -3,6 +3,7 @@ from optparse import OptionParser, OptionValueError
 from gadget.tools import parsearray, parsematrix
 parser = OptionParser()
 parser.add_option("-N", "--total", type="int", dest="total", help="total number of stripes")
+parser.add_option("-p", "--prefix", type="string", default='', help="prefix for input and output filenames")
 parser.add_option("-r", "--range", dest="range", type="string", help="stripe range to process",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='i4', len=2))
 parser.add_option("-g", "--geometry", dest="geometry",  type="string",
@@ -44,19 +45,29 @@ from mpi4py import MPI
 comm = MPI.COMM_WORLD
 if comm.rank == 0: print opt
 from gadget.tools import timer
+
 from gadget.tools.stripe import *
 from numpy import zeros
 from numpy import load
 def loadminmax(comm, filename):
   if comm.rank == 0:
-     bins = load(filename)
-     print filename, "min", bins[0], "max", bins[-1]
-  else: bins = None
-  bins = comm.bcast(bins)
-  return bins[0], bins[-1]
+    bins = load(filename)['bins']
+    min = bins[0]
+    max = bins[-1]
+    print filename, "min", min, "max", max
+  else: 
+    min = None
+    max = None
+  min = comm.bcast(min)
+  max = comm.bcast(max)
+  return min, max
 
 
-strips = range(opt.range[0], opt.range[1])
+if opt.range != None:
+  strips = range(opt.range[0], opt.range[1])
+else :
+  strips = range(0, opt.total)
+
 stripeids_all = [
    strips[rank * len(strips) / comm.size:(rank + 1) * len(strips) / comm.size]
    for rank in range(comm.size)]
@@ -64,53 +75,70 @@ steps = max([len(stripeids) for stripeids in stripeids_all])
 stripeids = stripeids_all[comm.rank]
 
 if opt.gas != None:
-  gasmin, gasmax = loadminmax(comm, 'gashist-bins.npy')
-  msfrmin, msfrmax = loadminmax(comm, 'msfrhist-bins.npy')
+  gasmin, gasmax = loadminmax(comm, opt.prefix+ 'hist-gas.npz')
+  msfrmin, msfrmax = loadminmax(comm, opt.prefix+ 'hist-m%s.npz' % opt.gas)
 if opt.blackhole != None:
-  bhmin, bhmax = loadminmax(comm, 'bhhist-bins.npy')
+  bhmin, bhmax = loadminmax(comm, opt.prefix + 'hist-bh.npz')
 if opt.star != None:
-  starmin, starmax = loadminmax(comm, 'starhist-bins.npy')
+  starmin, starmax = loadminmax(comm, opt.prefix + 'hist-star.npz')
 
 for step in range(steps):
-  comm.Barrier()
-  if comm.rank == 0: print 'step ', step, timer.restart()
+  ses_step = timer.session("step %d" % step)
+  ses_reading = timer.session('reading')
   if step < len(stripeids):
     stripeid = stripeids[step]
     stripe = Stripe(rank = stripeid, total = opt.total, imagesize = opt.geometry)
-    if opt.gas != None:
-      gaslayer = RasterLayer(stripe, valuedtype='f4')
-      msfrlayer = RasterLayer(stripe, valuedtype='f4')
-      gaslayer.fromfile('%03d-gas.rst' % stripeid)
-      msfrlayer.fromfile('%03d-msfr.rst' % stripeid)
-      msfrlayer.data /= gaslayer.data
-    if opt.blackhole != None:
-      bhlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.blackhole)
-      bhlayer.fromfile('%03d-bh.vec' % stripeid)
-    if opt.star != None:
-      starlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.star)
-      starlayer.fromfile('%03d-star.vec' % stripeid)
+    image = zeros(dtype=('u1', 3), shape = stripe.shape)
   else:
     stripe = None
-  comm.Barrier()
-  if comm.rank == 0: print "reading done", timer.reset()
 
-  if stripe != None:
-    image = zeros(dtype=('u1', 3), shape = stripe.shape)
-    if opt.gas != None:
+  if opt.gas != None:
+    if stripe != None:
+      gaslayer = RasterLayer(stripe, valuedtype='f4')
+      gaslayer.fromfile(gaslayer.getfilename(opt.prefix, 'gas', '.rst'))
+    ses_reading.checkpoint('gas')
+    if stripe != None:
+      msfrlayer = RasterLayer(stripe, valuedtype='f4')
+      msfrlayer.fromfile(msfrlayer.getfilename(opt.prefix, 'm'+opt.gas, '.rst'))
+      msfrlayer.data /= gaslayer.data
+    ses_reading.checkpoint('msfr')
+  if opt.blackhole != None:
+    if stripe != None:
+      bhlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.blackhole)
+      bhlayer.fromfile(bhlayer.getfilename(opt.prefix, 'bh', '.vec'))
+    ses_reading.checkpoint('bh')
+  if opt.star != None:
+    if stripe != None:
+      starlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.star)
+      starlayer.fromfile(starlayer.getfilename(opt.prefix, 'bh', '.vec'))
+    ses_reading.checkpoint('star')
+  ses_reading.end()
+
+  ses_render = timer.session('render')
+  if opt.gas != None:
+    if stripe != None:
       gaslayer.render(target=image, colormap = gasmap, logscale=True, min=gasmin, max=gasmax)
+    ses_render.checkpoint("gas")
+    if stripe != None:
       msfrlayer.render(target=image, colormap = msfrmap, logscale=True, min=msfrmin, max=msfrmax)
+    ses_render.checkpoint("msfr")
 
-  comm.Barrier()
-  if comm.rank == 0: print "rendering raster done", timer.reset()
-  if stripe != None:
-    if opt.star != None:
+  if opt.star != None:
+    if stripe != None:
       starlayer.render(target=image, colormap = starmap, logscale=True, min=starmin, max=starmax)
-    if opt.blackhole != None:
-      bhlayer.render(target=image, colormap = bhmap, logscale=True, min=bhmin, max=bhmax)
-  comm.Barrier()
-  if comm.rank == 0: print "rendering vector done", timer.reset()
+    ses_render.checkpoint("star")
 
+  if opt.blackhole != None:
+    if stripe != None:
+      bhlayer.render(target=image, colormap = bhmap, logscale=True, min=bhmin, max=bhmax)
+    ses_render.checkpoint("bh")
+  ses_render.end()
+
+  ses_write = timer.session("writing")
   if stripe != None:
-    image.tofile('%03d.raw' % stripeid)
-  comm.Barrier()
-  if comm.rank == 0: print 'images wrote', timer.restart()
+    if stripe.total < 1000:
+      image.tofile(opt.prefix + '%03d.raw' % stripe.rank)
+    else:
+      image.tofile(opt.prefix + '%04d.raw' % stripe.rank)
+  ses_write.end()
+  ses_step.end()

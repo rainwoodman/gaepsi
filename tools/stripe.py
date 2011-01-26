@@ -24,6 +24,13 @@ class Layer:
     self.stripe = stripe
     self.data = None
     self.valuedtype = valuedtype
+  def getfilename(self, prefix, signature, postfix):
+    if self.stripe.total < 1000:
+      fmt = '%03d-%s'
+    else:
+      fmt = '%04d-%s'
+    return prefix + fmt %(self.stripe.rank, signature) + postfix
+
   def min(self, logscale=False):
     if len(self.data) == 0: 
       value = inf
