@@ -13,13 +13,13 @@
 extern HIDDEN float kline[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 static inline int overlap_index(float f) {
-	return f * (KOVERLAP_BINS / 2) + KOVERLAP_BINS / 2;
+	return f * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 }
 static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 	float pxmin, float pymin, float pxmax, float pymax) {
 
-	const float dpx = (pxmax - pxmin) * (KOVERLAP_BINS / 2);
-	const float dpy = (pymax - pymin) * (KOVERLAP_BINS / 2);
+	const float dpx = (pxmax - pxmin) * (KOVERLAP_BINS >> 1);
+	const float dpy = (pymax - pymin) * (KOVERLAP_BINS >> 1);
 
 	float addbit = 0;
 
@@ -31,16 +31,16 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 		goto exit;
 	}
 	float x0y1 = koverlap[x0][y1][x0][y1];
-	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS / 2) - (KOVERLAP_BINS / 2);
-	float rdy = pymax * (KOVERLAP_BINS / 2) + (KOVERLAP_BINS / 2) - y1;
+	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
+	float rdy = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - y1;
 	if(x1 == x0 && y1 == y0 + 1) {
 		addbit += x0y0 * ldy * dpx;
 		addbit += x0y1 * rdy * dpx;
 		goto exit;
 	}
 	float x1y0 = koverlap[x1][y0][x1][y0];
-	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS / 2) - (KOVERLAP_BINS / 2);
-	float rdx = pxmax * (KOVERLAP_BINS / 2) + (KOVERLAP_BINS / 2) - x1;
+	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
+	float rdx = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - x1;
 	if(x1 == x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * (pymax - pymin);
 		addbit += x1y0 * rdx * (pymax - pymin);
@@ -180,6 +180,7 @@ static PyObject * image(PyObject * self,
 		int i, j;
 		float psizeXsml = psizeX / (sml);
 		float psizeYsml = psizeY / (sml);
+		float psizeXYsml = psizeXsml * psizeYsml;
 		float pxmin0 =  - x / sml;
 		float pymin0 =  - y / sml;
 		float imxmin = - x / sml;
@@ -242,8 +243,8 @@ static PyObject * image(PyObject * self,
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
-			int x0 = pxmin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
-			int x1 = pxmax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
+			int x0 = pxmin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+			int x1 = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 			if(x1 < 0 || x0 >= KOVERLAP_BINS) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
 					cache[k++] = 0.0;
@@ -256,8 +257,8 @@ static PyObject * image(PyObject * self,
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
-				int y0 = pymin * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
-				int y1 = pymax * KOVERLAP_BINS / 2 + KOVERLAP_BINS / 2;
+				int y0 = pymin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+				int y1 = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 				if(y0 >= KOVERLAP_BINS || y1 < 0 ) {
 					cache[k++] = 0.0;
 					continue;
@@ -268,21 +269,22 @@ static PyObject * image(PyObject * self,
 				if(y0 < 0) y0 = 0;
 				if(y1 >= KOVERLAP_BINS) y1 = KOVERLAP_BINS - 1;
 
-				float addbit = 0.0;
+				float addbit;
 				if((x1 - x0 < 2 && y1 - y0 < 2)) {
+				/*this branch deal with high resolution (pixelsize <= KOVERLAP size)*/
 					float centerx = (pxmax + pxmin);
 					float centery = (pymax + pymin);
-					float d = 0.5 * sqrt(centerx * centerx + centery * centery) * KLINE_BINS;
-					
-					int dfloor = floor(d);
-					int dceil = ceil(d);
-					if(dfloor >= KLINE_BINS) dfloor = KLINE_BINS - 1;
-					if(dceil >= KLINE_BINS) dceil = KLINE_BINS - 1;
-					float value = 0.0;
-					if(dfloor == dceil) value = kline[dceil];
-					else value = (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d));
-					addbit = value * (pxmax - pxmin) * (pymax - pymin);
+				/*hpotf is slower than sqrt*/
+					float d = 0.5 * sqrt(centerx*centerx+centery*centery) * KLINE_BINS;
+					int dfloor = d;
+					int dceil = d + 1;
+					if(dceil < KLINE_BINS) {
+						addbit = (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d)) * psizeXYsml;
+					} else {
+						addbit = 0.0;
+					}
 				} else {
+				/*this branch deal with low resolution ( pixelsize >> KOVERLAP size)*/
 					if(quick) {
 						addbit = koverlap[x0][y0][x1][y1];
 					} else {
@@ -296,18 +298,24 @@ static PyObject * image(PyObject * self,
 		if(sum == 0) continue;
 		float fac = norm / sum;
 		for(n = 0; n < Ntargets; n++) {
+			int single_precision = (PyArray_ITEMSIZE(target_arrays[n]) == 4);
 			k = 0;
 			float value = *((float*)PyArray_GETPTR1(V_arrays[n], p));
-			int single_precision = (PyArray_ITEMSIZE(target_arrays[n]) == 4);
-			for(i = ipixelmin; i <= ipixelmax; i++)  {
-			for(j = jpixelmin; j <= jpixelmax; j++) {
-				if(single_precision)
-					*((float*)PyArray_GETPTR2(target_arrays[n],i,j)) += value * cache[k] * fac;
-				else
-					*((double*)PyArray_GETPTR2(target_arrays[n],i,j)) += (double)( value * cache[k] * fac);
-					
-				k++;
-			}
+			value *= fac;
+			if(single_precision) {
+				for(i = ipixelmin; i <= ipixelmax; i++) {
+				for(j = jpixelmin; j <= jpixelmax; j++) {
+					*((float*)PyArray_GETPTR2(target_arrays[n],i,j)) += value * cache[k];
+					k++;
+				}
+				}
+			} else {
+				for(i = ipixelmin; i <= ipixelmax; i++) {
+				for(j = jpixelmin; j <= jpixelmax; j++) {
+					*((double*)PyArray_GETPTR2(target_arrays[n],i,j)) += (double)( value * cache[k]);
+					k++;
+				}
+				}
 			}
 		}
 	}
