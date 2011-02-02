@@ -13,7 +13,7 @@ parser.add_option("-B", "--blackhole", dest="blackhole", type="float", help="dra
 parser.add_option("-G", "--gas", dest="gas", action="store_true", help="render gas mass field")
 parser.add_option('-m', "--msfr", dest="msfr", action="store_true", help="render gas star formation rate field")
 parser.add_option("-S", "--star", dest="star", type="float", help="draw stars with the given circle size")
-#parser.add_option("-T", "--temperature", dest="temperature", type="float", help="draw stars with the given circle size")
+parser.add_option("-o", "--output", dest="output", type="string", help="put output to one big file with MPIIO")
 
 opt, args = parser.parse_args()
 if opt.geometry == None:
@@ -84,6 +84,11 @@ if opt.blackhole != None:
   bhmin, bhmax = loadminmax(comm, opt.prefix + 'hist-bh.npz')
 if opt.star != None:
   starmin, starmax = loadminmax(comm, opt.prefix + 'hist-star.npz')
+if opt.output != None:
+  file = MPI.File.Open(comm, opt.output, MPI.MODE_WRONLY + MPI.MODE_CREATE)
+  file.Set_view(disp = 0, etype=MPI.BYTE, filetype=MPI.BYTE)
+else:
+  file = None
 
 for step in range(steps):
   ses_step = timer.session("step %d" % step)
@@ -141,9 +146,13 @@ for step in range(steps):
 
   ses_write = timer.session("writing")
   if stripe != None:
-    if stripe.total < 1000:
-      image.tofile(opt.prefix + '%03d.raw' % stripe.rank)
-    else:
-      image.tofile(opt.prefix + '%04d.raw' % stripe.rank)
+    if file != None:
+      file.Write_at(stripe.pixel_start * stripe.shape[1] * 3, image.data)
+    else :
+      if stripe.total < 1000:
+        image.tofile(opt.prefix + '%03d.raw' % stripe.rank)
+      else:
+        image.tofile(opt.prefix + '%04d.raw' % stripe.rank)
   ses_write.end()
   ses_step.end()
+if file != None: file.Close()
