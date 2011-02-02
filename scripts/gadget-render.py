@@ -1,16 +1,19 @@
 #! python
+from gadget.tools import timer
 from optparse import OptionParser, OptionValueError
-from gadget.tools import parsearray, parsematrix
-parser = OptionParser()
+from gadget.tools.cmdline import parsearray, parsematrix
+parser = OptionParser(conflict_handler="resolve")
 parser.add_option("-N", "--total", type="int", dest="total", help="total number of stripes")
 parser.add_option("-p", "--prefix", type="string", default='', help="prefix for input and output filenames")
 parser.add_option("-r", "--range", dest="range", type="string", help="stripe range to process",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='i4', len=2))
 parser.add_option("-g", "--geometry", dest="geometry",  type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep='x', dtype='i4', len=2))
-parser.add_option("-B", "--blackhole", dest="blackhole", type="float", help="process blackhole with the give circle size")
-parser.add_option("-G", "--gas", dest="gas", type="string", help="process gas produce the given mass weighted field and mass field")
-parser.add_option("-S", "--star", dest="star", type="float", help="process star with the given circle size")
+parser.add_option("-B", "--blackhole", dest="blackhole", type="float", help="draw blackholes with the give circle size")
+parser.add_option("-G", "--gas", dest="gas", action="store_true", help="render gas mass field")
+parser.add_option('-m', "--msfr", dest="msfr", action="store_true", help="render gas star formation rate field")
+parser.add_option("-S", "--star", dest="star", type="float", help="draw stars with the given circle size")
+#parser.add_option("-T", "--temperature", dest="temperature", type="float", help="draw stars with the given circle size")
 
 opt, args = parser.parse_args()
 if opt.geometry == None:
@@ -41,10 +44,9 @@ msfrmap = Colormap(levels =[0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
                       v = [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6],
                       a = [0 , 0,  0.4, 0.5, 0.6, 0.8, 0.8])
 
-from mpi4py import MPI
+from gadget.tools import _MPI as MPI
 comm = MPI.COMM_WORLD
 if comm.rank == 0: print opt
-from gadget.tools import timer
 
 from gadget.tools.stripe import *
 from numpy import zeros
@@ -76,7 +78,8 @@ stripeids = stripeids_all[comm.rank]
 
 if opt.gas != None:
   gasmin, gasmax = loadminmax(comm, opt.prefix+ 'hist-gas.npz')
-  msfrmin, msfrmax = loadminmax(comm, opt.prefix+ 'hist-m%s.npz' % opt.gas)
+if opt.msfr != None:
+  msfrmin, msfrmax = loadminmax(comm, opt.prefix+ 'hist-msfr.npz')
 if opt.blackhole != None:
   bhmin, bhmax = loadminmax(comm, opt.prefix + 'hist-bh.npz')
 if opt.star != None:
@@ -92,14 +95,15 @@ for step in range(steps):
   else:
     stripe = None
 
-  if opt.gas != None:
+  if opt.gas != None or opt.msfr !=None:
     if stripe != None:
       gaslayer = RasterLayer(stripe, valuedtype='f4')
       gaslayer.fromfile(gaslayer.getfilename(opt.prefix, 'gas', '.rst'))
     ses_reading.checkpoint('gas')
+  if opt.msfr != None:
     if stripe != None:
       msfrlayer = RasterLayer(stripe, valuedtype='f4')
-      msfrlayer.fromfile(msfrlayer.getfilename(opt.prefix, 'm'+opt.gas, '.rst'))
+      msfrlayer.fromfile(msfrlayer.getfilename(opt.prefix, 'msfr', '.rst'))
       msfrlayer.data /= gaslayer.data
     ses_reading.checkpoint('msfr')
   if opt.blackhole != None:
@@ -110,7 +114,7 @@ for step in range(steps):
   if opt.star != None:
     if stripe != None:
       starlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.star)
-      starlayer.fromfile(starlayer.getfilename(opt.prefix, 'bh', '.vec'))
+      starlayer.fromfile(starlayer.getfilename(opt.prefix, 'star', '.vec'))
     ses_reading.checkpoint('star')
   ses_reading.end()
 
@@ -119,6 +123,7 @@ for step in range(steps):
     if stripe != None:
       gaslayer.render(target=image, colormap = gasmap, logscale=True, min=gasmin, max=gasmax)
     ses_render.checkpoint("gas")
+  if opt.msfr != None:
     if stripe != None:
       msfrlayer.render(target=image, colormap = msfrmap, logscale=True, min=msfrmin, max=msfrmax)
     ses_render.checkpoint("msfr")

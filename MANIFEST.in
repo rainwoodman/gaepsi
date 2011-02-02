@@ -2,3 +2,4 @@ include MANIFEST.in
 include setup.py
 recursive-include ccode *.c *.h
 include ccode/kernel.akline
+include ccode/kernel.aklinesq

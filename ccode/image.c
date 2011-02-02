@@ -11,6 +11,7 @@
 " rasterizes into an raster image the sums are calculated but no averaging is done."
 
 extern HIDDEN float kline[];
+extern HIDDEN float klinesq[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 static inline int overlap_index(float f) {
 	return f * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
@@ -164,7 +165,7 @@ static PyObject * image(PyObject * self,
 	int ic = 0;
 	int pc = 0;
 
-	int cache_size = 1024;
+	npy_intp cache_size = 1024;
 	float * cache = malloc(sizeof(float) * cache_size);
 
 	for(p = 0; p < length; p++) {
@@ -228,8 +229,8 @@ static PyObject * image(PyObject * self,
 		if(jpixelmin < 0) jpixelmin = 0;
 		if(jpixelmax >= npixely) jpixelmax = npixely - 1;
 
-		int k;
-		int desired_cache_size = (ipixelmax - ipixelmin + 1) * (jpixelmax - jpixelmin + 1);
+		npy_intp k;
+		npy_intp desired_cache_size = (ipixelmax - ipixelmin + 1) * (jpixelmax - jpixelmin + 1);
 		if(desired_cache_size > cache_size) {
 			while(desired_cache_size > cache_size) {
 					cache_size *= 2;

@@ -14,6 +14,9 @@
 float HIDDEN kline[KLINE_BINS] = {
 	#include "kernel.akline"
 };
+float HIDDEN klinesq[KLINE_BINS] = {
+#include "kernel.aklinesq"
+};
 float HIDDEN koverlap[KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
 float HIDDEN k0f(const float eta) {
 	if(eta < 0.5) {
@@ -165,12 +168,13 @@ static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, v
 	}
 }
 void HIDDEN gadget_initkernel(PyObject * m) {
+	int i;
 	import_array();
 	import_ufunc();
-
 	fill_koverlap();
 	npy_intp kline_dims[] = {KLINE_BINS};
 	PyArrayObject * kline_a = (PyArrayObject *)PyArray_SimpleNewFromData(1, kline_dims, NPY_FLOAT, kline);
+	PyArrayObject * klinesq_a = (PyArrayObject *)PyArray_SimpleNewFromData(1, kline_dims, NPY_FLOAT, klinesq);
 	npy_intp koverlap_dims[] = {KOVERLAP_BINS, KOVERLAP_BINS, KOVERLAP_BINS, KOVERLAP_BINS};
 	PyArrayObject * koverlap_a = (PyArrayObject *)PyArray_SimpleNewFromData(4, koverlap_dims, NPY_FLOAT, koverlap);
 
@@ -197,5 +201,6 @@ void HIDDEN gadget_initkernel(PyObject * m) {
 	PyModule_AddObject(m, "kline", kline_u);
 	PyModule_AddObject(m, "koverlap", koverlap_u);
 	PyModule_AddObject(m, "akline", kline_a);
+	PyModule_AddObject(m, "aklinesq", klinesq_a);
 	PyModule_AddObject(m, "akoverlap", koverlap_a);
 }

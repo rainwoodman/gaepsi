@@ -7,7 +7,7 @@ setup(name="gadget", version="1.0",
       ],
       scripts = [ 'scripts/gadget-render.py', 'scripts/gadget-mklayers.py', 'scripts/gadget-hist.py'],
       ext_modules = [
-        Extension("gadget.ccode", 
+        Extension("gadget._gadgetccode", 
              ["ccode/module.c", 
               "ccode/image.c", 
               "ccode/ndtree.c",

@@ -1,5 +1,4 @@
-from mpi4py import MPI
-from time import clock
+from gadget.tools import _MPI as MPI
 from numpy import zeros, fromfile, array
 from numpy import int32
 from numpy import histogram
@@ -9,8 +8,7 @@ from numpy import arange
 from numpy import cumsum
 from gadget.plot.image import rasterize
 import gadget.plot.render
-from gadget import Snapshot
-from gadget import Field
+from gadget.field import Field
 from numpy import isinf, inf, nan, isnan
 from gadget.readers import Readers
 from numpy import linspace
@@ -69,7 +67,9 @@ class Layer:
     else:
       if min == None: min = self.min()
       if max == None: max = self.max()
-    if max <= min: max = min + 0.1
+    if max == min: 
+      max = min + 0.1
+      min = min - 0.1
     if isnan(min) or isnan(max): min,max = 0,1
     if logscale:
       edges = logspace(min, max, bins + 1)

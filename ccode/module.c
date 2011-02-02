@@ -12,9 +12,9 @@ static PyMethodDef module_methods[] = {
 };
 
 static PyObject * m = NULL;
-void initccode (void) {
+void init_gadgetccode (void) {
 	import_array();
-	m = Py_InitModule3("ccode", module_methods, "ccode module");
+	m = Py_InitModule3("_gadgetccode", module_methods, "gadget internal ccode module");
 	gadget_initNDTree(m);
 	gadget_initimage(m);
 	gadget_initremap(m);

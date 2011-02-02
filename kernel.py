@@ -17,15 +17,24 @@ def kernel(eta) :
   """
   return k0(eta)
 
-def init_akline() :
+def mk_akline() :
   bins = akline.size
   etas = linspace(0, 1, bins)
   deta = 1.0/bins
-  akline[:] = 2.0 * array([
+  return 2.0 * array([
               quad(lambda x,eta : k0(sqrt(x**2+eta**2)),
                    0, sqrt(1.0 - eta**2), args=(eta))[0]
               for eta in etas
-              ])[:]
+              ])
+def mk_aklinesq() :
+  bins = akline.size
+  etas = linspace(0, 1, bins)
+  deta = 1.0/bins
+  return 2.0 * array([
+              quad(lambda x,eta : k0(sqrt(x**2+eta)),
+                   0, sqrt(1.0 - eta), args=(eta))[0]
+              for eta in etas
+              ])
 
 # these functions are no longer needed as the arrays are inited in the C module
 #init_akline()

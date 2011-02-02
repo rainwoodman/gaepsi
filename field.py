@@ -1,9 +1,12 @@
 from numpy import isscalar
 from numpy import ones,zeros
-from matplotlib import is_string_like
 from remap import remap
 from ccode import NDTree
 
+def is_string_like(v):
+  try: v + ''
+  except: return False
+  return True
 
 class Field:
   """

@@ -1,14 +1,19 @@
 #! python
+from gadget.tools import timer
+ses_import = timer.session('import extra modules')
 from optparse import OptionParser, OptionValueError
-from gadget.tools import parsearray, parsematrix
-parser = OptionParser()
+from gadget.tools.cmdline import parsearray, parsematrix
+parser = OptionParser(conflict_handler="resolve")
 parser.add_option("-r", "--range", dest="range", type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='i4', len=2))
+parser.add_option("-r", "--rangefile", dest="rangefile", type="string", help="a file listing file ids to operate")
 parser.add_option("-s", "--snapname", dest="snapname")
 parser.add_option("-f", "--format", dest="format", help="the format of the snapshot")
 parser.add_option("-b", "--boxsize", dest="boxsize", type="float", help="the boxsize of the snapshot; unused(decided from snapfile)")
 parser.add_option("-g", "--geometry", dest="geometry",  type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep='x', dtype='i4', len=2))
+parser.add_option("-I", "--inputpatches", dest="inputpatches",  type="int", default=1, help="number of patches to divided the input(snapfiles only) into")
+parser.add_option("-O", "--outputpatches", dest="outputpatches",  type="int", default=1, help="number of patches to divided the output into")
 parser.add_option("-p", "--prefix", dest="prefix", type="string", default='', help="prefix of the outputs")
 parser.add_option("-M", "--matrix", dest="matrix", type="string",
      action="callback", callback=parsematrix, callback_kwargs=dict(shape=(3,3)))
@@ -32,15 +37,14 @@ if opt.snapname == None:
 if opt.format == None:
   parser.error("specify --format")
 
-from mpi4py import MPI
+from gadget.tools import _MPI as MPI
+
 comm = MPI.COMM_WORLD
 if comm.rank == 0: print opt
-from gadget.tools import timer
 
-ses_import = timer.session('import extra modules')
-from numpy import max
-from numpy import isnan
 from gadget.tools.stripe import *
+from gadget.snapshot import Snapshot
+from gadget.field import Field
 from gadget.remap import remap
 from numpy import array
 ses_import.end()
@@ -49,11 +53,16 @@ ses_import.end()
 if opt.range != None:
   snapfiles = [opt.snapname % i for i in range(opt.range[0], opt.range[1])]
 else:
-  snapfiles = [opt.snapname]
+  if opt.rangefile !=None:
+    from numpy import loadtxt
+    snapids = loadtxt(opt.rangefile)
+    snapfiles = [opt.snapname % i for i in snapids]
+  else:
+    snapfiles = [opt.snapname]
 
 #decide the boxsize
 if comm.rank == 0:
-  snap = gadget.Snapshot(snapfiles[0], opt.format)
+  snap = Snapshot(snapfiles[0], opt.format)
   boxsize = snap.C['L']
   del snap
 else: boxsize = None
@@ -90,10 +99,15 @@ if opt.range != None and opt.range[0] != 0:
   ses_reading.end()
 
 # process the field snapshot files
+Nreaders = comm.size / opt.inputpatches
 
-snaplist_all = [
-    snapfiles[len(snapfiles) * rank / comm.size: len(snapfiles) * (rank+1) / comm.size]
-    for rank in range(comm.size)]
+snaplist_per_reader = [
+    snapfiles[len(snapfiles) * rank / Nreaders: len(snapfiles) * (rank+1) / Nreaders]
+    for rank in range(Nreaders)]
+snaplist_all = [[]] * comm.size
+for rank in range(Nreaders):
+  snaplist_all[rank * opt.inputpatches] = snaplist_per_reader[rank]
+
 # steps is the number of iterations to scan over all snapshot files.
 # in each step each core loads in one file and an alltoall communication
 # distributes relevant particles to the core hosting the stripe
@@ -124,6 +138,7 @@ for step in range(steps):
     if opt.star != None:
       starfield = Field(snap = snap, ptype=4, values=['mass'])
       starfield.unfold(opt.matrix.T)
+    del snap
   ses_reading.end()
 
 # cores assigned with snapshot files now have a snapshot loaded into a Field
@@ -163,7 +178,9 @@ for step in range(steps):
   ses_mklayers.end()
   ses_step.end()
 #end of the main loop
-
+del starfield
+del bhfield
+del gasfield
 ses_hist = timer.session("histogram")
 from numpy import savez
 if opt.blackhole != None:
@@ -180,20 +197,36 @@ if opt.gas != None:
     savez(opt.prefix + 'hist-gas.npz', bins = bins, hist=hist)
   hist, bins = msfrlayer.hist()
   if comm.rank == 0:
-    savez(opt.prefix + 'hist-m%s.npz' % opt.gas, bins = bins, hist=hist)
+    savez(opt.prefix + 'hist-m%s-sum.npz' % opt.gas, bins = bins, hist=hist)
 
 ses_hist.end()
 #save
 ses_writing = timer.session("writing output")
-if opt.blackhole != None:
-  bhlayer.tofile(bhfile)
-  ses_writing.checkpoint("bh")
-if opt.star != None:
-  starlayer.tofile(starfile)
-  ses_writing.checkpoint("star")
-if opt.gas != None:
-  gaslayer.tofile(gasfile)
-  ses_writing.checkpoint("gas")
-  msfrlayer.tofile(msfrfile)
-  ses_writing.checkpoint("sfr")
+for i in range(opt.outputpatches):
+  ses_patch = timer.session("writing output patch %d" % i)
+  if opt.gas != None:
+    if comm.rank % opt.outputpatches == i:
+      gaslayer.tofile(gasfile)
+    ses_patch.checkpoint("gas")
+    if comm.rank % opt.outputpatches == i:
+      msfrlayer.tofile(msfrfile)
+      msfrlayer.data /= gaslayer.data
+      del gaslayer
+    ses_patch.checkpoint("sfr")
+  if opt.blackhole != None:
+    if comm.rank % opt.outputpatches == i:
+      bhlayer.tofile(bhfile)
+    ses_patch.checkpoint("bh")
+  if opt.star != None:
+    if comm.rank % opt.outputpatches == i:
+      starlayer.tofile(starfile)
+    ses_patch.checkpoint("star")
+  ses_patch.end()
 ses_writing.end()
+
+ses_hist = timer.session("histogram msfr")
+if opt.gas != None:
+  hist, bins = msfrlayer.hist()
+  if comm.rank == 0:
+    savez(opt.prefix + 'hist-m%s.npz' % opt.gas, bins = bins, hist=hist)
+ses_hist.end()

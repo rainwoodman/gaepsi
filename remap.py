@@ -4,7 +4,6 @@ from numpy import mgrid
 from numpy import diag
 from numpy import sign
 from numpy import dot,inner
-from matplotlib.pyplot import *
 from numpy import float64,int32,float32
 from numpy import sum
 from numpy import bitwise_or

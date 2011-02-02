@@ -1,5 +1,8 @@
-from matplotlib import is_string_like
 from readers import Readers
+def is_string_like(v):
+  try: v + ''
+  except: return False
+  return True
 class Snapshot:
   def __init__(self, file=None, reader=None, *args, **kwargs):
     # constants (cosmology and stuff)
