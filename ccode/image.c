@@ -174,7 +174,7 @@ static PyObject * image(PyObject * self,
 		float z = *((float*)PyArray_GETPTR2(locations, p, 2));
 		if(x > xmax+smlmax || x < xmin-smlmax) continue;
 		if(y > ymax+smlmax || y < ymin-smlmax) continue;
-		if(z > zmax || z < zmin) continue;
+		if(z > zmax+smlmax || z < zmin-smlmax) continue;
 		float sml = *((float*)PyArray_GETPTR1(S, p));
 		x -= xmin;
 		y -= ymin;
