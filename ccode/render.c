@@ -76,6 +76,126 @@ static PyObject * color(PyObject * self,
 	Py_DECREF(cmapa);
 	Py_RETURN_NONE;
 }
+#define line_doc_string \
+"line(target, X, Y, VX,VY, min, max, cmapr, cmapg, cmapb, cmapa, cmapv)\n" \
+"target is an RGB unsigned char array, X,Y,VX,VY are float arrays, \n" \
+"cmapr,cmapg,cmapb,cmapa are from a Valuemap.table for the rgba colormap\n " \
+"cmapv is from a Valuemap.table for the lenght map\n"
+static PyObject * line(PyObject * self, PyObject * args, PyObject * kwds) {
+	PyArrayObject * target, *X, *Y, *VX, *VY, * cmapr, * cmapg, * cmapb, * cmapa, * cmapv;
+	float min, max, scale;
+	int logscale;
+	static char * kwlist[] = {
+	"target", "X", "Y", "VX", "VY", "scale", "min", "max", "logscale", "cmapr", "cmapg", "cmapb", "cmapa", "cmapv", NULL
+	};
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!fffiO!O!O!O!O!", kwlist,
+		&PyArray_Type, &target, 
+		&PyArray_Type, &X, 
+		&PyArray_Type, &Y, 
+		&PyArray_Type, &VX, 
+		&PyArray_Type, &VY, 
+		&scale,
+		&min, &max, &logscale,
+		&PyArray_Type, &cmapr,
+		&PyArray_Type, &cmapg,
+		&PyArray_Type, &cmapb,
+		&PyArray_Type, &cmapa,
+		&PyArray_Type, &cmapv
+		)) return NULL;
+	X = (PyArrayObject*) PyArray_Cast(X, NPY_FLOAT);
+	Y = (PyArrayObject*) PyArray_Cast(Y, NPY_FLOAT);
+	VX = (PyArrayObject*) PyArray_Cast(VX, NPY_FLOAT);
+	VY = (PyArrayObject*) PyArray_Cast(VY, NPY_FLOAT);
+	cmapr = (PyArrayObject*) PyArray_Cast(cmapr, NPY_FLOAT);
+	cmapg = (PyArrayObject*) PyArray_Cast(cmapg, NPY_FLOAT);
+	cmapb = (PyArrayObject*) PyArray_Cast(cmapb, NPY_FLOAT);
+	cmapa = (PyArrayObject*) PyArray_Cast(cmapa, NPY_FLOAT);
+	cmapv = (PyArrayObject*) PyArray_Cast(cmapv, NPY_FLOAT);
+	int Ncmapbins = PyArray_Size((PyObject*)cmapr);
+	float * cmapr_data = PyArray_GETPTR1(cmapr, 0);
+	float * cmapg_data = PyArray_GETPTR1(cmapg, 0);
+	float * cmapb_data = PyArray_GETPTR1(cmapb, 0);
+	float * cmapa_data = PyArray_GETPTR1(cmapa, 0);
+	float * cmapv_data = PyArray_GETPTR1(cmapv, 0);
+	int i;
+	int N = PyArray_Size((PyObject*)X);
+	int DX = PyArray_DIM(target, 0);
+	int DY = PyArray_DIM(target, 1);
+#define SET(x, y) { \
+	if(x>=0 && x<DX && y>=0 && y<DY) {\
+		unsigned char * base = (unsigned char*)PyArray_GETPTR3(target, x,y,0); \
+		base[0] = at * base[0] + r * a * 255; \
+		base[1] = at * base[1] + g * a * 255; \
+		base[2] = at * base[2] + b * a * 255; \
+	} \
+	}
+	float index_factor = Ncmapbins / (max - min);
+	for(i = 0; i < N; i++) {
+		int x0 = *(float*)PyArray_GETPTR1(X,i);
+		int y0 = *(float*)PyArray_GETPTR1(Y,i);
+		float vx = *(float*)PyArray_GETPTR1(VX,i);
+		float vy = *(float*)PyArray_GETPTR1(VY,i);
+		float mag = sqrt(vx * vx + vy * vy);
+		if(isnan(mag) || mag == 0.0) continue;
+		
+		float value;
+		if(logscale) {
+			if(mag <= 0.0) continue;
+			value = log10(mag);
+		} else {
+			value = mag;
+		}
+
+		int index = (value - min) * index_factor;
+		if(index < 0) index = 0;
+		if(index >= Ncmapbins) index = Ncmapbins - 1;
+
+		int length = cmapv_data[index] * scale;
+		float a = cmapa_data[index];
+		float at = 1 - a;
+		float r = cmapr_data[index];
+		float g = cmapg_data[index];
+		float b = cmapb_data[index];
+		if (length < 0) length = 0;
+		if(length == 0) {
+			SET(x0, y0);
+			continue;
+		}
+		/*Bresenham's Line Algorithm */
+		int x1 = x0 + length * vx / mag;
+		int y1 = y0 + length * vy / mag;
+		int dx = abs(x1 - x0);
+		int dy = abs(y1 - y0);
+		int sx = (x0 < x1)?1:-1;
+		int sy = (y0 < y1)?1:-1;
+		int error = dx - dy;
+		while(1) {
+			SET(x0, y0);
+			if(x0 == x1 && y0 == y1) break;
+			int e2 = 2 * error;
+			if(e2 > - dy) {
+				error -= dy;
+				x0 += sx;
+			}
+			if(e2 < dx) {
+				error += dx;
+				y0 += sy;
+			}
+		}
+	}
+
+	Py_DECREF(X);
+	Py_DECREF(Y);
+	Py_DECREF(VX);
+	Py_DECREF(VY);
+	Py_DECREF(cmapr);
+	Py_DECREF(cmapg);
+	Py_DECREF(cmapb);
+	Py_DECREF(cmapa);
+	Py_DECREF(cmapv);
+	Py_RETURN_NONE;
+
+}
 #define circle_doc_string \
 "circle(target, X, Y, V, min, max, cmapr, cmapg, cmapb, cmapa, cmapv)\n" \
 "target is an RGB unsigned char array, X,Y,V are float arrays, \n" \
@@ -157,6 +277,7 @@ static PyObject * circle(PyObject * self,
 			SET(cx, cy);
 			continue;
 		}
+		/*Bresenham's Circle Algorithm */
 		while(x >= y) {
 			SET(cx + x, cy + y);
 			if(x) SET(cx - x, cy + y);
@@ -189,6 +310,8 @@ static PyObject * circle(PyObject * self,
 	Py_DECREF(cmapv);
 	Py_RETURN_NONE;
 }
+static PyMethodDef line_method = 
+	{"line", line, METH_KEYWORDS, line_doc_string };
 static PyMethodDef circle_method = 
 	{"circle", circle, METH_KEYWORDS, circle_doc_string };
 static PyMethodDef color_method = 
@@ -197,7 +320,9 @@ void HIDDEN gadget_initrender(PyObject * m) {
 	import_array();
 	PyObject * circle_f = PyCFunction_New(&circle_method, NULL);
 	PyObject * color_f = PyCFunction_New(&color_method, NULL);
+	PyObject * line_f = PyCFunction_New(&line_method, NULL);
 	
 	PyModule_AddObject(m, "circle", circle_f);
+	PyModule_AddObject(m, "line", line_f);
 	PyModule_AddObject(m, "color", color_f);
 }
