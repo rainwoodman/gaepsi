@@ -41,16 +41,26 @@ double HIDDEN k0d(const double eta) {
 
 
 float HIDDEN klinef(float d) {
-	int ind = d * KLINE_BINS;
-	if(ind < 0) ind = -ind;
-	if(ind >= KLINE_BINS) ind = KLINE_BINS - 1;
-	return kline[ind];
+	if( d < 0.0) d = -d;
+	d *= KLINE_BINS;
+	int dfloor = d;
+	int dceil = d + 1;
+	if(dceil < KLINE_BINS) {
+		return (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d));
+	} else {
+		return 0.0;
+	}
 }
 double HIDDEN klined(double d) {
-	int ind = d * KLINE_BINS;
-	if(ind < 0) ind = -ind;
-	if(ind >= KLINE_BINS) ind = KLINE_BINS - 1;
-	return kline[ind];
+	if( d < 0.0) d = -d;
+	d *= KLINE_BINS;
+	int dfloor = d;
+	int dceil = d + 1;
+	if(dceil < KLINE_BINS) {
+		return (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d));
+	} else {
+		return 0.0;
+	}
 }
 
 float HIDDEN koverlapf(float x0, float y0, float x1, float y1) {
