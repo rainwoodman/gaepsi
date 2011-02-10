@@ -25,7 +25,6 @@ struct _TreeNode {
 	INDEX_T * indices;
 	int indices_size;
 	int indices_length;
-	NDTree * tree;
 	int depth;
 	float sml_max;
 };
@@ -58,7 +57,6 @@ static void TreeNode_init(TreeNode * node, NDTree * tree,
 	node->indices = NULL;
 	node->indices_length = 0;
 	node->indices_size = 0;
-	node->tree = tree;
 	node->depth = 0;
 	node->sml_max = 0.0;
 	tree->node_count++;
@@ -66,11 +64,11 @@ static void TreeNode_init(TreeNode * node, NDTree * tree,
 static int TreeNode_isleaf(TreeNode * node) {
 	return node->children[0] == NULL;
 }
-static void TreeNode_clear(TreeNode * node) {
+static void TreeNode_clear(TreeNode * node, NDTree * tree) {
 	int i;
 	if(!TreeNode_isleaf(node)) {
-		for(i = 0; i < (1 << node->tree->dim); i++) {
-			TreeNode_clear(node->children[i]);
+		for(i = 0; i < (1 << tree->dim); i++) {
+			TreeNode_clear(node->children[i], tree);
 			PyMem_Del(node->children[i]);
 			node->children[i] = NULL;
 		}
@@ -80,7 +78,7 @@ static void TreeNode_clear(TreeNode * node) {
 		node->indices_size = 0;
 		node->indices = NULL;
 	}
-	node->tree->node_count--;
+	tree->node_count--;
 }
 static void TreeNode_setchild(TreeNode * node, int chindex, TreeNode * child) {
 	node->children[chindex] = child;
@@ -100,9 +98,8 @@ static void TreeNode_append(TreeNode * node, INDEX_T index) {
 	node->indices_length ++;
 }
 
-static int TreeNode_is_inside(TreeNode * node, float pos[]) {
+static int TreeNode_is_inside(TreeNode * node, NDTree * tree, float pos[]) {
 	/* see if a pos is inside of a node */
-	NDTree * tree = node->tree;
 	float * boxsize = tree->boxsize;
 	int d;
 	for(d = 0; d < tree->dim; d++) {
@@ -112,9 +109,8 @@ static int TreeNode_is_inside(TreeNode * node, float pos[]) {
 	return 1;
 }
 
-static int TreeNode_is_inside_sml(TreeNode * node, float pos[]) {
+static int TreeNode_is_inside_sml(TreeNode * node, NDTree * tree, float pos[]) {
 	/* see if a pos is inside of a node, sml into account */
-	NDTree * tree = node->tree;
 	float * boxsize = tree->boxsize;
 	int d;
 	float sml = node->sml_max;
@@ -128,10 +124,9 @@ static int TreeNode_is_inside_sml(TreeNode * node, float pos[]) {
 
 
 /* returns the min child node length */
-static void TreeNode_split(TreeNode * node) {
+static void TreeNode_split(TreeNode * node, NDTree * tree) {
 	static int bitmask[DMAX] = { 0x1, 0x2, 0x4};
 	int i, d;
-	NDTree * tree = node->tree;
 	if(!TreeNode_isleaf(node)) {
 		fprintf(stderr, "%p not a leaf\n", node);
 		return;
@@ -156,11 +151,11 @@ static void TreeNode_split(TreeNode * node) {
 				bottomright[d] = node->bottomright[d];
 			}
 		}
-		TreeNode_init(child, node->tree, topleft, bottomright);
+		TreeNode_init(child, tree, topleft, bottomright);
 
 		TreeNode_setchild(node, i, child);
-		if(child->depth > node->tree->depth) {
-			node->tree->depth = child->depth;
+		if(child->depth > tree->depth) {
+			tree->depth = child->depth;
 		}
 		int count = 0;
 		for(p = 0; p < node->indices_length; p++) {
@@ -170,7 +165,7 @@ static void TreeNode_split(TreeNode * node) {
 			for(d = 0; d < tree->dim; d++) {
 				pos[d] = *((float*)PyArray_GETPTR2(tree->POS, index, d));
 			}
-			if(TreeNode_is_inside(child, pos)) {
+			if(TreeNode_is_inside(child, tree, pos)) {
 				TreeNode_append(child, index);
 			}
 		}
@@ -185,12 +180,12 @@ typedef struct __TreeNodeList {
 	struct __TreeNodeList * next;
 } TreeNodeList;
 
-static TreeNodeList * TreeNode_find0(TreeNode * node, float pos[], TreeNodeList * tail) {
-	if(!TreeNode_is_inside_sml(node, pos)) return tail;
+static TreeNodeList * TreeNode_find0(TreeNode * node, NDTree * tree, float pos[], TreeNodeList * tail) {
+	if(!TreeNode_is_inside_sml(node, tree, pos)) return tail;
 	if(!TreeNode_isleaf(node)) {
 		int i;
-		for(i = 0; i < (1 << node->tree->dim); i++) {
-			tail = TreeNode_find0(node->children[i], pos, tail);
+		for(i = 0; i < (1 << tree->dim); i++) {
+			tail = TreeNode_find0(node->children[i], tree, pos, tail);
 		}
 	} else {
 		tail-> node = node;
@@ -201,11 +196,11 @@ static TreeNodeList * TreeNode_find0(TreeNode * node, float pos[], TreeNodeList 
 	}
 	return tail;
 }
-static TreeNodeList * TreeNode_find(TreeNode * node, float pos[]) {
+static TreeNodeList * TreeNode_find(TreeNode * node, NDTree * tree, float pos[]) {
 	TreeNodeList * list = PyMem_New(TreeNodeList, 1);
 	list->next = NULL;
 	list->node = NULL;
-	TreeNode_find0(node, pos, list);
+	TreeNode_find0(node, tree, pos, list);
 	return list;
 }
 static void TreeNodeList_free(TreeNodeList * list) {
@@ -217,13 +212,13 @@ static void TreeNodeList_free(TreeNodeList * list) {
 		p = q;
 	}
 }
-static TreeNode * TreeNode_locate(TreeNode * node, float pos[]) {
+static TreeNode * TreeNode_locate(TreeNode * node, NDTree * tree, float pos[]) {
 /* find a tree leaf that contains point pos*/
-	if(!TreeNode_is_inside(node, pos)) return NULL;
+	if(!TreeNode_is_inside(node, tree, pos)) return NULL;
 	if(!TreeNode_isleaf(node)) {
 		int i;
-		for(i = 0; i < (1 << node->tree->dim); i++) {
-			TreeNode * rt = TreeNode_locate(node->children[i], pos);
+		for(i = 0; i < (1 << tree->dim); i++) {
+			TreeNode * rt = TreeNode_locate(node->children[i], tree, pos);
 			if(rt) return rt;
 		}
 		return NULL;
@@ -231,7 +226,7 @@ static TreeNode * TreeNode_locate(TreeNode * node, float pos[]) {
 		return node;
 	}
 }
-static TreeNode * TreeNode_locate_debug(TreeNode * node, float pos[]) {
+static TreeNode * TreeNode_locate_debug(TreeNode * node, NDTree * tree, float pos[]) {
 /* find a tree leaf that contains point pos*/
 	fprintf(stderr, "topleft %f %f %f, bottomright %f %f %f\n",
 		node->topleft[0],
@@ -240,11 +235,11 @@ static TreeNode * TreeNode_locate_debug(TreeNode * node, float pos[]) {
 		node->bottomright[0],
 		node->bottomright[1],
 		node->bottomright[2]);
-	if(!TreeNode_is_inside(node, pos)) return NULL;
+	if(!TreeNode_is_inside(node, tree, pos)) return NULL;
 	if(!TreeNode_isleaf(node)) {
 		int i;
-		for(i = 0; i < (1 << node->tree->dim); i++) {
-			TreeNode * rt = TreeNode_locate_debug(node->children[i], pos);
+		for(i = 0; i < (1 << tree->dim); i++) {
+			TreeNode * rt = TreeNode_locate_debug(node->children[i], tree, pos);
 			if(rt) return rt;
 		}
 		return NULL;
@@ -253,26 +248,26 @@ static TreeNode * TreeNode_locate_debug(TreeNode * node, float pos[]) {
 	}
 }
 
-static float TreeNode_calc_sml(TreeNode * node) {
+static float TreeNode_calc_sml(TreeNode * node, NDTree * tree) {
 	int i;
 	if(!TreeNode_isleaf(node)) {
-		for(i = 0; i < (1 << node->tree->dim); i++) {
-			float t = TreeNode_calc_sml(node->children[i]);
+		for(i = 0; i < (1 << tree->dim); i++) {
+			float t = TreeNode_calc_sml(node->children[i], tree);
 			if(t > node->sml_max) node->sml_max = t;
 		}
 	} else {
 		for(i = 0; i < node->indices_length; i++) {
 			INDEX_T index = node->indices[i];
-			float t = *((float*)PyArray_GETPTR1(node->tree->S,index));
+			float t = *((float*)PyArray_GETPTR1(tree->S,index));
 			if(t > node->sml_max) node->sml_max = t;
 		}
-		if(node->indices_length > node->tree->max_indices_length) node->tree->max_indices_length = node->indices_length;
+		if(node->indices_length > tree->max_indices_length) tree->max_indices_length = node->indices_length;
 	}
 	return node->sml_max;
 }
 static void NDTree_dealloc(NDTree * self) {
 	fprintf(stderr, "NDTree dispose %p refcount = %u\n", self, (unsigned int)self->ob_refcnt);
-	TreeNode_clear(&(self->root));
+	TreeNode_clear(&(self->root), self);
 	self->ob_type->tp_free((PyObject*) self);
 }
 
@@ -342,24 +337,24 @@ static int NDTree_init(NDTree * self,
 			pos[d] = *((float*)PyArray_GETPTR2(POS, index, d));
 		}
 		/*locality saves us some lookups*/
-		TreeNode * node = TreeNode_locate(last_node, pos);
+		TreeNode * node = TreeNode_locate(last_node, self, pos);
 		while(node == NULL && last_node->parent) {
 			last_node = last_node->parent;
-			node = TreeNode_locate(last_node, pos);
+			node = TreeNode_locate(last_node, self, pos);
 		}
 		while(node != NULL && self->node_count < self->nodes_threshold && self->depth < MAX_DEPTH && node->indices_length >= self->indices_threshold) {
-			TreeNode_split(node);
-			node = TreeNode_locate(node, pos);
+			TreeNode_split(node, self);
+			node = TreeNode_locate(node, self, pos);
 		}
 		if(node == NULL) {
 			fprintf(stderr, "Warning: pos (%f %f %f) not inserted\n", pos[0], pos[1], pos[2]);
-			TreeNode_locate_debug(&(self->root), pos);
+			TreeNode_locate_debug(&(self->root), self, pos);
 			continue;
 		}
 		TreeNode_append(node, index);
 		last_node = node;
 	}
-	TreeNode_calc_sml(&(self->root));
+	TreeNode_calc_sml(&(self->root), self);
 	Py_DECREF(boxsize);
 	Py_DECREF(origin);
 	Py_DECREF(self->POS);
@@ -383,7 +378,7 @@ static PyObject * NDTree_list(NDTree * self,
 		&pos[0], &pos[1], &pos[2])) {
 		return NULL;
 	}
-	TreeNodeList * nodes = TreeNode_find(&(self->root), pos);
+	TreeNodeList * nodes = TreeNode_find(&(self->root), self, pos);
 	npy_intp dims[] = {0};
 
 	INDEX_T size = 0;
