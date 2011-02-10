@@ -9,7 +9,7 @@ parser.add_option("-r", "--range", dest="range", type="string",
 parser.add_option("-r", "--rangefile", dest="rangefile", type="string", help="a file listing file ids to operate")
 parser.add_option("-s", "--snapname", dest="snapname")
 parser.add_option("-f", "--format", dest="format", help="the format of the snapshot")
-parser.add_option("-b", "--boxsize", dest="boxsize", type="float", help="the boxsize of the snapshot; unused(decided from snapfile)")
+parser.add_option("-z", "--zip", dest="zip", action="store_true", help="save to the gzip format instead of a direct dump(only the raster)")
 parser.add_option("-g", "--geometry", dest="geometry",  type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep='x', dtype='i4', len=2))
 parser.add_option("-I", "--inputpatches", dest="inputpatches",  type="int", default=1, help="number of patches to divided the input(snapfiles only) into")
@@ -23,9 +23,12 @@ parser.add_option("-y", "--ycut", dest="ycut", type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='f4', len=2))
 parser.add_option("-z", "--zcut", dest="zcut", type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='f4', len=2))
-parser.add_option("-B", "--blackhole", dest="blackhole", type="float", help="process blackhole with the give circle size")
-parser.add_option("-G", "--gas", dest="gas", type="string", help="process gas produce the given mass weighted field and mass field")
-parser.add_option("-S", "--star", dest="star", type="float", help="process star with the given circle size")
+
+parser.add_option("-G", "--gas", dest="gas", action="store_true", help="produce gas density xxx-gas.rst")
+parser.add_option("-S", "--sfr", dest="sfr", action="store_true", help="produce gas mass weighted sfr sum xxx-msfr.rst") 
+parser.add_option("-T", "--temp", dest="temp", action="store_true", help="process gas mass weighted temp sum(in KB/Mproton) xxx-mtemp.rst") 
+parser.add_option("-S", "--star", dest="star", type="float", help="process star with the given circle size xxx-star.vec")
+parser.add_option("-B", "--blackhole", dest="blackhole", type="float", help="process blackhole with the give circle size xxx-bh.vec")
 
 opt, args = parser.parse_args()
 if opt.matrix == None:
@@ -69,20 +72,25 @@ else: boxsize = None
 opt.boxsize = comm.bcast(boxsize)
 del boxsize
 
+
 # create the stripes and layers
 stripe = Stripe(comm = comm, imagesize = opt.geometry, boxsize = remap(opt.matrix.T) * opt.boxsize,
                 xcut = opt.xcut, ycut = opt.ycut, zcut = opt.zcut)
 
 if opt.gas != None:
   gaslayer = RasterLayer(stripe, valuedtype='f4')
-  msfrlayer = RasterLayer(stripe, valuedtype='f4')
   gasfile = gaslayer.getfilename(opt.prefix, 'gas', '.rst');
-  msfrfile = msfrlayer.getfilename(opt.prefix, 'm' + opt.gas, '.rst')
+if opt.sfr != None:
+  msfrlayer = RasterLayer(stripe, valuedtype='f4')
+  msfrfile = msfrlayer.getfilename(opt.prefix, 'msfr', '.rst')
+if opt.temp != None:
+  templayer = RasterLayer(stripe, valuedtype='f4')
+  tempfile = templayer.getfilename(opt.prefix, 'mtemp', '.rst')
 if opt.blackhole != None:
-  bhlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.blackhole)
+  bhlayer = ScatterLayer(stripe, valuedtype='f4', scale=opt.blackhole)
   bhfile = bhlayer.getfilename(opt.prefix, 'bh', '.vec')
 if opt.star != None:
-  starlayer = VectorLayer(stripe, valuedtype='f4', scale=opt.star)
+  starlayer = ScatterLayer(stripe, valuedtype='f4', scale=opt.star)
   starfile = starlayer.getfilename(opt.prefix, 'star', '.vec')
 # when opt.range == None, there is no need to resume
 # otherwise assuming the caller whats to resume if the starting point is not the
@@ -90,8 +98,11 @@ if opt.star != None:
 if opt.range != None and opt.range[0] != 0:
   ses_reading = timer.session('reading unfinished data')
   if opt.gas != None:
-    gaslayer.fromfile(gasfile)
-    msfrlayer.fromfile(msfrfile)
+    gaslayer.fromfile(gasfile, zip=opt.zip)
+  if opt.sfr != None:
+    msfrlayer.fromfile(msfrfile, zip=opt.zip)
+  if opt.temp != None:
+    templayer.fromfile(tempfile, zip=opt.zip)
   if opt.blackhole != None:
     bhlayer.fromfile(bhfile)
   if opt.star != None:
@@ -130,8 +141,15 @@ for step in range(steps):
     snapfile = snaplist[step]
     snap = Snapshot(snapfile, opt.format)
     if opt.gas != None:
-      gasfield = Field(snap = snap, ptype=0, values=['mass', 'sml', opt.gas])
+      gasfield = Field(snap = snap, ptype=0, values=['mass', 'sml'])
       gasfield.unfold(opt.matrix.T)
+    if opt.sfr != None:
+# replace the field sfr with mass-weighted value
+      gasfield['sfr'][:] = gasfield['sfr'][:] * gasfield['mass'][:]
+    if opt.temp != None:
+      Xh = 0.76
+      gasfield['ie'][:] = gasfield['mass'][:] * gasfield['ie'][:] / (gasfield['reh'][:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      del gasfield['reh']
     if opt.blackhole != None:
       bhfield = Field(snap = snap, ptype=5, values=['bhmass'])
       bhfield.unfold(opt.matrix.T)
@@ -151,14 +169,15 @@ for step in range(steps):
     starfield = stripe.rebalance(starfield, values=['mass'], bleeding = opt.star)
     ses_rebalance.checkpoint("star")
   if opt.gas != None:
-    gasfield = stripe.rebalance(gasfield, values=['sml', 'mass', opt.gas])
+    gasvalues = ['mass']
+    if opt.sfr != None: gasvalues = gasvalues + ['sfr']
+    if opt.temp != None: gasvalues = gasvalues + ['ie']
+
+    gasfield = stripe.rebalance(gasfield, values=['sml'] + gasvalues)
     ses_rebalance.checkpoint("gas")
 
     load_all = array(comm.allgather(gasfield.numpoints * 1.0))
-    if comm.rank == 0: print "load", load_all / load_all.max()
     if comm.rank == 0: print "load mean, max, penalty", load_all.mean(), load_all.max(), load_all.max() / load_all.mean()
-# replace the field 'opt.gas' with mass-weighted value
-    gasfield[opt.gas][:] = gasfield[opt.gas][:] * gasfield['mass'][:]
     if comm.rank == 0:
       print 'gasfield boxsize', gasfield.boxsize
       print 'gasfield locations', gasfield.describe('locations')
@@ -167,13 +186,18 @@ for step in range(steps):
 # at this point the field is balanced over the cores
   ses_mklayers = timer.session("making layers")
   if opt.gas != None:
-    stripe.mkraster(gasfield, ['mass', opt.gas], layer=[gaslayer, msfrlayer])
-    ses_mklayers.checkpoint("gas and sfr")
+    layerlist = [gaslayer]
+    if opt.sfr != None:
+      layerlist = layerlist + [msfrlayer]
+    if opt.temp != None:
+      layerlist = layerlist + [templayer]
+    stripe.mkraster(gasfield, gasvalues, layer=layerlist)
+    ses_mklayers.checkpoint("gas layers")
   if opt.blackhole != None:
-    stripe.mkvector(bhfield, 'bhmass', scale=opt.blackhole, layer=bhlayer)
+    stripe.mkscatter(bhfield, 'bhmass', scale=opt.blackhole, layer=bhlayer)
     ses_mklayers.checkpoint("bh")
   if opt.star != None:
-    stripe.mkvector(starfield, 'mass', scale=opt.star, layer=starlayer)
+    stripe.mkscatter(starfield, 'mass', scale=opt.star, layer=starlayer)
     ses_mklayers.checkpoint("star")
   ses_mklayers.end()
   ses_step.end()
@@ -195,9 +219,14 @@ if opt.gas != None:
   hist, bins = gaslayer.hist()
   if comm.rank == 0:
     savez(opt.prefix + 'hist-gas.npz', bins = bins, hist=hist)
+if opt.sfr != None:
   hist, bins = msfrlayer.hist()
   if comm.rank == 0:
-    savez(opt.prefix + 'hist-m%s-sum.npz' % opt.gas, bins = bins, hist=hist)
+    savez(opt.prefix + 'hist-msfr-sum.npz', bins = bins, hist=hist)
+if opt.temp != None:
+  hist, bins = templayer.hist()
+  if comm.rank == 0:
+    savez(opt.prefix + 'hist-mtemp-sum.npz' , bins = bins, hist=hist)
 
 ses_hist.end()
 #save
@@ -206,13 +235,18 @@ for i in range(opt.outputpatches):
   ses_patch = timer.session("writing output patch %d" % i)
   if opt.gas != None:
     if comm.rank % opt.outputpatches == i:
-      gaslayer.tofile(gasfile)
+      gaslayer.tofile(gasfile, zip=opt.zip)
     ses_patch.checkpoint("gas")
+  if opt.sfr != None:
     if comm.rank % opt.outputpatches == i:
-      msfrlayer.tofile(msfrfile)
+      msfrlayer.tofile(msfrfile, zip=opt.zip)
       msfrlayer.data /= gaslayer.data
-      del gaslayer
     ses_patch.checkpoint("sfr")
+  if opt.temp != None:
+    if comm.rank % opt.outputpatches == i:
+      templayer.tofile(tempfile, zip=opt.zip)
+      templayer.data /= gaslayer.data
+    ses_patch.checkpoint("temp")
   if opt.blackhole != None:
     if comm.rank % opt.outputpatches == i:
       bhlayer.tofile(bhfile)
@@ -224,9 +258,13 @@ for i in range(opt.outputpatches):
   ses_patch.end()
 ses_writing.end()
 
-ses_hist = timer.session("histogram msfr")
-if opt.gas != None:
+ses_hist = timer.session("histogram gas fields")
+if opt.sfr != None:
   hist, bins = msfrlayer.hist()
   if comm.rank == 0:
-    savez(opt.prefix + 'hist-m%s.npz' % opt.gas, bins = bins, hist=hist)
+    savez(opt.prefix + 'hist-msfr.npz', bins = bins, hist=hist)
+if opt.temp != None:
+  hist, bins = templayer.hist()
+  if comm.rank == 0:
+    savez(opt.prefix + 'hist-mtemp.npz', bins = bins, hist=hist)
 ses_hist.end()

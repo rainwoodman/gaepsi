@@ -17,6 +17,8 @@ from numpy import empty
 from numpy import append as arrayappend
 from numpy import fmax
 from gadget import ccode
+from gadget.tools.zip import fromzipfile
+from gadget.tools.zip import tozipfile
 class Layer:
   def __init__(self, stripe, valuedtype):
     self.stripe = stripe
@@ -87,16 +89,22 @@ class RasterLayer(Layer):
     self.pixels = zeros(dtype = self.valuedtype, shape = self.stripe.shape)
     self.data = self.pixels.ravel()
     if fromfile!= None: self.fromfile(fromfile)
-  def tofile(self, filename):
-    self.data.tofile(filename)
-  def fromfile(self, filename):
-    del self.data
-    del self.pixels
-    self.data = fromfile(filename, dtype=self.valuedtype)
-    self.pixels = self.data.view()
-    if self.stripe.shape[0] * self.stripe.shape[1] != self.pixels.shape:
-      print "stripe mismatch", self.pixels.shape, self.stripe.shape, self.stripe.rank, self.stripe.total
-    self.pixels.shape = self.stripe.shape
+  def tofile(self, filename, zip=False):
+    if zip:
+      tozipfile(filename, self.data)
+    else:
+      self.data.tofile(filename)
+  def fromfile(self, filename, zip=False):
+    if zip:
+      fromzipfile(filename, self.data)
+    else:
+      del self.data
+      del self.pixels
+      self.data = fromfile(filename, dtype=self.valuedtype)
+      self.pixels = self.data.view()
+      if self.stripe.shape[0] * self.stripe.shape[1] != self.pixels.shape:
+        print "stripe mismatch", self.pixels.shape, self.stripe.shape, self.stripe.rank, self.stripe.total
+      self.pixels.shape = self.stripe.shape
 
   def render(self, target, colormap, min=None, max=None, logscale=True):
     if logscale:
@@ -109,7 +117,7 @@ class RasterLayer(Layer):
     if isnan(min) or isnan(max): min,max = 0,1
     gadget.plot.render.color(target = target, raster = self.pixels, logscale = logscale, min = min, max = max, colormap = colormap)
   
-class VectorLayer(Layer):
+class ScatterLayer(Layer):
   def __init__(self, stripe, valuedtype, scale, fromfile=None):
     Layer.__init__(self, stripe, valuedtype)
     self.stripe = stripe
@@ -148,7 +156,7 @@ class Stripe:
   def __init__(self, imagesize, rank=None, total=None, comm = None, boxsize = None, xcut = None, ycut = None, zcut = None):
     """if comm is given, the stripes are constructed with rank=comm.rank, and total=comm.size
        comm is not required if Layer.{hist, max, min} and rebalance are not called.
-       boxsize is not required if the stripe is not used to make layers(ie mkvector/mkraster are not invoked,
+       boxsize is not required if the stripe is not used to make layers(ie mkscatter/mkraster are not invoked,
                use the 3D boxsize that will be projected to this image
        {xyz}cut defaults to the entire space"""
     self.comm = comm
@@ -190,10 +198,9 @@ class Stripe:
     rasterize(targets = targets, field = field, values = fieldname,
                  xrange = [self.x_start, self.x_end], yrange=self.ycut, zrange=self.zcut, quick=quick)
     return layer
-  def mkvector(self, field, fieldname, scale, layer=None):
-    field['default'] = field[fieldname]
+  def mkscatter(self, field, fieldname, scale, layer=None):
     if layer ==None:
-      layer = VectorLayer(self, scale=scale, valuedtype = field['default'].dtype)
+      layer = ScatterLayer(self, scale=scale, valuedtype = field[fieldname].dtype)
     pos = field['locations'].copy()
     pos[:, 0] -= self.x_start
     pos[:, 1] -= self.ycut[0]
@@ -203,7 +210,7 @@ class Stripe:
     mask &= (pos[:, 0] <= (self.shape[0]+scale))
     mask &= (pos[:, 1] >= (-scale))
     mask &= (pos[:, 1] <= (self.shape[1]+scale))
-    layer.append(pos[mask,0], pos[mask,1], field['default'][mask])
+    layer.append(pos[mask,0], pos[mask,1], field[fieldname][mask])
     return layer 
 
   def rebalance(self, field0, values, bleeding = None):
