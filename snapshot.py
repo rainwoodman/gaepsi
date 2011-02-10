@@ -34,7 +34,7 @@ class Snapshot:
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     if ptype == None: ptype = 'all'
     for name in blocknames :
-      if self.P[ptype].has_key(name): del P[name]
+      if self.P[ptype].has_key(name): del self.P[ptype][name]
 
   def __getitem__(self, key) :
     if key == None: key = 'all'
