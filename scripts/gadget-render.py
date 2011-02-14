@@ -29,12 +29,12 @@ bhmap = Colormap(levels = [0, 0.5, 1.0],
                     g = [1.0, 1.0, 1.0],
                     b = [0.0, 0.0, 0.0],
                     v = [0.2, 0.5, 1.0])
-starmap = Colormap(levels = [0, 0.5, 1.0],
-                    r = [1.0, 1.0, 1.0],
-                    g = [1.0, 1.0, 1.0],
-                    b = [1.0, 1.0, 1.0],
-                    v = [1.0, 1.0, 1.0],
-                    a = [0.7, 0.7, 0.7])
+starmap = Colormap(levels = [0, 0.2, 0.7, 1.0],
+                    r = [1.0, 1.0, 0.0, 0.0],
+                    g = [0.0, 0.0, 1.0, 0.0],
+                    b = [0.0, 0.0, 0.0, 1.0],
+                    v = [1.0, 1.0, 1.0, 1.0],
+                    a = [0.2, 0.2, 0.2, 0.2])
 
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.8, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
@@ -149,10 +149,11 @@ for step in range(steps):
   if opt.sfr != None:
     if stripe != None:
       msfrlayer.render(target=image, colormap = msfrmap, logscale=True, min=msfrmin, max=msfrmax)
+    ses_render.checkpoint("sfr")
   if opt.temp!= None:
     if stripe != None:
       mtemplayer.render(target=image, colormap = mtempmap, logscale=True, min=mtempmin, max=mtempmax)
-    ses_render.checkpoint("msfr")
+    ses_render.checkpoint("mtemp")
 
   if opt.star != None:
     if stripe != None:

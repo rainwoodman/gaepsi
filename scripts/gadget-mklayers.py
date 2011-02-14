@@ -154,7 +154,7 @@ for step in range(steps):
       bhfield = Field(snap = snap, ptype=5, values=['bhmass'])
       bhfield.unfold(opt.matrix.T)
     if opt.star != None:
-      starfield = Field(snap = snap, ptype=4, values=['mass'])
+      starfield = Field(snap = snap, ptype=4, values=['sft'])
       starfield.unfold(opt.matrix.T)
     del snap
   ses_reading.end()
@@ -166,7 +166,7 @@ for step in range(steps):
     bhfield = stripe.rebalance(bhfield, values=['bhmass'], bleeding = opt.blackhole)
     ses_rebalance.checkpoint("bh")
   if opt.star != None:
-    starfield = stripe.rebalance(starfield, values=['mass'], bleeding = opt.star)
+    starfield = stripe.rebalance(starfield, values=['sft'], bleeding = opt.star)
     ses_rebalance.checkpoint("star")
   if opt.gas != None:
     gasvalues = ['mass']
@@ -197,7 +197,7 @@ for step in range(steps):
     stripe.mkscatter(bhfield, 'bhmass', scale=opt.blackhole, layer=bhlayer)
     ses_mklayers.checkpoint("bh")
   if opt.star != None:
-    stripe.mkscatter(starfield, 'mass', scale=opt.star, layer=starlayer)
+    stripe.mkscatter(starfield, 'sft', scale=opt.star, layer=starlayer)
     ses_mklayers.checkpoint("star")
   ses_mklayers.end()
   ses_step.end()
