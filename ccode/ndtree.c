@@ -6,11 +6,10 @@
 
 #define INDEX_T int
 #define DEFAULT_THRESHOLD 32
+#define POOL_SIZE (1024*1024)
 #define MAX_NODES (32*1024*1024)
 #define MAX_DEPTH 32
 #define BAR fprintf(stderr, "hit bar %s:%d\n", __FILE__, __LINE__);
-#define STR0(x) #x
-#define STR(x) STR0(x)
 
 #define DMAX 3
 
@@ -20,7 +19,7 @@ typedef struct _TreeNode TreeNode;
 struct _TreeNode {
 	float topleft[DMAX];
 	float bottomright[DMAX];
-	TreeNode * children[1 << DMAX];
+	TreeNode * children;
 	TreeNode * parent;
 	INDEX_T * indices;
 	int indices_size;
@@ -45,15 +44,16 @@ struct _NDTree {
 	int nodes_threshold;
 	
 };
-
-
+static TreeNode * TreeNode_get_children(TreeNode * node) {
+	return node->children;
+}
 static void TreeNode_init(NDTree * tree, TreeNode * node, 
 	float topleft[], float bottomright[]) {
 	if(topleft != NULL && bottomright != NULL) {
 		memcpy(node->topleft, topleft, sizeof(float) * tree->dim);
 		memcpy(node->bottomright, bottomright, sizeof(float) * tree->dim);
 	}
-	node->children[0] = NULL;
+	node->children = NULL;
 	node->indices = NULL;
 	node->indices_length = 0;
 	node->indices_size = 0;
@@ -62,16 +62,15 @@ static void TreeNode_init(NDTree * tree, TreeNode * node,
 	tree->node_count++;
 }
 static int TreeNode_isleaf(TreeNode * node) {
-	return node->children[0] == NULL;
+	return node->children == NULL;
 }
 static void TreeNode_clear(NDTree * tree, TreeNode * node) {
 	int i;
 	if(!TreeNode_isleaf(node)) {
 		for(i = 0; i < (1 << tree->dim); i++) {
-			TreeNode_clear(tree, node->children[i]);
-			PyMem_Del(node->children[i]);
-			node->children[i] = NULL;
+			TreeNode_clear(tree, &(node->children[i]));
 		}
+		PyMem_Del(node->children);
 	} else {
 		PyMem_Del(node->indices);
 		node->indices_length = 0;
@@ -80,14 +79,9 @@ static void TreeNode_clear(NDTree * tree, TreeNode * node) {
 	}
 	tree->node_count--;
 }
-static void TreeNode_setchild(TreeNode * node, int chindex, TreeNode * child) {
-	node->children[chindex] = child;
-	child->parent = node;
-    child->depth = node->depth + 1;
-}
 static void TreeNode_append(TreeNode * node, INDEX_T index) {
 	if(node->indices_size == 0) {
-		node->indices_size = 64;
+		node->indices_size = 8;
 		node->indices = PyMem_New(INDEX_T, node->indices_size);
 	}
 	if(node->indices_size == node->indices_length) {
@@ -134,10 +128,16 @@ static void TreeNode_split(NDTree * tree, TreeNode * node) {
 	float w2[DMAX];
 	for(d = 0; d < tree->dim; d++) {
 		w2[d] = (node->bottomright[d] - node->topleft[d])* 0.5;
+		float t = tree->boxsize[d] / (1 << node->depth) * 0.5;
+		if(fabs(t - w2[d]) > 1e-3) {
+			printf("t %g!= w2%g\n", t, w2[d]);
+		}
 	}
 
+	node->children = PyMem_New(TreeNode, (1<<tree->dim));
+
 	for(i = 0; i < (1<<tree->dim); i++) {
-		TreeNode * child = PyMem_New(TreeNode, 1);
+		TreeNode * child = &(node->children[i]);
 		float topleft[DMAX];
 		float bottomright[DMAX];
 		int p;
@@ -153,7 +153,8 @@ static void TreeNode_split(NDTree * tree, TreeNode * node) {
 		}
 		TreeNode_init(tree, child, topleft, bottomright);
 
-		TreeNode_setchild(node, i, child);
+		child->parent = node;
+		child->depth = node->depth + 1;
 		if(child->depth > tree->depth) {
 			tree->depth = child->depth;
 		}
@@ -185,7 +186,7 @@ static TreeNodeList * TreeNode_find0(NDTree * tree, TreeNode * node, float pos[]
 	if(!TreeNode_isleaf(node)) {
 		int i;
 		for(i = 0; i < (1 << tree->dim); i++) {
-			tail = TreeNode_find0(tree, node->children[i], pos, tail);
+			tail = TreeNode_find0(tree, &(node->children[i]), pos, tail);
 		}
 	} else {
 		tail-> node = node;
@@ -218,7 +219,7 @@ static TreeNode * TreeNode_locate(NDTree * tree, TreeNode * node, float pos[]) {
 	if(!TreeNode_isleaf(node)) {
 		int i;
 		for(i = 0; i < (1 << tree->dim); i++) {
-			TreeNode * rt = TreeNode_locate(tree, node->children[i], pos);
+			TreeNode * rt = TreeNode_locate(tree, &(node->children[i]), pos);
 			if(rt) return rt;
 		}
 		return NULL;
@@ -239,7 +240,7 @@ static TreeNode * TreeNode_locate_debug(NDTree * tree, TreeNode * node, float po
 	if(!TreeNode_isleaf(node)) {
 		int i;
 		for(i = 0; i < (1 << tree->dim); i++) {
-			TreeNode * rt = TreeNode_locate_debug(tree, node->children[i], pos);
+			TreeNode * rt = TreeNode_locate_debug(tree, &(node->children[i]), pos);
 			if(rt) return rt;
 		}
 		return NULL;
@@ -252,7 +253,7 @@ static float TreeNode_calc_sml(NDTree * tree, TreeNode * node) {
 	int i;
 	if(!TreeNode_isleaf(node)) {
 		for(i = 0; i < (1 << tree->dim); i++) {
-			float t = TreeNode_calc_sml(tree, node->children[i]);
+			float t = TreeNode_calc_sml(tree, &(node->children[i]));
 			if(t > node->sml_max) node->sml_max = t;
 		}
 	} else {
