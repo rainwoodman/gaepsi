@@ -24,6 +24,8 @@ class Layer:
     self.stripe = stripe
     self.data = None
     self.valuedtype = valuedtype
+    self.numparticles = 0
+
   def getfilename(self, prefix, signature, postfix):
     if self.stripe.total < 1000:
       fmt = '%03d-%s'
@@ -153,11 +155,9 @@ class ScatterLayer(Layer):
          scale = self.scale, min = min, max = max, colormap = colormap, logscale = logscale)
 
 class Stripe:
-  def __init__(self, imagesize, rank=None, total=None, comm = None, boxsize = None, xcut = None, ycut = None, zcut = None):
+  def __init__(self, imagesize, rank=None, total=None, comm = None, xcut = None, ycut = None, zcut = None):
     """if comm is given, the stripes are constructed with rank=comm.rank, and total=comm.size
        comm is not required if Layer.{hist, max, min} and rebalance are not called.
-       boxsize is not required if the stripe is not used to make layers(ie mkscatter/mkraster are not invoked,
-               use the 3D boxsize that will be projected to this image
        {xyz}cut defaults to the entire space"""
     self.comm = comm
     if comm != None:
@@ -172,91 +172,106 @@ class Stripe:
     self.shape = [self.pixel_end - self.pixel_start, imagesize[1]]
     self.rank = rank
     self.total = total
-      
-    if boxsize != None:
-      self.boxsize = boxsize
-      if xcut != None: self.xcut = xcut
-      else: self.xcut = [0, self.boxsize[0]]
-      if ycut != None: self.ycut = ycut
-      else: self.ycut = [0, self.boxsize[1]]
-      if zcut != None: self.zcut = zcut
-      else: self.zcut = [0, self.boxsize[2]]
-      self.x_start_all = self.pixel_start_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
-      self.x_end_all = self.pixel_end_all * (self.xcut[1] - self.xcut[0]) / self.imagesize[0] + self.xcut[0]
-      self.x_start = self.x_start_all[rank]
-      self.x_end = self.x_end_all[rank]
+    self.xcut = xcut
+    self.ycut = ycut
+    self.zcut = zcut
 
-  def mkraster(self, field, fieldname, dtype='f4', layer=None, quick=False):
+  def get_cuts(self, boxsize):
+    class __CUT(object):
+      pass
+    rt = __CUT()
+    if self.xcut != None: rt.xcut = self.xcut
+    else: rt.xcut = [0, boxsize[0]]
+    if self.ycut != None: rt.ycut = self.ycut
+    else: rt.ycut = [0, boxsize[1]]
+    if self.zcut != None: rt.zcut = self.zcut
+    else: rt.zcut = [0, boxsize[2]]
+    rt.xres = (rt.xcut[1] - rt.xcut[0]) / self.imagesize[0]
+    rt.yres = (rt.ycut[1] - rt.ycut[0]) / self.imagesize[1]
+    rt.x_start_all = self.pixel_start_all * rt.xres + rt.xcut[0]
+    rt.x_end_all = self.pixel_end_all * rt.xres + rt.xcut[0]
+    rt.x_start = rt.x_start_all[self.rank]
+    rt.x_end = rt.x_end_all[self.rank]
+    return rt
+
+  def mkraster(self, field, fieldname, layer=None, dtype='f4', quick=False):
     if type(fieldname) != list:
       fieldname = [fieldname]
-    
     if layer == None:
       layer = [RasterLayer(self, valuedtype = dtype) for f in fieldname]
     if type(layer) != list:
       layer = [layer]
     targets = [l.pixels for l in layer]
-    rasterize(targets = targets, field = field, values = fieldname,
-                 xrange = [self.x_start, self.x_end], yrange=self.ycut, zrange=self.zcut, quick=quick)
+    cuts = self.get_cuts(field.boxsize)
+    numparticles = rasterize(targets = targets, field = field, values = fieldname,
+                 xrange = [cuts.x_start, cuts.x_end], yrange=cuts.ycut, zrange=cuts.zcut, quick=quick)
+    for l in layer:
+      l.numparticles += numparticles
+
     return layer
   def mkscatter(self, field, fieldname, scale, layer=None):
     if layer ==None:
       layer = ScatterLayer(self, scale=scale, valuedtype = field[fieldname].dtype)
     pos = field['locations'].copy()
-    pos[:, 0] -= self.x_start
-    pos[:, 1] -= self.ycut[0]
-    pos[:, 0] *= float(self.imagesize[0]) / (self.xcut[1] - self.xcut[0])
-    pos[:, 1] *= float(self.imagesize[1]) / (self.ycut[1] - self.ycut[0])
+    cuts = self.get_cuts(field.boxsize)
+    pos[:, 0] -= cuts.x_start
+    pos[:, 1] -= cuts.ycut[0]
+    pos[:, 0] /= cuts.xres
+    pos[:, 1] /= cuts.yres
+
     mask = (pos[:, 0] >= - scale)
     mask &= (pos[:, 0] <= (self.shape[0]+scale))
     mask &= (pos[:, 1] >= (-scale))
     mask &= (pos[:, 1] <= (self.shape[1]+scale))
     layer.append(pos[mask,0], pos[mask,1], field[fieldname][mask])
+    layer.numparticles += mask.sum()
     return layer 
 
-  def rebalance(self, field0, values, bleeding = None):
+  def rebalance(self, field, bleeding = None):
     comm = self.comm
     senddispl = zeros(comm.size, dtype='i4')
     sendcount = zeros(comm.size, dtype='i4')
     recvdispl = zeros(comm.size, dtype='i4')
     recvcount = zeros(comm.size, dtype='i4')
     recvtotal = zeros(comm.size, dtype='i4')
-    if field0 != None and field0.numpoints != 0:
+
+    cuts = self.get_cuts(field.boxsize)
+    if field.numpoints > 0:
       if bleeding == None:
-        bleeding = field0['sml'].max()
+        bleeding = field['sml'].max() * 1.0
       else:
-        bleeding = bleeding * (self.xcut[1] - self.xcut[0]) / self.imagesize[0]
-      sortindex = field0['locations'][:,0].argsort()
-      for value in field0:
-        field0[value] = field0[value][sortindex]
-      senddispl = int32(array(field0['locations'][:,0].searchsorted(self.x_start_all - bleeding, 'left')))
-      sendcount = int32(array(field0['locations'][:,0].searchsorted(self.x_end_all + bleeding, 'right')))
-      sendcount = sendcount - senddispl
+        bleeding = bleeding * cuts.xres
+      sortindex = field['locations'][:,0].argsort()
+      for comp in field.dict.keys():
+        field[comp] = field[comp][sortindex]
+
+      senddispl = int32(array(field['locations'][:,0].searchsorted(cuts.x_start_all - bleeding, 'left')))
+      sendcount = int32(array(field['locations'][:,0].searchsorted(cuts.x_end_all + bleeding, 'right'))) - senddispl
+
+    bleedings = comm.allgather(bleeding)
 
     recvcount = array(comm.alltoall(sendcount))
     recvdispl = int32(array(cumsum([0] + list(recvcount[:-1]))))
     recvtotal_all = comm.allreduce(sendcount, MPI.SUM)
-# locations
-    recvbuf = zeros(dtype = ('f4', 3), shape = recvtotal_all[comm.rank])
-    if field0 != None and field0.numpoints != 0:
-      sendbuf = field0['locations']
-    else:
-      sendbuf = zeros(dtype= ('f4', 3), shape = 1)
 
-    comm.Alltoallv([sendbuf, [3 * sendcount, 3 * senddispl]], 
-                    [recvbuf, [3 * recvcount, 3 * recvdispl]])
-#values
-    field = Field(locations = recvbuf, origin = zeros(3), boxsize = self.boxsize)
-    for valuename in values:
-      dtype = Readers['d4'][valuename]['dtype']
-      recvbuf = zeros(dtype = dtype, shape = recvtotal_all[comm.rank])
-      if field0 != None and field0.numpoints != 0:
-        sendbuf = field0[valuename]
-      else:
-        sendbuf = zeros(dtype = dtype, shape = 1)
-      if len(dtype.shape) > 0: itemcount = dtype.shape[1]
+    field.numpoints = recvtotal_all[comm.rank]
+    for comp in field.dict.keys():
+      dtype = field[comp].dtype
+      shape = list(field[comp].shape)
+      shape[0] = recvtotal_all[comm.rank]
+      recvbuf = zeros(dtype = dtype, shape = shape)
+      sendbuf = field[comp]
+      if len(shape) > 1: itemcount = shape[1]
       else : itemcount = 1
       
+#      for i in range(comm.size):
+#        if comm.rank == i: print i, 'comp', comp, 'itemcount', itemcount
+#        if comm.rank == i: print i, sendcount, senddispl, recvcount, recvdispl
+#        if comm.rank == i: print i, sendbuf.shape, recvbuf.shape
+#        comm.Barrier()
+
       comm.Alltoallv([sendbuf, [itemcount * sendcount, itemcount * senddispl]], 
                      [recvbuf, [itemcount * recvcount, itemcount * recvdispl]])
-      field[valuename] = recvbuf
+#      if comm.rank == 0: print 'comp', comp, 'done'
+      field[comp] = recvbuf
     return field

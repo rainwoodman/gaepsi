@@ -8,7 +8,8 @@
 #define image_doc_string \
 "keywords: locations, sml, value,"\
 " xmin, ymin, xmax, ymax, zmin, zmax."\
-" rasterizes into an raster image the sums are calculated but no averaging is done."
+" rasterizes into an raster image the sums are calculated but no averaging is done." \
+" returns the number of particles actually contributed to the image"
 
 extern HIDDEN float kline[];
 extern HIDDEN float klinesq[];
@@ -157,11 +158,6 @@ static PyObject * image(PyObject * self,
 	float psizeX = (xmax - xmin) / npixelx;
 	float psizeY = (ymax - ymin) / npixely;
 
-	float smlmax = 0.0;
-	for(p = 0; p < length; p++) {
-		float sml = *((float*)PyArray_GETPTR1(S, p));
-		if(sml > smlmax) smlmax = sml;
-	}
 	int ic = 0;
 	int pc = 0;
 
@@ -172,10 +168,10 @@ static PyObject * image(PyObject * self,
 		float x = *((float*)PyArray_GETPTR2(locations, p, 0));
 		float y = *((float*)PyArray_GETPTR2(locations, p, 1));
 		float z = *((float*)PyArray_GETPTR2(locations, p, 2));
-		if(x > xmax+smlmax || x < xmin-smlmax) continue;
-		if(y > ymax+smlmax || y < ymin-smlmax) continue;
-		if(z > zmax+smlmax || z < zmin-smlmax) continue;
 		float sml = *((float*)PyArray_GETPTR1(S, p));
+		if(x > xmax+sml || x < xmin-sml) continue;
+		if(y > ymax+sml || y < ymin-sml) continue;
+		if(z > zmax+sml || z < zmin-sml) continue;
 		x -= xmin;
 		y -= ymin;
 		int i, j;
@@ -265,7 +261,7 @@ static PyObject * image(PyObject * self,
 					continue;
 				}
 				pc++;
-
+		
 				/* possible if pxmax == 2.0 or pymax == 2.0*/
 				if(y0 < 0) y0 = 0;
 				if(y1 >= KOVERLAP_BINS) y1 = KOVERLAP_BINS - 1;
@@ -332,7 +328,7 @@ static PyObject * image(PyObject * self,
 	free(V_arrays);
  	Py_DECREF(S);
  	Py_DECREF(locations);
-	Py_RETURN_NONE;
+	return PyInt_FromLong(ic);
 }
 static PyMethodDef module_methods[] = {
 	{"image", image, METH_KEYWORDS, image_doc_string },

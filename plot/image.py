@@ -2,6 +2,12 @@ from gadget import ccode
 
 from numpy import zeros
 def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
+  """rasterize the field listed in field to raster pixel arrays listed in targets. 
+     field is a list of gadget.field.Field
+     targets is a list of two dimensional arrays of the same shape
+     the components are listed in values.
+     returns the total number of particles in field contributed to the raster.
+     """
   if type(targets) == list:
     if type(values) != list or len(values) != len(targets):
       raise ValueError('when targets is a list, values also have to be a matching list')
@@ -10,7 +16,7 @@ def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
     values = [values]
   V = [field[fieldname] for fieldname in values]
   
-  ccode.image(targets = targets, locations = field['locations'],
+  return ccode.image(targets = targets, locations = field['locations'],
           sml = field['sml'], values = V,
           xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
           zmin = zrange[0], zmax = zrange[1], quick = quick)

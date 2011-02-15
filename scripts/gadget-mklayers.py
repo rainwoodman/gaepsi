@@ -72,9 +72,8 @@ else: boxsize = None
 opt.boxsize = comm.bcast(boxsize)
 del boxsize
 
-
 # create the stripes and layers
-stripe = Stripe(comm = comm, imagesize = opt.geometry, boxsize = remap(opt.matrix.T) * opt.boxsize,
+stripe = Stripe(comm = comm, imagesize = opt.geometry,
                 xcut = opt.xcut, ycut = opt.ycut, zcut = opt.zcut)
 
 if opt.gas != None:
@@ -133,47 +132,51 @@ for step in range(steps):
 # number of snapshot files given by opt.range
   ses_step = timer.session("step %d" % step)
   ses_reading = timer.session('reading fields')
-  bhfield = None
-  starfield = None
-  gasfield = None
+  bhfield = Field(boxsize = opt.boxsize, components={'bhmass':'f4'})
+  starfield = Field(boxsize = opt.boxsize, components={'sft':'f4'})
+  gascomps = []
+  if opt.sfr != None:
+    gascomps += ['sfr']
+  if opt.temp != None:
+    gascomps += ['ie', 'reh']
+  if opt.gas != None:
+    gascomps += ['mass', 'sml']
+  gasfield = Field(boxsize = opt.boxsize, components ={'mass':'f4', 'sml':'f4', 'ie':'f4', 'reh':'f4', 'sfr':'f4'})
   if step < len(snaplist):
 # the if above decides if a snapshot file is assigned to this core at this step
     snapfile = snaplist[step]
     snap = Snapshot(snapfile, opt.format)
     if opt.gas != None:
-      gasfield = Field(snap = snap, ptype=0, values=['mass', 'sml'])
-      gasfield.unfold(opt.matrix.T)
+      gasfield.add_snapshot(snap, ptype=0, components=gascomps)
     if opt.sfr != None:
 # replace the field sfr with mass-weighted value
       gasfield['sfr'][:] = gasfield['sfr'][:] * gasfield['mass'][:]
     if opt.temp != None:
       Xh = 0.76
       gasfield['ie'][:] = gasfield['mass'][:] * gasfield['ie'][:] / (gasfield['reh'][:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
-      del gasfield['reh']
     if opt.blackhole != None:
-      bhfield = Field(snap = snap, ptype=5, values=['bhmass'])
-      bhfield.unfold(opt.matrix.T)
+      bhfield.add_snapshot(snap, ptype=5, components=['bhmass'])
     if opt.star != None:
-      starfield = Field(snap = snap, ptype=4, values=['sft'])
-      starfield.unfold(opt.matrix.T)
+      starfield.add_snapshot(snap, ptype=4, components=['sft'])
     del snap
   ses_reading.end()
 
-# cores assigned with snapshot files now have a snapshot loaded into a Field
-# cores unassigned have Nones 
+# then we rebalance the fields, moving the relavant particles to the correct cores
+
   ses_rebalance =  timer.session("rebalancing")
   if opt.blackhole != None:
-    bhfield = stripe.rebalance(bhfield, values=['bhmass'], bleeding = opt.blackhole)
+    bhfield.unfold(opt.matrix.T)
+    bhfield = stripe.rebalance(bhfield, bleeding = opt.blackhole)
     ses_rebalance.checkpoint("bh")
   if opt.star != None:
-    starfield = stripe.rebalance(starfield, values=['sft'], bleeding = opt.star)
+    starfield.unfold(opt.matrix.T)
+    starfield = stripe.rebalance(starfield, bleeding = opt.star)
     ses_rebalance.checkpoint("star")
   if opt.gas != None:
-    gasvalues = ['mass']
-    if opt.sfr != None: gasvalues = gasvalues + ['sfr']
-    if opt.temp != None: gasvalues = gasvalues + ['ie']
-
-    gasfield = stripe.rebalance(gasfield, values=['sml'] + gasvalues)
+    gasfield.unfold(opt.matrix.T)
+    if opt.temp != None: 
+      del gasfield['reh']
+    gasfield = stripe.rebalance(gasfield)
     ses_rebalance.checkpoint("gas")
 
     load_all = array(comm.allgather(gasfield.numpoints * 1.0))
@@ -187,17 +190,26 @@ for step in range(steps):
   ses_mklayers = timer.session("making layers")
   if opt.gas != None:
     layerlist = [gaslayer]
+    gasvalues = ['mass']
     if opt.sfr != None:
       layerlist = layerlist + [msfrlayer]
+      gasvalues = gasvalues + ['sfr']
     if opt.temp != None:
       layerlist = layerlist + [templayer]
+      gasvalues = gasvalues + ['ie']
     stripe.mkraster(gasfield, gasvalues, layer=layerlist)
+    numparticles = comm.allgather(gaslayer.numparticles)
+    if comm.rank == 0: print "num gas particles per layer", numparticles
     ses_mklayers.checkpoint("gas layers")
   if opt.blackhole != None:
     stripe.mkscatter(bhfield, 'bhmass', scale=opt.blackhole, layer=bhlayer)
+    numparticles = comm.allgather(bhlayer.numparticles)
+    if comm.rank == 0: print "num bh particles per layer", numparticles
     ses_mklayers.checkpoint("bh")
   if opt.star != None:
     stripe.mkscatter(starfield, 'sft', scale=opt.star, layer=starlayer)
+    numparticles = comm.allgather(starlayer.numparticles)
+    if comm.rank == 0: print "num star particles per layer", numparticles
     ses_mklayers.checkpoint("star")
   ses_mklayers.end()
   ses_step.end()
