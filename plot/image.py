@@ -14,12 +14,26 @@ def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
   else:
     targets = [targets]
     values = [values]
-  V = [field[fieldname] for fieldname in values]
-  
-  return ccode.image(targets = targets, locations = field['locations'],
-          sml = field['sml'], values = V,
+  Vs = [field[fieldname] for fieldname in values]
+  expandedV = []
+  expandedT = []
+  for V,T in zip(Vs, targets):
+    if len(V.shape) > 1:
+      Vx = V[:, 0]
+      Vy = V[:, 1]
+      Vz = V[:, 2]
+      Tx = T[:, :, 0]
+      Ty = T[:, :, 1]
+      Tz = T[:, :, 2]
+      expandedV += [Vx,Vy,Vz]
+      expandedT += [Tx,Ty,Tz]
+    else:
+      expandedV += [V]
+      expandedT += [T]
+  return ccode.image(targets = expandedT, locations = field['locations'],
+          sml = field['sml'], values = expandedV,
           xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
-          zmin = zrange[0], zmax = zrange[1], quick = quick)
+          zmin = zrange[0], zmax = zrange[1], mask = field.mask, quick = quick, boxsize=field.boxsize)
 
 unusedcode= """
 def sparse(field, xrange, yrange, zrange, scale):

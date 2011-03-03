@@ -7,7 +7,7 @@
 
 #define image_doc_string \
 "keywords: locations, sml, value,"\
-" xmin, ymin, xmax, ymax, zmin, zmax."\
+" xmin, ymin, xmax, ymax, zmin, zmax, mask."\
 " rasterizes into an raster image the sums are calculated but no averaging is done." \
 " returns the number of particles actually contributed to the image"
 
@@ -119,26 +119,28 @@ static PyObject * image(PyObject * self,
 		"locations", "sml", "values", 
 		"xmin", "ymin", "xmax", "ymax",
 		"zmin", "zmax",
-		"quick", 
+		"quick", "mask", "boxsize",
 		NULL
 	};
 	PyObject * targets, *Vs;
 	PyArrayObject * locations, * S;
-
+	PyArrayObject * mask;
+	PyArrayObject * box;
 	float xmin, ymin, xmax, ymax, zmin, zmax;
+	float boxsizex,boxsizey,boxsizez;
 	int npixelx, npixely;
 	int length;
 	int p; /*particle counter*/
 	int quick;
 	int n; /* target counter */
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffffi", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffffiOO", kwlist,
 		&PyList_Type, &targets, 
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &S, 
 		&PyList_Type, &Vs, 
 		&xmin, &ymin, &xmax, &ymax,
 		&zmin, &zmax,
-		&quick)) return NULL;
+		&quick, &mask, &box)) return NULL;
 	
 	int Ntargets = PyList_GET_SIZE(targets);
 	PyArrayObject ** target_arrays = malloc(sizeof(void*) * Ntargets);
@@ -148,6 +150,15 @@ static PyObject * image(PyObject * self,
 		V_arrays[n] = PyArray_Cast(PyList_GET_ITEM(Vs, n), NPY_FLOAT);
 	}
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
+	if((PyObject*)mask != Py_None)
+		mask = (PyArrayObject*) PyArray_Cast(mask, NPY_BOOL);
+	if((PyObject*)box != Py_None) {
+		box = (PyArrayObject*) PyArray_Cast(box, NPY_FLOAT);
+		boxsizex = *((float*)PyArray_GETPTR1(box, 0));
+		boxsizey = *((float*)PyArray_GETPTR1(box, 1));
+		boxsizez = *((float*)PyArray_GETPTR1(box, 2));
+		Py_DECREF(box);
+	}
 	S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
 	length = PyArray_Size((PyObject*)S);
 	npixelx = PyArray_DIM((PyObject*)target_arrays[0], 0);
@@ -165,13 +176,42 @@ static PyObject * image(PyObject * self,
 	float * cache = malloc(sizeof(float) * cache_size);
 
 	for(p = 0; p < length; p++) {
+		char m = ((PyObject*) mask != Py_None)?(*((char*)PyArray_GETPTR1(mask, p))):1;
+		if(!m) continue;
 		float x = *((float*)PyArray_GETPTR2(locations, p, 0));
 		float y = *((float*)PyArray_GETPTR2(locations, p, 1));
 		float z = *((float*)PyArray_GETPTR2(locations, p, 2));
 		float sml = *((float*)PyArray_GETPTR1(S, p));
-		if(x > xmax+sml || x < xmin-sml) continue;
-		if(y > ymax+sml || y < ymin-sml) continue;
-		if(z > zmax+sml || z < zmin-sml) continue;
+		if(x > xmax+sml || x < xmin-sml) {
+			if(box == Py_None) continue;
+			x += boxsizex;
+			if(x > xmax+sml || x < xmin-sml) {
+				x -= boxsizex; x -= boxsizex;
+				if(x > xmax+sml || x < xmin-sml) {
+				continue;
+				}
+			}
+		}
+		if(y > ymax+sml || y < ymin-sml) {
+			if(box == Py_None) continue;
+			y += boxsizey;
+			if(y > ymax+sml || y < ymin-sml) {
+				y -= boxsizey; y -= boxsizey;
+				if(y > ymax+sml || y < ymin-sml) {
+				continue;
+				}
+			}
+		}
+		if(z > zmax+sml || z < zmin-sml) {
+			if(box == Py_None) continue;
+			z += boxsizez;
+			if(z > zmax+sml || z < zmin-sml) {
+				z -= boxsizez; z -= boxsizez;
+				if(z > zmax+sml || z < zmin-sml) {
+				continue;
+				}
+			}
+		}
 		x -= xmin;
 		y -= ymin;
 		int i, j;
@@ -328,6 +368,8 @@ static PyObject * image(PyObject * self,
 	free(V_arrays);
  	Py_DECREF(S);
  	Py_DECREF(locations);
+	if(mask != Py_None)
+		Py_DECREF(mask);
 	return PyInt_FromLong(ic);
 }
 static PyMethodDef module_methods[] = {
