@@ -3,6 +3,7 @@ from numpy import sqrt
 from numpy import zeros_like
 from numpy import diff
 from numpy import pi
+from numpy import log10
 from constant.GADGET import *
 
 class Cosmology:
@@ -42,6 +43,22 @@ class Cosmology:
        REF Rennna Barkana astro-ph/0010468v3 eq (24) [proper in eq 24]"""
     OmegaMz = self.M * (1 + z)**3 / (self.M * (1+z)**3 + self.L + self.R * (1+z)**2)
     return 0.784 * (M * 100)**(0.33333) * (self.M / OmegaMz * Deltac / (18 * pi * pi))**-0.3333333 * 10
+
+  def ie2T(self, Xh, ie, reh, out=None):
+    """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
+       multiply by constant.GADGET.TEMPERATURE_K"""
+    if out != None:
+      out[:] = ie[:] / (reh[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      return out
+    else:
+      return ie / (reh * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+  def Lbol(self, mdot):
+    """ converts GADGET bh accretion rate to bolemetric luminosity taking GADGET return GADGET,
+        multiply by constant.GADGET.POWER_W to convert to SI """
+    def f(x): return 0.80 - 0.067 * (log10(x) - 12) + 0.017 * (log10(x) - 12)**2 - 0.0023 * (log10(x) - 12)**3
+    # 0.1 is coded in gadget bh model.
+    L = mdot * C ** 2 * 0.1
+    return 10**(-f(L/SOLARLUMINOSITY)) * L
 
 default = Cosmology(OmegaR=0.0, OmegaM=0.26, OmegaL=0.74, h=0.72)
 
