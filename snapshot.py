@@ -25,12 +25,16 @@ class Snapshot:
 
     reader.prepare(self, file = file, *args, **kwargs)
 
-  def load(self, blocknames, ptype=None) :
+  def load(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.load(self, bn, ptype)
+  def save(self, blocknames, ptype='all') :
+    if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
+    for bn in blocknames: 
+      self.reader.save(self, bn, ptype)
  
-  def clear(self, blocknames, ptype=None) :
+  def clear(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     if ptype == None: ptype = 'all'
     for name in blocknames :
