@@ -1,6 +1,7 @@
 from numpy import dtype
 from numpy import array
 from numpy import NaN
+from numpy import zeros
 class Reader:
   def __init__(self, file_class, header, schemas, endian='<'):
     self.header = dtype(header)
@@ -21,6 +22,25 @@ class Reader:
     self.setup_constants(snapshot)
     self.update_offsets(snapshot)
 
+  def makeheader(self):
+    return zeros(dtype=self.header, shape=1)[0]
+
+  def create(self, snapshot, header, file, *args, **kwargs):
+    snapshot.file = self.file_class(file, endian=self.endian, mode='w+', *args, **kwargs)
+    snapshot.reader = self
+    snapshot.header = header
+    buf = zeros(dtype=self.header, shape=1)
+    buf[0] = header
+    snapshot.file.write_record(buf)
+    self.setup_constants(snapshot)
+    self.update_offsets(snapshot, create=True)
+    for s in self.schemas:
+      name = s['name']
+      if not snapshot.sizes[name] == None:
+        print 'creating', name, snapshot.offsets[name], snapshot.sizes[name] // s['dtype'].itemsize
+        snapshot.file.seek(snapshot.offsets[name], 0)
+        snapshot.file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].itemsize)
+
   def setup_constants(self, snapshot):
     snapshot.C['G'] = 43007.1
     snapshot.C['H'] = 0.1
@@ -37,7 +57,7 @@ class Reader:
     return dict(
       N = snapshot.header['N'])
 
-  def update_offsets(self, snapshot):
+  def update_offsets(self, snapshot, create=False):
     blockpos = self.file_class.get_size(self.header.itemsize);
     for s in self.schemas:
       name = s['name']
@@ -59,10 +79,26 @@ class Reader:
       if blocksize != 0 : 
         blockpos += self.file_class.get_size(blocksize);
 
+    return blockpos
 
-  def load(self, snapshot, name, ptype=None):
-    if ptype == None: ptype = 'all'
 
+  def save(self, snapshot, name, ptype='all'):
+    sch = self.hash[name]
+    snapshot.file.seek(snapshot.offsets[name])
+    length = snapshot.sizes[name] // sch['dtype'].itemsize
+    if ptype == 'all':
+      if snapshot.sizes[name] != 0 :
+        snapshot.file.write_record(snapshot.P['all'][name])
+    else :
+      if not ptype in sch['ptypes'] : 
+        return
+      offset = 0
+      for i in range(6):
+        if i in sch['ptypes'] and i < ptype :
+          offset += snapshot.N[i]
+      snapshot.file.wirte_record(sch['dtype'], length, offset)
+   
+  def load(self, snapshot, name, ptype='all'):
     if snapshot[ptype].has_key(name) : return
 
     sch = self.hash[name]

@@ -10,8 +10,7 @@ class CFile(file):
   def __init__(self, *args, **kwargs) :
     file.__init__(self, *args, **kwargs)
 
-  def read_record(self, dtype, length = None, offset=None, nread=None) :
-    if offset == None: offset = 0
+  def read_record(self, dtype, length = None, offset=0, nread=None) :
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
     arr = fromfile(self, dtype, length)
@@ -20,11 +19,16 @@ class CFile(file):
   def skip_record(self, dtype, length) :
     size = length * dtype.itemsize
     self.seek(size, 1)
-  def write_record(self, a):
+  def write_record(self, a, length = None, offset=0):
+    dtype = a.dtype
+    self.seek(offset * dtype.itemsize, 1)
     a.tofile(self)
+    self.seek((length - a.size - offset) * dtype.itemsize, 1)
   def rewind_record(self, dtype, length) :
     size = length * dtype.itemsize
     self.seek(-size, 1)
+  def create_record(self, dtype, length):
+    self.seek(length * dtype.itemsize, 1)
 
 class F77File(file):
   def get_size(size):
@@ -44,7 +48,7 @@ class F77File(file):
                      self.bsdtype.byteorder == '=' and little_endian))
     file.__init__(self, *args, **kwargs)
 
-  def read_record(self, dtype, length = None, offset=None, nread=None) :
+  def read_record(self, dtype, length = None, offset=0, nread=None) :
     if length == 0: return array([])
     size = fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
@@ -52,7 +56,6 @@ class F77File(file):
       raise IOError("length doesn't match %d != %d" % (length, _length))
     
     length = _length
-    if offset == None: offset = 0
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
     X = fromfile(self, dtype, nread)
@@ -63,13 +66,18 @@ class F77File(file):
     if self.little_endian != little_endian: X.byteswap(True)
     return X
 
-  def write_record(self, a):
-    if a.size == 0: return
-    size = int32(a.size * a.dtype.itemsize)
-    array([size], dtype=self.bsdtype).tofile(self)
-    
+  def write_record(self, a, length = None, offset=0):
+    if length == None: length = a.size
+
+    if length == 0: return
+
     if self.little_endian != little_endian: a.byteswap(True)
+    dtype = a.dtype
+    size = int32(length * a.dtype.itemsize)
+    array([size], dtype=self.bsdtype).tofile(self)
+    self.seek(offset * dtype.itemsize, 1)
     a.tofile(self)
+    self.seek((length - offset - a.size) * dtype.itemsize, 1)
     array([size], dtype=self.bsdtype).tofile(self)
 
   def skip_record(self, dtype, length = None) :
@@ -96,3 +104,8 @@ class F77File(file):
     self.seek(-self.bsdtype.itemsize, 1)
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
+  def create_record(self, dtype, length):
+    size = int32(length * dtype.itemsize)
+    array([size], dtype=self.bsdtype).tofile(self)
+    self.seek(size, 1)
+    array([size], dtype=self.bsdtype).tofile(self)
