@@ -1,9 +1,10 @@
-from scipy.integrate import quad
+from numpy import trapz
 from numpy import sqrt
 from numpy import zeros_like
 from numpy import diff
 from numpy import pi
 from numpy import log10
+from numpy import linspace
 from constant.GADGET import *
 
 class Cosmology:
@@ -13,12 +14,13 @@ class Cosmology:
     self.L = OmegaL
     self.h = h
   
-  def age(self, z=None, a=None):
-    """ returns the age of the universe at the given z or a, in SI"""
+  def age(self, z=None, a=None, bins=2000):
+    """ returns the age of the universe at the given z or a, in GADGET"""
     if a==None: a = 1.0 / (1.0 + z)
     Omega0 = self.R + self.M + self.L
-    f = lambda x: sqrt(1.0/(self.R/x**2 + self.M/x + self.L * x**2 + 1 - Omega0))
-    return quad(f, 0, a)[0] / (H0 * h)
+    x = linspace(0, a, bins)[1:]
+    y = sqrt(1.0/(self.R/x**2 + self.M/x + self.L * x**2 + 1 - Omega0))
+    return trapz(y, x) / (H0 * self.h)
 
   def H(self, z=None, a=None):
     """ return the hubble constant at the given z or a, in GADGET units, h is not multiplied"""
