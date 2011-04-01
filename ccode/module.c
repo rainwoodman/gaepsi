@@ -6,6 +6,8 @@ extern HIDDEN void gadget_initNDTree(PyObject * m);
 extern HIDDEN void gadget_initimage(PyObject * m);
 extern HIDDEN void gadget_initremap(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
+extern HIDDEN void gadget_initrender(PyObject * m);
+extern HIDDEN void gadget_initpmin(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}

@@ -185,7 +185,7 @@ static PyObject * image(PyObject * self,
 		sml_sum += sml;
 		float sml_2 = sml / 2;
 		if(x > xmax+sml || x < xmin-sml) {
-			if(box == Py_None) continue;
+			if(box == (void*)Py_None) continue;
 			x += boxsizex;
 			if(x > xmax+sml || x < xmin-sml) {
 				x -= boxsizex; x -= boxsizex;
@@ -195,7 +195,7 @@ static PyObject * image(PyObject * self,
 			}
 		}
 		if(y > ymax+sml || y < ymin-sml) {
-			if(box == Py_None) continue;
+			if(box == (void*)Py_None) continue;
 			y += boxsizey;
 			if(y > ymax+sml || y < ymin-sml) {
 				y -= boxsizey; y -= boxsizey;
@@ -205,7 +205,7 @@ static PyObject * image(PyObject * self,
 			}
 		}
 		if(z > zmax+sml_2 || z < zmin-sml_2) {
-			if(box == Py_None) continue;
+			if(box == (void*)Py_None) continue;
 			z += boxsizez;
 			if(z > zmax+sml_2 || z < zmin-sml_2) {
 				z -= boxsizez; z -= boxsizez;

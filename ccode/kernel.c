@@ -94,7 +94,7 @@ double HIDDEN koverlapd(double x0, double y0, double x1, double y1) {
 	return koverlap[indx0][indy0][indx1][indy1];
 }
 
-static void fill_koverlap() {
+static void fill_koverlap(void) {
 	float rowsum[KOVERLAP_BINS][KOVERLAP_BINS];
 	float max = 0.0;
 	int i0, j0, i1, j1;
@@ -139,9 +139,9 @@ static char koverlap_signatures[] = {
 	PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT,
 	PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, };
 
-static PyMethodDef module_methods[] = {
+/*static PyMethodDef module_methods[] = {
 	{NULL}
-};
+};*/
 
 static void PyUFunc_ffff_f(char **args, npy_intp *dimensions, npy_intp *steps, void *func) {
 	typedef float (ftype )(float , float, float, float);
@@ -178,7 +178,6 @@ static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, v
 	}
 }
 void HIDDEN gadget_initkernel(PyObject * m) {
-	int i;
 	import_array();
 	import_ufunc();
 	fill_koverlap();
@@ -210,7 +209,7 @@ void HIDDEN gadget_initkernel(PyObject * m) {
 	PyModule_AddObject(m, "k0", k0_u);
 	PyModule_AddObject(m, "kline", kline_u);
 	PyModule_AddObject(m, "koverlap", koverlap_u);
-	PyModule_AddObject(m, "akline", kline_a);
-	PyModule_AddObject(m, "aklinesq", klinesq_a);
-	PyModule_AddObject(m, "akoverlap", koverlap_a);
+	PyModule_AddObject(m, "akline", (PyObject*)kline_a);
+	PyModule_AddObject(m, "aklinesq", (PyObject*)klinesq_a);
+	PyModule_AddObject(m, "akoverlap", (PyObject*)koverlap_a);
 }
