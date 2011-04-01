@@ -40,7 +40,7 @@ struct _TreeNode {
 struct _NDTree {
 	PyObject_HEAD
 	PyArrayObject * POS;
-	PyArrayObject * S;
+	PyArrayObject * SML;
 	float boxsize[DMAX];
 	float origin[DMAX];
 	int depth;
@@ -65,11 +65,14 @@ static void TreeNode_init(NDTree * tree, TreeNode * node,
 	node->depth = 0;
 	node->sml_max = 0.0;
 	node->leaf = 1;
+	node->children = -1;
+	node->parent = -1;
 }
-static void TreeNode_clear(NDTree * tree, TreeNode * node) {
+static void TreeNode_clear(NDTree * tree, NODEINDEX_T nodeindex) {
+	TreeNode * node = &(tree->pool[nodeindex]);
 	if(!IS_LEAF(node)) {
 		FOR_CHILDREN(tree, node, i, child) {
-			TreeNode_clear(tree, child);
+			TreeNode_clear(tree, node->children + i);
 		}
 	} else {
 		PyMem_Del(node->indices);
@@ -130,14 +133,15 @@ static TreeNode * TreeNode_split(NDTree * tree, TreeNode * node) {
 	}
 
 	NODEINDEX_T nodeindex = node - tree->pool;
+	node = GET_NODE(tree, nodeindex);
+	node->children = tree->pool_length;
+	node->leaf = 0;
 	tree->pool_length += 1 << tree->dim;
 	if(tree->pool_length > tree->pool_size) {
 		tree->pool_size += INITIAL_POOL_SIZE;
 		tree->pool = PyMem_Resize(tree->pool, TreeNode, tree->pool_size);
+		node = GET_NODE(tree, nodeindex);
 	}
-	node = GET_NODE(tree, nodeindex);
-	node->children = tree->pool_length;
-	node->leaf = 0;
 	FOR_CHILDREN(tree, node, i, child) {
 		float topleft[DMAX];
 		float bottomright[DMAX];
@@ -257,7 +261,7 @@ static float TreeNode_calc_sml(NDTree * tree, TreeNode * node) {
 	} else {
 		for(i = 0; i < node->indices_length; i++) {
 			INDEX_T index = node->indices[i];
-			float t = *((float*)PyArray_GETPTR1(tree->S,index));
+			float t = *((float*)PyArray_GETPTR1(tree->SML,index));
 			if(t > node->sml_max) node->sml_max = t;
 		}
 		if(node->indices_length > tree->max_indices_length) tree->max_indices_length = node->indices_length;
@@ -265,9 +269,11 @@ static float TreeNode_calc_sml(NDTree * tree, TreeNode * node) {
 	return node->sml_max;
 }
 static void NDTree_dealloc(NDTree * self) {
-	fprintf(stderr, "NDTree dispose %p refcount = %u\n", self, (unsigned int)self->ob_refcnt);
-	TreeNode_clear(self, &(self->pool[0]));
-	PyMem_Del(self->pool);
+	fprintf(stderr, "NDTree dispose %p refcount = %u %p\n", self, (unsigned int)self->ob_refcnt, self->pool);
+	if(self->pool != NULL) {
+		TreeNode_clear(self, 0);
+		PyMem_Del(self->pool);
+	}
 	self->ob_type->tp_free((PyObject*) self);
 }
 
@@ -281,8 +287,8 @@ static PyObject * NDTree_new(PyTypeObject * type,
 
 static int NDTree_init(NDTree * self, 
 	PyObject * args, PyObject * kwds) {
-	PyArrayObject * POS;
-	PyArrayObject * S;
+	PyArrayObject * POS = NULL;
+	PyArrayObject * SML = NULL;
 	PyArrayObject * boxsize;
 	PyArrayObject * origin;
 	INDEX_T length = 0;
@@ -290,24 +296,23 @@ static int NDTree_init(NDTree * self,
 	INDEX_T index;
 	int d;
 	int dim;
-	static char * kwlist[] = {"D", "POS", "SML", "origin", "boxsize", "periodical", NULL};
+	static char * kwlist[] = {"D", "POS", "origin", "boxsize", "SML", NULL};
     fprintf(stderr, "NDTree_init on %p\n", self);
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "iO!O!O!O!|i", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "iO!O!O!|O!", kwlist,
 		&dim,
-		&PyArray_Type, &POS, 
-		&PyArray_Type, &S,
+		&PyArray_Type, &POS,
 		&PyArray_Type, &origin, 
 		&PyArray_Type, &boxsize, 
-        &periodical
+		&PyArray_Type, &SML
 	)) return -1;
 	
 	self->dim = dim;
 	self->POS = (PyArrayObject*) PyArray_Cast(POS, NPY_FLOAT);
-	self->S = (PyArrayObject*) PyArray_Cast(S, NPY_FLOAT);
+
     boxsize = (PyArrayObject*) PyArray_Cast(boxsize, NPY_FLOAT);
     origin = (PyArrayObject*) PyArray_Cast(origin, NPY_FLOAT);
 
-	length = PyArray_Size((PyObject*)S);
+	length = PyArray_DIM((PyObject*)POS, 0);
 	for(d = 0; d < dim; d++) {
 		self->boxsize[d] = *((float*)PyArray_GETPTR1(boxsize, d));
 		self->origin[d] = *((float*)PyArray_GETPTR1(origin, d));
@@ -360,11 +365,15 @@ static int NDTree_init(NDTree * self,
 		TreeNode_append(node, index);
 		last_node = node;
 	}
-	TreeNode_calc_sml(self, GET_NODE(self, 0));
+
+	if(SML != NULL) {
+		self->SML = (PyArrayObject*) PyArray_Cast(SML, NPY_FLOAT);
+		TreeNode_calc_sml(self, GET_NODE(self, 0));
+		Py_DECREF(self->SML);
+	}
 	Py_DECREF(boxsize);
 	Py_DECREF(origin);
 	Py_DECREF(self->POS);
-	Py_DECREF(self->S);
 	return 0;
 }
 
