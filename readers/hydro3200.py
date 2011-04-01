@@ -57,4 +57,5 @@ class Reader(Base):
       N = h['N'],
       Z = h['redshift'],
       L = h['boxsize'],
+      PhysDensThresh = 0.000831188,
     )
