@@ -174,7 +174,7 @@ static PyObject * image(PyObject * self,
 
 	npy_intp cache_size = 1024;
 	float * cache = malloc(sizeof(float) * cache_size);
-
+	float sml_sum = 0.0;
 	for(p = 0; p < length; p++) {
 		char m = ((PyObject*) mask != Py_None)?(*((char*)PyArray_GETPTR1(mask, p))):1;
 		if(!m) continue;
@@ -182,6 +182,8 @@ static PyObject * image(PyObject * self,
 		float y = *((float*)PyArray_GETPTR2(locations, p, 1));
 		float z = *((float*)PyArray_GETPTR2(locations, p, 2));
 		float sml = *((float*)PyArray_GETPTR1(S, p));
+		sml_sum += sml;
+		float sml_2 = sml / 2;
 		if(x > xmax+sml || x < xmin-sml) {
 			if(box == Py_None) continue;
 			x += boxsizex;
@@ -202,12 +204,12 @@ static PyObject * image(PyObject * self,
 				}
 			}
 		}
-		if(z > zmax+sml || z < zmin-sml) {
+		if(z > zmax+sml_2 || z < zmin-sml_2) {
 			if(box == Py_None) continue;
 			z += boxsizez;
-			if(z > zmax+sml || z < zmin-sml) {
+			if(z > zmax+sml_2 || z < zmin-sml_2) {
 				z -= boxsizez; z -= boxsizez;
-				if(z > zmax+sml || z < zmin-sml) {
+				if(z > zmax+sml_2 || z < zmin-sml_2) {
 				continue;
 				}
 			}
@@ -361,6 +363,7 @@ static PyObject * image(PyObject * self,
 	printf("ic = %d pc = %d \n", ic, pc);
 #endif
 	free(cache);
+    printf("sml_sum = %f\n", sml_sum);
 	for(n = 0; n < Ntargets; n++) {
 		Py_DECREF(V_arrays[n]);
 	}
