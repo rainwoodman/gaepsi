@@ -46,6 +46,12 @@ class Cosmology:
     OmegaMz = self.M * (1 + z)**3 / (self.M * (1+z)**3 + self.L + self.R * (1+z)**2)
     return 0.784 * (M * 100)**(0.33333) * (self.M / OmegaMz * Deltac / (18 * pi * pi))**-0.3333333 * 10
 
+  def Vvir(self, M, z, Deltac=200):
+    """ returns the physical virial circular velocity"""
+    return (G * M / self.Rvir(M, z, Deltac) * (1.0 + z)) ** 0.5
+  def Tvir(self, M, z, Deltac=200, Xh=0.76, reh=1.16):
+    return 0.5 * self.Vvir(M,z, Deltac) ** 2 / (reh * Xh + (1 - Xh) * 0.25 + Xh)
+
   def ie2T(self, Xh, ie, reh, out=None):
     """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
        multiply by constant.GADGET.TEMPERATURE_K"""
@@ -61,6 +67,5 @@ class Cosmology:
     # 0.1 is coded in gadget bh model.
     L = mdot * C ** 2 * 0.1
     return 10**(-f(L/SOLARLUMINOSITY)) * L
-
 default = Cosmology(OmegaR=0.0, OmegaM=0.26, OmegaL=0.74, h=0.72)
 
