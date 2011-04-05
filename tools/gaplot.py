@@ -11,6 +11,7 @@ from gadget import ccode
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax
 from numpy import isinf, nan, argsort
 from numpy import tile, unique, sqrt, nonzero
+from numpy import ceil
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
@@ -214,11 +215,34 @@ class Context:
       quiver(self.cut.center[0], self.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
     axis([self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1]])
 
-  def decorate(self):
-    ticklabel_format(axis='x', useOffset=self.cut.center[0])
-    ticklabel_format(axis='y', useOffset=self.cut.center[1])
-    xticks(linspace(self.cut['x'][0], self.cut['x'][1], 5))
-    yticks(linspace(self.cut['y'][0], self.cut['y'][1], 5))
+  def decorate(self, frameon=True):
+    from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
+    ax = gca()
+    if frameon :
+      ticklabel_format(axis='x', useOffset=self.cut.center[0])
+      ticklabel_format(axis='y', useOffset=self.cut.center[1])
+      xticks(linspace(self.cut['x'][0], self.cut['x'][1], 5))
+      yticks(linspace(self.cut['y'][0], self.cut['y'][1], 5))
+    else :
+      ax.axison = False
+
+    l = (self.cut['x'][1] - self.cut['x'][0]) * 0.2
+    l = l // 10 ** int(log10(l)) * 10 ** int(log10(l))
+    if l > 500 :
+      l/=1000.0
+      l = int(l+0.5)
+      text = r"%g Mpc/$h$" % l
+      l *= 1000.0
+    else:
+      text = r"%g Kpc/$h$" %l
+   
+    b = AnchoredSizeBar(ax.transData, l, text, loc = 8, 
+        pad=0.1, borderpad=0.5, sep=5, frameon=False)
+    for r in b.size_bar.findobj(Rectangle):
+      r.set_edgecolor('w')
+    for t in b.txt_label.findobj(Text):
+      t.set_color('w')
+    ax.add_artist(b)
 
   def vector(self,component, grids=(20,20), quick=True):
     xs,xstep = linspace(self.cut['x'][0], self.cut['x'][1], grids[0], endpoint=False,retstep=True)
@@ -292,8 +316,19 @@ def makeT():
   _DC.ie2T(ie = gas['ie'], reh = gas['reh'], Xh = 0.76, out = gas['T'])
   gas['T'] *= TEMPERATURE_K
 
+def Rvir(Mhalo):
+  from gadget.cosmology import default as DC
+  return DC.Rvir(Mhalo, z=get_redshift())
+
+def Tvir(Mhalo):
+  from gadget.constant.GADGET import TEMPERATURE_K
+  from gadget.cosmology import default as DC
+  return DC.Tvir(Mhalo, z=get_redshift()) * TEMPERATURE_K
+
+
 def mergeBHs(threshold=1.0):
   bh = get_bh()
+  if bh.numpoints == 0: return
   pos = bh['locations']
   posI = tile(pos, pos.shape[0]).reshape(pos.shape[0], pos.shape[0], 3)
   posJ = posI.transpose((1,0,2))
