@@ -7,6 +7,7 @@ def tozipfile(filename, array, patch_size=1048576):
   file = gzip.open(filename, 'w')
   for i in range(0, len(array), patch_size):
     file.write(array[i:i+patch_size].tostring())
+  file.flush()
   file.close()
 
 def fromzipfile(filename, array, patch_size=1048576):
