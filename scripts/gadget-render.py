@@ -29,12 +29,12 @@ bhmap = Colormap(levels = [0, 0.5, 1.0],
                     g = [1.0, 1.0, 1.0],
                     b = [0.0, 0.0, 0.0],
                     v = [0.2, 0.5, 1.0])
-starmap = Colormap(levels = [0, 0.2, 0.7, 1.0],
-                    r = [1.0, 1.0, 0.0, 0.0],
-                    g = [0.0, 0.0, 1.0, 0.0],
-                    b = [0.0, 0.0, 0.0, 1.0],
-                    v = [1.0, 1.0, 1.0, 1.0],
-                    a = [0.2, 0.2, 0.2, 0.2])
+starmap = Colormap(levels = [0, 0.5, 1.0],
+                    r = [1.0, 1.0, 1.0],
+                    g = [1.0, 1.0, 1.0],
+                    b = [1.0, 1.0, 1.0],
+                    v = [1.0, 1.0, 1.0],
+                    a = [0.7, 0.7, 0.7])
 
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.8, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
@@ -97,10 +97,10 @@ if opt.blackhole != None:
 if opt.star != None:
   starmin, starmax = loadminmax(comm, opt.prefix + 'hist-star.npz')
 if opt.output != None:
-  file = MPI.File.Open(comm, opt.output, MPI.MODE_WRONLY + MPI.MODE_CREATE)
-  file.Set_view(disp = 0, etype=MPI.BYTE, filetype=MPI.BYTE)
+  mpifile = MPI.File.Open(comm, opt.output, MPI.MODE_WRONLY + MPI.MODE_CREATE)
+  mpifile.Set_view(disp = 0, etype=MPI.BYTE, filetype=MPI.BYTE)
 else:
-  file = None
+  mpifile = None
 
 for step in range(steps):
   ses_step = timer.session("step %d" % step)
@@ -108,6 +108,13 @@ for step in range(steps):
   if step < len(stripeids):
     stripeid = stripeids[step]
     stripe = Stripe(rank = stripeid, total = opt.total, imagesize = opt.geometry)
+    if stripe.total < 1000:
+      fn = opt.prefix + '%03d.raw' % stripe.rank 
+    else:
+      fn = opt.prefix + '%04d.raw' % stripe.rank
+    if mpifile == None and os.path.exists(fn):
+      ses_step.end()
+      continue
     image = zeros(dtype=('u1', 3), shape = stripe.shape)
   else:
     stripe = None
@@ -145,36 +152,51 @@ for step in range(steps):
   if opt.gas != None:
     if stripe != None:
       gaslayer.render(target=image, colormap = gasmap, logscale=True, min=gasmin, max=gasmax)
+      del gaslayer
     ses_render.checkpoint("gas")
   if opt.sfr != None:
     if stripe != None:
       msfrlayer.render(target=image, colormap = msfrmap, logscale=True, min=msfrmin, max=msfrmax)
+      del msfrlayer
     ses_render.checkpoint("sfr")
   if opt.temp!= None:
     if stripe != None:
       mtemplayer.render(target=image, colormap = mtempmap, logscale=True, min=mtempmin, max=mtempmax)
-    ses_render.checkpoint("mtemp")
+      del mtemplayer
+    ses_render.checkpoint("msfr")
 
   if opt.star != None:
     if stripe != None:
       starlayer.render(target=image, colormap = starmap, logscale=True, min=starmin, max=starmax)
+      del starlayer
     ses_render.checkpoint("star")
 
   if opt.blackhole != None:
     if stripe != None:
       bhlayer.render(target=image, colormap = bhmap, logscale=True, min=bhmin, max=bhmax)
+      del bhlayer
     ses_render.checkpoint("bh")
   ses_render.end()
 
   ses_write = timer.session("writing")
   if stripe != None:
-    if file != None:
-      file.Write_at(stripe.pixel_start * stripe.shape[1] * 3, [image.data, MPI.BYTE])
+    flat = image.ravel()
+    buflen=8192*1024
+    if mpifile != None:
+      for i in range(0, flat.size, buflen):
+        data = flat[i:i+buflen]
+        mpifile.Write_at((stripe.pixel_start * stripe.shape[1]) * 3 + i, [data.data, MPI.BYTE])
     else :
       if stripe.total < 1000:
-        image.tofile(opt.prefix + '%03d.raw' % stripe.rank)
+        datafile = file(opt.prefix + '%03d.raw' % stripe.rank, 'w')
       else:
-        image.tofile(opt.prefix + '%04d.raw' % stripe.rank)
+        datafile = file(opt.prefix + '%04d.raw' % stripe.rank, 'w')
+      for i in range(0, flat.size, buflen):
+        data = flat[i:i+buflen]
+        data.tofile(datafile)
+      del datafile
+    del image
+    del flat
   ses_write.end()
   ses_step.end()
-if file != None: file.Close()
+if mpifile != None: mpifile.Close()

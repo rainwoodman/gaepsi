@@ -142,6 +142,11 @@ for step in range(steps):
   if opt.gas != None:
     gascomps += ['mass', 'sml']
   gasfield = Field(boxsize = opt.boxsize, components ={'mass':'f4', 'sml':'f4', 'ie':'f4', 'reh':'f4', 'sfr':'f4'})
+  if opt.temp == None:
+    del gasfield['reh']
+    del gasfield['ie']
+  if opt.sfr == None:
+    del gasfield['sfr']
   if step < len(snaplist):
 # the if above decides if a snapshot file is assigned to this core at this step
     snapfile = snaplist[step]
