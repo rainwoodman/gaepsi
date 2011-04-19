@@ -96,7 +96,7 @@ class Reader:
       for i in range(6):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.N[i]
-      snapshot.file.wirte_record(sch['dtype'], length, offset)
+      snapshot.file.write_record(snapshot.P[ptype][name], length, offset)
    
   def load(self, snapshot, name, ptype='all'):
     if snapshot[ptype].has_key(name) : return
