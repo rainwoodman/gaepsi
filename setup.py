@@ -5,7 +5,10 @@ setup(name="gadget", version="1.0",
       packages = [
         'gadget', 'gadget.constant', 'gadget.plot', 'gadget.readers', 'gadget.tools'
       ],
-      scripts = [ 'scripts/gadget-render.py', 'scripts/gadget-mklayers.py', 'scripts/gadget-hist.py'],
+      scripts = [ 'scripts/gadget-render.py', 
+                  'scripts/gadget-mklayers.py', 
+                  'scripts/gadget-hist.py',
+                  'scripts/gadget-dump-header.py'],
       ext_modules = [
         Extension("gadget._gadgetccode", 
              ["ccode/module.c", 
@@ -16,6 +19,8 @@ setup(name="gadget", version="1.0",
               "ccode/render.c",
               "ccode/pmin.c",
              ], 
+             extra_compile_args=['-O3', '-fopenmp'],
+             libraries=['gomp'],
              include_dirs=[get_include()],
              depends = ["ccode/defines.h"]
         ),

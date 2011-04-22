@@ -29,18 +29,18 @@ static PyObject * color(PyObject * self,
 	cmapg = (PyArrayObject*) PyArray_Cast(cmapg, NPY_FLOAT);
 	cmapb = (PyArrayObject*) PyArray_Cast(cmapb, NPY_FLOAT);
 	cmapa = (PyArrayObject*) PyArray_Cast(cmapa, NPY_FLOAT);
-	int Ncmapbins = PyArray_Size((PyObject*)cmapr);
+	npy_intp Ncmapbins = PyArray_Size((PyObject*)cmapr);
 	float * cmapr_data = PyArray_GETPTR1(cmapr, 0);
 	float * cmapg_data = PyArray_GETPTR1(cmapg, 0);
 	float * cmapb_data = PyArray_GETPTR1(cmapb, 0);
 	float * cmapa_data = PyArray_GETPTR1(cmapa, 0);
 	unsigned char * target_data;
-	int Nx = PyArray_DIM((PyObject*)raster, 0);
-	int Ny = PyArray_DIM((PyObject*)raster, 1);
-	int i, j;
+	npy_intp Nx = PyArray_DIM((PyObject*)raster, 0);
+	npy_intp Ny = PyArray_DIM((PyObject*)raster, 1);
+	npy_intp i, j;
 	float index_factor = Ncmapbins / (max - min);
-	int nans = 0;
-	int badvalues = 0;
+	npy_intp nans = 0;
+	npy_intp badvalues = 0;
 	for(i = 0; i < Nx; i++) {
 	for(j = 0; j < Ny; j++) {
 		float raster_value;
@@ -59,7 +59,7 @@ static PyObject * color(PyObject * self,
 			}
 			raster_value = log10(raster_value);
 		}
-		int index = (raster_value - min) * index_factor;
+		npy_intp index = (raster_value - min) * index_factor;
 		if(index < 0) index = 0;
 		if(index >= Ncmapbins) index = Ncmapbins - 1;
 		float a = cmapa_data[index];
@@ -111,16 +111,16 @@ static PyObject * line(PyObject * self, PyObject * args, PyObject * kwds) {
 	cmapb = (PyArrayObject*) PyArray_Cast(cmapb, NPY_FLOAT);
 	cmapa = (PyArrayObject*) PyArray_Cast(cmapa, NPY_FLOAT);
 	cmapv = (PyArrayObject*) PyArray_Cast(cmapv, NPY_FLOAT);
-	int Ncmapbins = PyArray_Size((PyObject*)cmapr);
+	npy_intp Ncmapbins = PyArray_Size((PyObject*)cmapr);
 	float * cmapr_data = PyArray_GETPTR1(cmapr, 0);
 	float * cmapg_data = PyArray_GETPTR1(cmapg, 0);
 	float * cmapb_data = PyArray_GETPTR1(cmapb, 0);
 	float * cmapa_data = PyArray_GETPTR1(cmapa, 0);
 	float * cmapv_data = PyArray_GETPTR1(cmapv, 0);
-	int i;
-	int N = PyArray_Size((PyObject*)X);
-	int DX = PyArray_DIM(target, 0);
-	int DY = PyArray_DIM(target, 1);
+	npy_intp i;
+	npy_intp N = PyArray_Size((PyObject*)X);
+	npy_intp DX = PyArray_DIM(target, 0);
+	npy_intp DY = PyArray_DIM(target, 1);
 #define SET(x, y) { \
 	if(x>=0 && x<DX && y>=0 && y<DY) {\
 		unsigned char * base = (unsigned char*)PyArray_GETPTR3(target, x,y,0); \
@@ -131,8 +131,8 @@ static PyObject * line(PyObject * self, PyObject * args, PyObject * kwds) {
 	}
 	float index_factor = Ncmapbins / (max - min);
 	for(i = 0; i < N; i++) {
-		int x0 = *(float*)PyArray_GETPTR1(X,i);
-		int y0 = *(float*)PyArray_GETPTR1(Y,i);
+		npy_intp x0 = *(float*)PyArray_GETPTR1(X,i);
+		npy_intp y0 = *(float*)PyArray_GETPTR1(Y,i);
 		float vx = *(float*)PyArray_GETPTR1(VX,i);
 		float vy = *(float*)PyArray_GETPTR1(VY,i);
 		float mag = sqrt(vx * vx + vy * vy);
@@ -146,11 +146,11 @@ static PyObject * line(PyObject * self, PyObject * args, PyObject * kwds) {
 			value = mag;
 		}
 
-		int index = (value - min) * index_factor;
+		npy_intp index = (value - min) * index_factor;
 		if(index < 0) index = 0;
 		if(index >= Ncmapbins) index = Ncmapbins - 1;
 
-		int length = cmapv_data[index] * scale;
+		npy_intp length = cmapv_data[index] * scale;
 		float a = cmapa_data[index];
 		float at = 1 - a;
 		float r = cmapr_data[index];
@@ -162,17 +162,17 @@ static PyObject * line(PyObject * self, PyObject * args, PyObject * kwds) {
 			continue;
 		}
 		/*Bresenham's Line Algorithm */
-		int x1 = x0 + length * vx / mag;
-		int y1 = y0 + length * vy / mag;
-		int dx = abs(x1 - x0);
-		int dy = abs(y1 - y0);
-		int sx = (x0 < x1)?1:-1;
-		int sy = (y0 < y1)?1:-1;
-		int error = dx - dy;
+		npy_intp x1 = x0 + length * vx / mag;
+		npy_intp y1 = y0 + length * vy / mag;
+		npy_intp dx = abs(x1 - x0);
+		npy_intp dy = abs(y1 - y0);
+		npy_intp sx = (x0 < x1)?1:-1;
+		npy_intp sy = (y0 < y1)?1:-1;
+		npy_intp error = dx - dy;
 		while(1) {
 			SET(x0, y0);
 			if(x0 == x1 && y0 == y1) break;
-			int e2 = 2 * error;
+			npy_intp e2 = 2 * error;
 			if(e2 > - dy) {
 				error -= dy;
 				x0 += sx;
@@ -231,16 +231,16 @@ static PyObject * circle(PyObject * self,
 	cmapb = (PyArrayObject*) PyArray_Cast(cmapb, NPY_FLOAT);
 	cmapa = (PyArrayObject*) PyArray_Cast(cmapa, NPY_FLOAT);
 	cmapv = (PyArrayObject*) PyArray_Cast(cmapv, NPY_FLOAT);
-	int Ncmapbins = PyArray_Size((PyObject*)cmapr);
+	npy_intp Ncmapbins = PyArray_Size((PyObject*)cmapr);
 	float * cmapr_data = PyArray_GETPTR1(cmapr, 0);
 	float * cmapg_data = PyArray_GETPTR1(cmapg, 0);
 	float * cmapb_data = PyArray_GETPTR1(cmapb, 0);
 	float * cmapa_data = PyArray_GETPTR1(cmapa, 0);
 	float * cmapv_data = PyArray_GETPTR1(cmapv, 0);
-	int i;
-	int N = PyArray_Size((PyObject*)V);
-	int DX = PyArray_DIM(target, 0);
-	int DY = PyArray_DIM(target, 1);
+	npy_intp i;
+	npy_intp N = PyArray_Size((PyObject*)V);
+	npy_intp DX = PyArray_DIM(target, 0);
+	npy_intp DY = PyArray_DIM(target, 1);
 #define SET(x, y) { \
 	if(x>=0 && x<DX && y>=0 && y<DY) {\
 		unsigned char * base = (unsigned char*)PyArray_GETPTR3(target, x,y,0); \
@@ -251,8 +251,8 @@ static PyObject * circle(PyObject * self,
 	}
 	float index_factor = Ncmapbins / (max - min);
 	for(i = 0; i < N; i++) {
-		int cx = *(float*)PyArray_GETPTR1(X,i);
-		int cy = *(float*)PyArray_GETPTR1(Y,i);
+		npy_intp cx = *(float*)PyArray_GETPTR1(X,i);
+		npy_intp cy = *(float*)PyArray_GETPTR1(Y,i);
 		float value = *(float*)PyArray_GETPTR1(V,i);
 		if(isnan(value)) continue;
 		
@@ -260,14 +260,14 @@ static PyObject * circle(PyObject * self,
 			if(value <= 0.0) continue;
 			value = log10(value);
 		}
-		int index = (value - min) * index_factor;
+		npy_intp index = (value - min) * index_factor;
 		if(index < 0) index = 0;
 		if(index >= Ncmapbins) index = Ncmapbins - 1;
-		int radius = cmapv_data[index] * scale;
+		npy_intp radius = cmapv_data[index] * scale;
 		if (radius < 0) radius = 0;
-		int error = - radius;
-		int x = radius;
-		int y = 0;
+		npy_intp error = - radius;
+		npy_intp x = radius;
+		npy_intp y = 0;
 		float a = cmapa_data[index];
 		float at = 1 - a;
 		float r = cmapr_data[index];

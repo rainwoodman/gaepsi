@@ -215,26 +215,18 @@ class Context:
       quiver(self.cut.center[0], self.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
     axis([self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1]])
 
-  def decorate(self, frameon=True):
+  def scale(self):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     ax = gca()
-    if frameon :
-      ticklabel_format(axis='x', useOffset=self.cut.center[0])
-      ticklabel_format(axis='y', useOffset=self.cut.center[1])
-      xticks(linspace(self.cut['x'][0], self.cut['x'][1], 5))
-      yticks(linspace(self.cut['y'][0], self.cut['y'][1], 5))
-    else :
-      ax.axison = False
-
     l = (self.cut['x'][1] - self.cut['x'][0]) * 0.2
     l = l // 10 ** int(log10(l)) * 10 ** int(log10(l))
     if l > 500 :
       l/=1000.0
       l = int(l+0.5)
-      text = r"%g Mpc/$h$" % l
+      text = r"%g Mpc/h" % l
       l *= 1000.0
     else:
-      text = r"%g Kpc/$h$" %l
+      text = r"%g Kpc/h" %l
    
     b = AnchoredSizeBar(ax.transData, l, text, loc = 8, 
         pad=0.1, borderpad=0.5, sep=5, frameon=False)
@@ -244,6 +236,21 @@ class Context:
       t.set_color('w')
     ax.add_artist(b)
 
+
+  def decorate(self, frameon=True, drawscale=True, titletext=None):
+    ax = gca()
+    if frameon :
+      ticklabel_format(axis='x', useOffset=self.cut.center[0])
+      ticklabel_format(axis='y', useOffset=self.cut.center[1])
+      xticks(linspace(self.cut['x'][0], self.cut['x'][1], 5))
+      yticks(linspace(self.cut['y'][0], self.cut['y'][1], 5))
+      title(titletext)
+    else :
+      ax.axison = False
+      text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
+    if drawscale:
+      scale()
+ 
   def vector(self,component, grids=(20,20), quick=True):
     xs,xstep = linspace(self.cut['x'][0], self.cut['x'][1], grids[0], endpoint=False,retstep=True)
     ys,ystep = linspace(self.cut['y'][0], self.cut['y'][1], grids[1], endpoint=False,retstep=True)
@@ -295,6 +302,8 @@ def velshow(*args, **kwargs): return __default.velshow(*args, **kwargs)
 def bhshow(*args, **kwargs): return __default.bhshow(*args, **kwargs)
 @redraw
 def decorate(*args, **kwargs): return __default.decorate(*args, **kwargs)
+@redraw
+def scale(*args, **kwargs): return __default.scale(*args, **kwargs)
 @redraw
 def starshow(*args, **kwargs): return __default.starshow(*args, **kwargs)
 @redraw

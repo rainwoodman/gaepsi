@@ -14,7 +14,7 @@
 extern HIDDEN float kline[];
 extern HIDDEN float klinesq[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
-static inline int overlap_index(float f) {
+static inline npy_intp overlap_index(float f) {
 	return f * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 }
 static inline float interp_koverlap(int x0, int y0, int x1, int y1,
@@ -128,11 +128,11 @@ static PyObject * image(PyObject * self,
 	PyArrayObject * box;
 	float xmin, ymin, xmax, ymax, zmin, zmax;
 	float boxsizex,boxsizey,boxsizez;
-	int npixelx, npixely;
-	int length;
-	int p; /*particle counter*/
-	int quick;
-	int n; /* target counter */
+	npy_intp npixelx, npixely;
+	npy_intp length;
+	npy_intp p; /*particle counter*/
+	npy_intp quick;
+	npy_intp n; /* target counter */
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!ffffffiOO", kwlist,
 		&PyList_Type, &targets, 
 		&PyArray_Type, &locations, 
@@ -142,7 +142,7 @@ static PyObject * image(PyObject * self,
 		&zmin, &zmax,
 		&quick, &mask, &box)) return NULL;
 	
-	int Ntargets = PyList_GET_SIZE(targets);
+	npy_intp Ntargets = PyList_GET_SIZE(targets);
 	PyArrayObject ** target_arrays = malloc(sizeof(void*) * Ntargets);
 	PyArrayObject ** V_arrays = malloc(sizeof(void*) * Ntargets);
 	for(n = 0; n < Ntargets; n++) {
@@ -169,12 +169,15 @@ static PyObject * image(PyObject * self,
 	float psizeX = (xmax - xmin) / npixelx;
 	float psizeY = (ymax - ymin) / npixely;
 
-	int ic = 0;
-	int pc = 0;
+	npy_intp ic = 0;
+	npy_intp pc = 0;
+	float sml_sum = 0.0;
 
+    #pragma omp parallel private(p)
+	{
 	npy_intp cache_size = 1024;
 	float * cache = malloc(sizeof(float) * cache_size);
-	float sml_sum = 0.0;
+    #pragma omp for reduction(+: ic, pc, sml_sum) schedule(dynamic, 1000)
 	for(p = 0; p < length; p++) {
 		char m = ((PyObject*) mask != Py_None)?(*((char*)PyArray_GETPTR1(mask, p))):1;
 		if(!m) continue;
@@ -216,7 +219,7 @@ static PyObject * image(PyObject * self,
 		}
 		x -= xmin;
 		y -= ymin;
-		int i, j;
+		npy_intp i, j;
 		float psizeXsml = psizeX / (sml);
 		float psizeYsml = psizeY / (sml);
 		float psizeXYsml = psizeXsml * psizeYsml;
@@ -231,10 +234,10 @@ static PyObject * image(PyObject * self,
 		if(imymax < -1) continue;
 		if(imxmin > 1) continue;
 		if(imymin > 1) continue;
-		int imx0 = overlap_index(imxmin);
-		int imx1 = overlap_index(imxmax);
-		int imy0 = overlap_index(imymin);
-		int imy1 = overlap_index(imymax);
+		npy_intp imx0 = overlap_index(imxmin);
+		npy_intp imx1 = overlap_index(imxmax);
+		npy_intp imy0 = overlap_index(imymin);
+		npy_intp imy1 = overlap_index(imymax);
 		if(imx1 < 0) continue;
 		if(imy1 < 0) continue;
 		if(imx0 >= KOVERLAP_BINS) continue;
@@ -254,10 +257,10 @@ static PyObject * image(PyObject * self,
 		if(norm == 0.0) continue;
 	//	printf("%d: %d %d %d %d %f\n", p, imx0, imy0, imx1, imy1, koverlap[imx0][imy0][imx1][imy1]);
 	//	printf("%d: %f %f %f %f %f\n", p, imxmin, imymin, imxmax, imymax, norm);
-		int ipixelmin = floor((x - sml) / psizeX);
-		int ipixelmax = ceil((x + sml) / psizeX);
-		int jpixelmin = floor((y - sml) / psizeY);
-		int jpixelmax = ceil((y + sml) / psizeY);
+		npy_intp ipixelmin = floor((x - sml) / psizeX);
+		npy_intp ipixelmax = ceil((x + sml) / psizeX);
+		npy_intp jpixelmin = floor((y - sml) / psizeY);
+		npy_intp jpixelmax = ceil((y + sml) / psizeY);
 
 		ic++;
 #define PIXEL_IN_IMAGE (i >=0 && i < npixelx && j >=0 && j < npixely)
@@ -282,8 +285,8 @@ static PyObject * image(PyObject * self,
 		for(i = ipixelmin; i <= ipixelmax; i++)  {
 			float pxmin = pxmin0 + i * psizeXsml;
 			float pxmax = pxmin + psizeXsml;
-			int x0 = pxmin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
-			int x1 = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+			npy_intp x0 = pxmin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+			npy_intp x1 = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 			if(x1 < 0 || x0 >= KOVERLAP_BINS) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
 					cache[k++] = 0.0;
@@ -296,8 +299,8 @@ static PyObject * image(PyObject * self,
 
 				float pymin = pymin0 + psizeYsml * j;
 				float pymax = pymin + psizeYsml;
-				int y0 = pymin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
-				int y1 = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+				npy_intp y0 = pymin * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
+				npy_intp y1 = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 				if(y0 >= KOVERLAP_BINS || y1 < 0 ) {
 					cache[k++] = 0.0;
 					continue;
@@ -315,8 +318,8 @@ static PyObject * image(PyObject * self,
 					float centery = (pymax + pymin);
 				/*hpotf is slower than sqrt*/
 					float d = 0.5 * sqrt(centerx*centerx+centery*centery) * KLINE_BINS;
-					int dfloor = d;
-					int dceil = d + 1;
+					npy_intp dfloor = d;
+					npy_intp dceil = d + 1;
 					if(dceil < KLINE_BINS) {
 						addbit = (kline[dceil] * (d - dfloor) + kline[dfloor] * (dceil - d)) * psizeXYsml;
 					} else {
@@ -336,6 +339,7 @@ static PyObject * image(PyObject * self,
 		}
 		if(sum == 0) continue;
 		float fac = norm / sum;
+		npy_intp n;
 		for(n = 0; n < Ntargets; n++) {
 			int single_precision = (PyArray_ITEMSIZE(target_arrays[n]) == 4);
 			k = 0;
@@ -344,6 +348,7 @@ static PyObject * image(PyObject * self,
 			if(single_precision) {
 				for(i = ipixelmin; i <= ipixelmax; i++) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
+					#pragma omp atomic
 					*((float*)PyArray_GETPTR2(target_arrays[n],i,j)) += value * cache[k];
 					k++;
 				}
@@ -351,6 +356,7 @@ static PyObject * image(PyObject * self,
 			} else {
 				for(i = ipixelmin; i <= ipixelmax; i++) {
 				for(j = jpixelmin; j <= jpixelmax; j++) {
+					#pragma omp atomic
 					*((double*)PyArray_GETPTR2(target_arrays[n],i,j)) += (double)( value * cache[k]);
 					k++;
 				}
@@ -358,12 +364,13 @@ static PyObject * image(PyObject * self,
 			}
 		}
 	}
+	free(cache);
+	}
 #if 0
 	ptime("render");
 	printf("ic = %d pc = %d \n", ic, pc);
+   printf("sml_sum = %f\n", sml_sum);
 #endif
-	free(cache);
-    printf("sml_sum = %f\n", sml_sum);
 	for(n = 0; n < Ntargets; n++) {
 		Py_DECREF(V_arrays[n]);
 	}

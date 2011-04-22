@@ -16,6 +16,7 @@ static PyMethodDef module_methods[] = {
 static PyObject * m = NULL;
 void init_gadgetccode (void) {
 	import_array();
+	printf("sizeof npyintp %d\n", sizeof(npy_intp));
 	m = Py_InitModule3("_gadgetccode", module_methods, "gadget internal ccode module");
 	gadget_initNDTree(m);
 	gadget_initimage(m);

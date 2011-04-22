@@ -38,9 +38,9 @@ static PyObject * shift(PyObject * self,
 		return NULL;
 	
 	int D = PyArray_DIMS(pos)[1];
-	int length = PyArray_DIMS(pos)[0];
+	npy_intp length = PyArray_DIMS(pos)[0];
 	int i,j;
-	int p;
+	npy_intp p;
 	amin = (PyArrayObject *) PyArray_Cast(amin, NPY_INT);
 	amax = (PyArrayObject *) PyArray_Cast(amax, NPY_INT);
 	abox = (PyArrayObject *) PyArray_Cast(abox, NPY_FLOAT);
