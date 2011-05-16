@@ -4,6 +4,8 @@ from numpy import zeros_like
 from numpy import diff
 from numpy import pi
 from numpy import log10
+from numpy import log
+from numpy import sinh
 from numpy import linspace
 from constant.GADGET import *
 
@@ -14,6 +16,16 @@ class Cosmology:
     self.L = OmegaL
     self.h = h
   
+  def a2t(self, a):
+    """ returns the age of the universe at the given z or a, in GADGET unit (multiply by TIME_MYEAR/h)"""
+    aeq = (self.M / self.L) ** (1.0/3.0)
+    pre = 2.0 / (3.0 * sqrt(self.L))
+    arg = (a / aeq) ** (3.0 / 2.0) + sqrt(1.0 + (a / aeq) ** 3.0)
+    return pre * log(arg) / H0
+  def t2a(self, t):
+    aeq = (self.M / self.L) ** (1.0/3.0)
+    pre = 2.0 / (3.0 * sqrt(self.L))
+    return (sinh(H0 * t/ pre)) ** (2.0/3.0) * aeq
   def age(self, z=None, a=None, bins=2000):
     """ returns the age of the universe at the given z or a, in GADGET"""
     if a==None: a = 1.0 / (1.0 + z)
@@ -67,5 +79,5 @@ class Cosmology:
     # 0.1 is coded in gadget bh model.
     L = mdot * C ** 2 * 0.1
     return 10**(-f(L/SOLARLUMINOSITY)) * L
-default = Cosmology(OmegaR=0.0, OmegaM=0.26, OmegaL=0.74, h=0.72)
+default = Cosmology(OmegaR=0.0, OmegaM=0.255, OmegaL=0.745, h=0.702)
 
