@@ -256,8 +256,8 @@ class Context:
     ys,ystep = linspace(self.cut['y'][0], self.cut['y'][1], grids[1], endpoint=False,retstep=True)
     X,Y=meshgrid(xs+ xstep/2.0,ys+ystep/2.0)
     q = zeros(shape=(grids[0],grids[1],3), dtype='f4')
-    mass = zeros(shape = (r.shape[0], r.shape[1]), dtype='f4')
-    print 'num particles rastered', mraster(q, mass, component, quick)
+    mass = zeros(shape = (q.shape[0], q.shape[1]), dtype='f4')
+    print 'num particles rastered', self.mraster(q, mass, component, quick)
     q[:,:,0]/=mass[:,:]
     q[:,:,1]/=mass[:,:]
     q[:,:,2]/=mass[:,:]
