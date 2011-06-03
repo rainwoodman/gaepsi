@@ -1,4 +1,4 @@
-from gadget import ccode
+from gaepsi import ccode
 
 from numpy import zeros
 def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):

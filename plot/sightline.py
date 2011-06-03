@@ -1,8 +1,8 @@
 from numpy import array, ones_like, zeros
 from numpy import sqrt, int32
 from numpy import arange
-from gadget.kernel import k0
-from gadget.kernel import kline
+from gaepsi.kernel import k0
+from gaepsi.kernel import kline
 
 def sightline(field, x0,y0, npixels=100) :
   """ returns the field density samples along a sightline"""

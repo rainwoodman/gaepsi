@@ -1,6 +1,6 @@
 #! python
 from optparse import OptionParser, OptionValueError
-from gadget.tools import parsearray, parsematrix
+from gaepsi.tools import parsearray, parsematrix
 parser = OptionParser()
 parser.add_option("-g", "--geometry", dest="geometry",  type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep='x', dtype='i4', len=2))
@@ -12,8 +12,8 @@ opt, args = parser.parse_args()
 if opt.geometry == None:
   parser.error("specify --geometry")
 
-from gadget.tools import timer
-from gadget.tools.stripe import *
+from gaepsi.tools import timer
+from gaepsi.tools.stripe import *
 from matplotlib.pyplot import plot, clf, title, savefig
 from numpy import save
 def plothist(comm, filename, hist):

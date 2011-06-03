@@ -2,13 +2,13 @@
 from numpy import asarray, newaxis
 from numpy import multiply
 from matplotlib.pyplot import *
-from gadget.snapshot import Snapshot
-from gadget.field import Field, Cut
+from gaepsi.snapshot import Snapshot
+from gaepsi.field import Field, Cut
 
-from gadget.plot.image import rasterize
-from gadget.plot.render import Colormap, color as gacolor
-from gadget.tools.streamplot import streamplot
-from gadget import ccode
+from gaepsi.plot.image import rasterize
+from gaepsi.plot.render import Colormap, color as gacolor
+from gaepsi.tools.streamplot import streamplot
+from gaepsi import ccode
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax
 from numpy import isinf, nan, argsort
 from numpy import tile, unique, sqrt, nonzero
@@ -399,19 +399,19 @@ def figure(*args, **kwargs):
   return pyplot.figure(*args, **kwargs)
 
 def makeT(gas):
-  from gadget.constant.GADGET import TEMPERATURE_K
-  from gadget.cosmology import default as _DC
+  from gaepsi.constant.GADGET import TEMPERATURE_K
+  from gaepsi.cosmology import default as _DC
   gas['T'] = zeros(dtype='f4', shape=gas.numpoints)
   _DC.ie2T(ie = gas['ie'], reh = gas['reh'], Xh = 0.76, out = gas['T'])
   gas['T'] *= TEMPERATURE_K
 
 def Rvir(Mhalo):
-  from gadget.cosmology import default as DC
+  from gaepsi.cosmology import default as DC
   return DC.Rvir(Mhalo, z=get_redshift())
 
 def Tvir(Mhalo):
-  from gadget.constant.GADGET import TEMPERATURE_K
-  from gadget.cosmology import default as DC
+  from gaepsi.constant.GADGET import TEMPERATURE_K
+  from gaepsi.cosmology import default as DC
   return DC.Tvir(Mhalo, z=get_redshift()) * TEMPERATURE_K
 
 

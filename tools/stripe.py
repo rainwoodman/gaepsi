@@ -1,4 +1,4 @@
-from gadget.tools import _MPI as MPI
+from gaepsi.tools import _MPI as MPI
 from numpy import zeros, fromfile, array
 from numpy import int32
 from numpy import histogram
@@ -6,19 +6,19 @@ from numpy import logspace
 from numpy import log10
 from numpy import arange
 from numpy import cumsum
-from gadget.plot.image import rasterize
-import gadget.plot.render
-from gadget.field import Field
+from gaepsi.plot.image import rasterize
+import gaepsi.plot.render
+from gaepsi.field import Field
 from numpy import isinf, inf, nan, isnan
-from gadget.readers import Readers
+from gaepsi.readers import Readers
 from numpy import linspace
 from numpy import mean
 from numpy import empty
 from numpy import append as arrayappend
 from numpy import fmax
-from gadget import ccode
-from gadget.tools.zip import fromzipfile
-from gadget.tools.zip import tozipfile
+from gaepsi import ccode
+from gaepsi.tools.zip import fromzipfile
+from gaepsi.tools.zip import tozipfile
 class Layer:
   def __init__(self, stripe, valuedtype):
     self.stripe = stripe
@@ -117,7 +117,7 @@ class RasterLayer(Layer):
       if max == None: max = self.max()
     if max <= min: max = min + 0.1
     if isnan(min) or isnan(max): min,max = 0,1
-    gadget.plot.render.color(target = target, raster = self.pixels, logscale = logscale, min = min, max = max, colormap = colormap)
+    gaepsi.plot.render.color(target = target, raster = self.pixels, logscale = logscale, min = min, max = max, colormap = colormap)
   
 class ScatterLayer(Layer):
   def __init__(self, stripe, valuedtype, scale, fromfile=None):
@@ -151,7 +151,7 @@ class ScatterLayer(Layer):
       if max == None: max = self.max()
     if max <= min: max = min + 0.1
     if isnan(min) or isnan(max): min,max = 0,1
-    gadget.plot.render.circle(target = target, X=self.points['X'], Y=self.points['Y'], V=self.points['V'], 
+    gaepsi.plot.render.circle(target = target, X=self.points['X'], Y=self.points['Y'], V=self.points['V'], 
          scale = self.scale, min = min, max = max, colormap = colormap, logscale = logscale)
 
 class Stripe:

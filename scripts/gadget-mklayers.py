@@ -1,8 +1,8 @@
 #! python
-from gadget.tools import timer
+from gaepsi.tools import timer
 ses_import = timer.session('import extra modules')
 from optparse import OptionParser, OptionValueError
-from gadget.tools.cmdline import parsearray, parsematrix
+from gaepsi.tools.cmdline import parsearray, parsematrix
 parser = OptionParser(conflict_handler="resolve")
 parser.add_option("-r", "--range", dest="range", type="string",
      action="callback", callback=parsearray, callback_kwargs=dict(sep=',', dtype='i4', len=2))
@@ -40,15 +40,15 @@ if opt.snapname == None:
 if opt.format == None:
   parser.error("specify --format")
 
-from gadget.tools import _MPI as MPI
+from gaepsi.tools import _MPI as MPI
 
 comm = MPI.COMM_WORLD
 if comm.rank == 0: print opt
 
-from gadget.tools.stripe import *
-from gadget.snapshot import Snapshot
-from gadget.field import Field
-from gadget.remap import remap
+from gaepsi.tools.stripe import *
+from gaepsi.snapshot import Snapshot
+from gaepsi.field import Field
+from gaepsi.remap import remap
 from numpy import array
 ses_import.end()
 

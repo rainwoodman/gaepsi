@@ -1,16 +1,16 @@
 from distutils.core import setup, Extension
 from numpy import get_include
-setup(name="gadget", version="1.0",
-      package_dir = {'gadget': '.'},
+setup(name="gaepsi", version="1.0",
+      package_dir = {'gaepsi': '.'},
       packages = [
-        'gadget', 'gadget.constant', 'gadget.plot', 'gadget.readers', 'gadget.tools'
+        'gaepsi', 'gaepsi.constant', 'gaepsi.plot', 'gaepsi.readers', 'gaepsi.tools'
       ],
       scripts = [ 'scripts/gadget-render.py', 
                   'scripts/gadget-mklayers.py', 
                   'scripts/gadget-hist.py',
                   'scripts/gadget-dump-header.py'],
       ext_modules = [
-        Extension("gadget._gadgetccode", 
+        Extension("gaepsi._gaepsiccode", 
              ["ccode/module.c", 
               "ccode/image.c", 
               "ccode/ndtree.c",

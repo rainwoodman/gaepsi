@@ -1,7 +1,7 @@
 #! python
-from gadget.tools import timer
+from gaepsi.tools import timer
 from optparse import OptionParser, OptionValueError
-from gadget.tools.cmdline import parsearray, parsematrix
+from gaepsi.tools.cmdline import parsearray, parsematrix
 parser = OptionParser(conflict_handler="resolve")
 parser.add_option("-N", "--total", type="int", dest="total", help="total number of stripes")
 parser.add_option("-p", "--prefix", type="string", default='', help="prefix for input and output filenames")
@@ -22,7 +22,7 @@ opt, args = parser.parse_args()
 if opt.geometry == None:
   parser.error("specify --geometry")
 
-from gadget.plot.render import Colormap
+from gaepsi.plot.render import Colormap
 
 bhmap = Colormap(levels = [0, 0.5, 1.0],
                     r = [0.0, 0.0, 0.0],
@@ -54,11 +54,11 @@ msfrmap = Colormap(levels =[0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
 if opt.colormap != None:
   execfile(opt.colormap)
 
-from gadget.tools import _MPI as MPI
+from gaepsi.tools import _MPI as MPI
 comm = MPI.COMM_WORLD
 if comm.rank == 0: print opt
 
-from gadget.tools.stripe import *
+from gaepsi.tools.stripe import *
 from numpy import zeros
 from numpy import load
 def loadminmax(comm, filename):

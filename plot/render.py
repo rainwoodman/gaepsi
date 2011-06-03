@@ -3,7 +3,7 @@ from numpy import zeros, dtype, ones
 from numpy import uint8, array, linspace
 from numpy import int32, float32, int16
 from numpy import log10
-from gadget import ccode
+from gaepsi import ccode
 
 def icmap(levels, cmap, bins):
   cmap = array(cmap)

@@ -14,10 +14,10 @@ static PyMethodDef module_methods[] = {
 };
 
 static PyObject * m = NULL;
-void init_gadgetccode (void) {
+void init_gaepsiccode (void) {
 	import_array();
 	printf("sizeof npyintp %d\n", sizeof(npy_intp));
-	m = Py_InitModule3("_gadgetccode", module_methods, "gadget internal ccode module");
+	m = Py_InitModule3("_gaepsiccode", module_methods, "gaepsi internal ccode module");
 	gadget_initNDTree(m);
 	gadget_initimage(m);
 	gadget_initremap(m);
