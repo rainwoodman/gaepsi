@@ -12,7 +12,7 @@ from numpy import zeros, ones, arange
 from numpy import ceil, floor
 from numpy import newaxis
 
-from gadget import ccode
+import ccode
 
 def AABB(E, O = None): 
   "construct the AABB of a box given by E a list of edge row vectors"
