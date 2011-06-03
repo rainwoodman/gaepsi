@@ -67,7 +67,9 @@ static PyObject * shift(PyObject * self,
 #endif
 	int I[3] = {0,0,0};
 	int failed_count = 0;
+	#pragma omp parallel for private(I) reduction(+: failed_count)
 	for(p = 0; p < length; p++) {
+		int i;
 		float * ppos[3];
 		float shifted[3];
 		float original[3];

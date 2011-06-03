@@ -87,6 +87,11 @@ class Field:
                    ycut = [0, self.boxsize[1]],
                    zcut = [0, self.boxsize[2]])
     
+  def init_from_snapshot(self, snapshot):
+    self.boxsize = ones(3) * snapshot.C['L']
+    if self.cut == None:
+      self._cut_from_boxsize()
+
   def add_snapshot(self, snapshot, ptype, components):
     """ components is a dict {component => block}, or a list [ block ]."""
     if self.boxsize == None: 
