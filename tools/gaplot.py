@@ -42,7 +42,7 @@ def pycmap(gacmap):
   rt.set_bad(color='k', alpha=0)
   return rt
 
-pygasmap = pycmap(gasmap)
+pygascmap = pycmap(gasmap)
 
 def gacmap(pycmap):
   values = linspace(0, 1, 1024)
@@ -196,7 +196,7 @@ class GaplotContext:
     else:
       return mass, result
 
-  def imgas(self, component='mass', mode='mean|intensity', vmin=None, vmax=None, logscale=True, cmap=pygasmap, gamma=1.0, over=0.0, under=0.0):
+  def imgas(self, component='mass', mode='mean|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0):
     if component=='mass':
       todraw = self.raster(component, quick=False)
       todraw /= self.pixel_area
@@ -227,7 +227,7 @@ class GaplotContext:
     print 'max, min =' , vmax, vmin
     return image
 
-  def bhshow(self, ax, radius, vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def bhshow(self, ax, radius=4, vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
@@ -266,6 +266,12 @@ class GaplotContext:
     if not 'alpha' in kwargs:
       kwargs['alpha'] = 0.5
     ax.plot(X, Y, ', ', *args, **kwargs)
+  def reset_view(self, ax):
+    left,right =self.cut['x']
+    bottom, top = self.cut['y']
+    ax.set_xlim(left, right)
+    ax.set_ylim(bottom, top)
+
 
 class GaplotFigure(Figure):
   def __init__(self, gaplot_context=None, *args, **kwargs):
@@ -286,26 +292,17 @@ class GaplotFigure(Figure):
   def rotate(self, *args, **kwargs):
     return self.gaplot.rotate(*args, **kwargs)
 
-  def reset_view(self):
-    left,right =self.gaplot.cut['x']
-    bottom, top = self.gaplot.cut['y']
-    self.gca().set_xlim(left, right)
-    self.gca().set_ylim(bottom, top)
-
   def bhshow(self, *args, **kwargs):
     self.gaplot.bhshow(self.gca(), *args, **kwargs)
-    self.reset_view()
   bhshow.__doc__ = GaplotContext.bhshow.__doc__
 
   def circle(self, *args, **kwargs):
     from matplotlib.patches import Circle
     c = Circle(*args, **kwargs)
     self.gca().add_patch(c)
-    self.reset_view()
 
   def starshow(self, *args, ** kwargs):
     self.gaplot.starshow(self.gca(), *args, **kwargs)
-    self.reset_view()
 
   def gasshow(self, use_figimage=False, *args, **kwargs):
     image = self.gaplot.imgas(*args, **kwargs)
@@ -315,7 +312,8 @@ class GaplotFigure(Figure):
     except: vmin = None
     try: vmax = kwargs['vmax']
     except: vmax = None
-    cmap = kwargs['cmap']
+    try: cmap = kwargs['cmap']
+    except: cmap = None
     if use_figimage: 
       self.figimage(image.transpose((1,0,2)), 0, 0, origin='lower', vmin=vmin, vmax=vmax, cmap=cmap)
     else:
@@ -342,7 +340,6 @@ class GaplotFigure(Figure):
 #  streamplot(X[0,:],Y[:,0], vel[:,:,0], vel[:,:,1], color=color)
     if mean != None: 
       self.gca().quiver(self.gaplot.cut.center[0], self.gaplot.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
-    self.reset_view()
 
   def drawscale(self):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
@@ -386,6 +383,9 @@ __module__ = sys.modules[__name__]
 def __mkfunc(method):
   mbfunc = GaplotFigure.__dict__[method]
   def func(*args, **kwargs):
+    f = gcf()
+    if not hasattr(f, 'gaplot'):
+      setattr(f, 'gaplot', GaplotContext())
     rt = mbfunc(gcf() , *args, **kwargs)
     if isinteractive(): draw()
     return rt
@@ -394,9 +394,9 @@ def __mkfunc(method):
 for method in methods:
   __module__.__dict__[method] = __mkfunc(method)
 
-def figure(*args, **kwargs):
-  kwargs['FigureClass'] = GaplotFigure
-  return pyplot.figure(*args, **kwargs)
+#def figure(*args, **kwargs):
+#  kwargs['FigureClass'] = GaplotFigure
+#  return pyplot.figure(*args, **kwargs)
 
 def makeT(gas):
   from gaepsi.constant.GADGET import TEMPERATURE_K
