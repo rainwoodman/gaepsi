@@ -1,1 +1,1 @@
-from _gaepsiccode import *
+from gaepsi._gaepsiccode import *

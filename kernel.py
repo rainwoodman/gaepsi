@@ -4,7 +4,7 @@ from numpy import max
 from numpy import array
 from numpy import sqrt
 
-from gadget import ccode
+import ccode
 k0 = ccode.k0
 kline = ccode.kline
 koverlap = ccode.koverlap
