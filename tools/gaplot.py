@@ -50,7 +50,7 @@ def gacmap(pycmap):
   return Colormap(levels = values, r = colors[:,0], g = colors[:, 1], b = colors[:,2], a = colors[:,3])
 
 class GaplotContext:
-  def __init__(self, shape = (1000,1000)):
+  def __init__(self, shape = (600,600)):
     self.format = None
     self.shape = shape
     self.cache = {}
@@ -304,7 +304,7 @@ class GaplotFigure(Figure):
   def starshow(self, *args, ** kwargs):
     self.gaplot.starshow(self.gca(), *args, **kwargs)
 
-  def gasshow(self, use_figimage=False, *args, **kwargs):
+  def gasshow(self, *args, **kwargs):
     image = self.gaplot.imgas(*args, **kwargs)
 #    if contour_levels != None:
 #      self.gca().contour(todraw.T, extent=self.gaplot.extent, colors='k', linewidth=2, levels=contour_levels)
@@ -314,11 +314,12 @@ class GaplotFigure(Figure):
     except: vmax = None
     try: cmap = kwargs['cmap']
     except: cmap = None
-    if use_figimage: 
-      self.figimage(image.transpose((1,0,2)), 0, 0, origin='lower', vmin=vmin, vmax=vmax, cmap=cmap)
+    if 'use_figimage' in kwargs and kwargs['use_figimage']: 
+      ret = self.figimage(image.transpose((1,0,2)), 0, 0, origin='lower', vmin=vmin, vmax=vmax, cmap=cmap)
     else:
-      self.gca().imshow(image.transpose((1,0,2)), origin='lower',
+      ret = self.gca().imshow(image.transpose((1,0,2)), origin='lower',
          extent=self.gaplot.extent, vmin=vmin, vmax=vmax, cmap=cmap)
+    self.gca()._sci(ret)
 
   def velshow(self, relative=False, color='cyan', alpha=0.8):
     X,Y,vel = self.gaplot.vector('vel', grids=(20,20), quick=False)
