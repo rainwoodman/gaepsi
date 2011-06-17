@@ -7,6 +7,8 @@ from ccode import NDTree
 from numpy import sin,cos, matrix
 from numpy import inner
 
+from cosmology import Cosmology
+
 def is_string_like(v):
   try: v + ''
   except: return False
@@ -89,6 +91,7 @@ class Field:
     
   def init_from_snapshot(self, snapshot):
     self.boxsize = ones(3) * snapshot.C['L']
+    self.cosmology = Cosmology(0, snapshot.C['OmegaM'], snapshot.C['OmegaL'], snapshot.C['h'])
     if self.cut == None:
       self._cut_from_boxsize()
 
