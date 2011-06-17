@@ -2,6 +2,7 @@
 from numpy import asarray, newaxis
 from numpy import multiply
 from matplotlib.pyplot import *
+from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 
@@ -196,7 +197,7 @@ class GaplotContext:
     else:
       return mass, result
 
-  def imgas(self, component='mass', mode='mean|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0):
+  def imgas(self, component='mass', mode='mean|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0, return_raster=False):
     if component=='mass':
       todraw = self.raster(component, quick=False)
       todraw /= self.pixel_area
@@ -225,6 +226,7 @@ class GaplotContext:
       weight = Nm(weight) ** gamma
       multiply(image[:,:,0:3], weight[:, :, newaxis], image[:,:,0:3])
     print 'max, min =' , vmax, vmin
+    if return_raster: return (image, todraw)
     return image
 
   def bhshow(self, ax, radius=4, vmin=None, vmax=None, count=-1, *args, **kwargs):
@@ -272,6 +274,47 @@ class GaplotContext:
     ax.set_xlim(left, right)
     ax.set_ylim(bottom, top)
 
+  def makeT(self):
+    """T will be in Kelvin"""
+    gas =self.gas
+    C = gas.cosmology
+    gas['T'] = zeros(dtype='f4', shape=gas.numpoints)
+    C.ie2T(ie = gas['ie'], reh = gas['reh'], Xh = 0.76, out = gas['T'])
+    gas['T'] *= C.units.TEMPERATURE
+
+  def mergeBHs(self, threshold=1.0):
+    bh = self.bh
+    if bh.numpoints == 0: return
+    pos = bh['locations']
+    posI = tile(pos, pos.shape[0]).reshape(pos.shape[0], pos.shape[0], 3)
+    posJ = posI.transpose((1,0,2))
+    d = posI - posJ
+    d = sqrt((d ** 2).sum(axis=2))
+    mask = d < threshold
+
+    mergeinto = zeros(bh.numpoints, dtype='i4')
+    for i in range(bh.numpoints): mergeinto[i] = nonzero(mask[i])[0][0]
+
+    g, ind = unique(mergeinto, return_index=True)
+
+    comp='bhmass'
+    bak = bh[comp].copy()
+    for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]].sum()
+
+    try :
+      comp='bhmdot'
+      bak = bh[comp].copy()
+      for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]].sum()
+    except KeyError: pass
+
+
+    comp='locations'
+    #def sel(comp):
+    bak = bh[comp].copy()
+    for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]][0]
+
+    bh.numpoints = len(ind)
+    for comp in bh: bh[comp] = bh[comp][ind]
 
 class GaplotFigure(Figure):
   def __init__(self, gaplot_context=None, *args, **kwargs):
@@ -399,53 +442,4 @@ for method in methods:
 #  kwargs['FigureClass'] = GaplotFigure
 #  return pyplot.figure(*args, **kwargs)
 
-def makeT(gas):
-  from gaepsi.constant.GADGET import TEMPERATURE_K
-  from gaepsi.cosmology import default as _DC
-  gas['T'] = zeros(dtype='f4', shape=gas.numpoints)
-  _DC.ie2T(ie = gas['ie'], reh = gas['reh'], Xh = 0.76, out = gas['T'])
-  gas['T'] *= TEMPERATURE_K
-
-def Rvir(Mhalo):
-  from gaepsi.cosmology import default as DC
-  return DC.Rvir(Mhalo, z=get_redshift())
-
-def Tvir(Mhalo):
-  from gaepsi.constant.GADGET import TEMPERATURE_K
-  from gaepsi.cosmology import default as DC
-  return DC.Tvir(Mhalo, z=get_redshift()) * TEMPERATURE_K
-
-
-def mergeBHs(bh, threshold=1.0):
-  if bh.numpoints == 0: return
-  pos = bh['locations']
-  posI = tile(pos, pos.shape[0]).reshape(pos.shape[0], pos.shape[0], 3)
-  posJ = posI.transpose((1,0,2))
-  d = posI - posJ
-  d = sqrt((d ** 2).sum(axis=2))
-  mask = d < threshold
-
-  mergeinto = zeros(bh.numpoints, dtype='i4')
-  for i in range(bh.numpoints): mergeinto[i] = nonzero(mask[i])[0][0]
-
-  g, ind = unique(mergeinto, return_index=True)
-
-  comp='bhmass'
-  bak = bh[comp].copy()
-  for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]].sum()
-
-  try :
-    comp='bhmdot'
-    bak = bh[comp].copy()
-    for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]].sum()
-  except KeyError: pass
-
-
-  comp='locations'
-  #def sel(comp):
-  bak = bh[comp].copy()
-  for i in range(bh.numpoints): bh[comp][i] = bak[mask[i]][0]
-
-  bh.numpoints = len(ind)
-  for comp in bh: bh[comp] = bh[comp][ind]
 
