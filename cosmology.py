@@ -96,17 +96,17 @@ class Cosmology:
     """ returns the physical virial circular velocity"""
     return (G * M / self.Rvir(M, z, Deltac) * (1.0 + z)) ** 0.5
 
-  def Tvir(self, M, z, Deltac=200, Xh=0.76, reh=1.16):
-    return 0.5 * self.Vvir(M,z, Deltac) ** 2 / (reh * Xh + (1 - Xh) * 0.25 + Xh)
+  def Tvir(self, M, z, Deltac=200, Xh=0.76, ye=1.16):
+    return 0.5 * self.Vvir(M,z, Deltac) ** 2 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
 
-  def ie2T(self, Xh, ie, reh, out=None):
+  def ie2T(self, Xh, ie, ye, out=None):
     """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
        multiply by units.TEMPERATURE to SI"""
     if out != None:
-      out[:] = ie[:] / (reh[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      out[:] = ie[:] / (ye[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
       return out
     else:
-      return ie / (reh * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
 
   def Lblue(self, mdot):
     """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,

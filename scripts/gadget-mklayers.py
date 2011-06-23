@@ -138,12 +138,12 @@ for step in range(steps):
   if opt.sfr != None:
     gascomps += ['sfr']
   if opt.temp != None:
-    gascomps += ['ie', 'reh']
+    gascomps += ['ie', 'ye']
   if opt.gas != None:
     gascomps += ['mass', 'sml']
-  gasfield = Field(boxsize = opt.boxsize, components ={'mass':'f4', 'sml':'f4', 'ie':'f4', 'reh':'f4', 'sfr':'f4'})
+  gasfield = Field(boxsize = opt.boxsize, components ={'mass':'f4', 'sml':'f4', 'ie':'f4', 'ye':'f4', 'sfr':'f4'})
   if opt.temp == None:
-    del gasfield['reh']
+    del gasfield['ye']
     del gasfield['ie']
   if opt.sfr == None:
     del gasfield['sfr']
@@ -158,7 +158,7 @@ for step in range(steps):
       gasfield['sfr'][:] = gasfield['sfr'][:] * gasfield['mass'][:]
     if opt.temp != None:
       Xh = 0.76
-      gasfield['ie'][:] = gasfield['mass'][:] * gasfield['ie'][:] / (gasfield['reh'][:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      gasfield['ie'][:] = gasfield['mass'][:] * gasfield['ie'][:] / (gasfield['ye'][:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
     if opt.blackhole != None:
       bhfield.add_snapshot(snap, ptype=5, components=['bhmass'])
     if opt.star != None:
@@ -180,7 +180,7 @@ for step in range(steps):
   if opt.gas != None:
     gasfield.unfold(opt.matrix.T)
     if opt.temp != None: 
-      del gasfield['reh']
+      del gasfield['ye']
     gasfield = stripe.rebalance(gasfield)
     ses_rebalance.checkpoint("gas")
 

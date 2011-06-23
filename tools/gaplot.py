@@ -283,7 +283,7 @@ class GaplotContext:
     gas =self.gas
     C = gas.cosmology
     gas['T'] = zeros(dtype='f4', shape=gas.numpoints)
-    C.ie2T(ie = gas['ie'], reh = gas['reh'], Xh = 0.76, out = gas['T'])
+    C.ie2T(ie = gas['ie'], ye = gas['ye'], Xh = 0.76, out = gas['T'])
     gas['T'] *= C.units.TEMPERATURE
 
   def mergeBHs(self, threshold=1.0):
