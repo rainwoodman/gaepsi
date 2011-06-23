@@ -87,7 +87,7 @@ class GaplotContext:
     self.snapname = snapname
     self.format = format
     self.__gas = Field(components=self.components, cut=cut)
-    self.__bh = Field(components={'bhmass':'f4'}, cut=cut)
+    self.__bh = Field(components={'bhmass':'f4', 'bhmdot':'f4'}, cut=cut)
     self.__star = Field(components={'sft':'f4'}, cut=cut)
     try:
       snapname = self.snapname % 0
@@ -136,7 +136,7 @@ class GaplotContext:
         self.gas.add_snapshot(snap, ptype = 0, components=self.components.keys())
         print snapname , 'loaded', 'gas particles', self.gas.numpoints
       if use_bh:
-        self.bh.add_snapshot(snap, ptype = 5, components=['bhmass'])
+        self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot'])
       if use_star:
         self.star.add_snapshot(snap, ptype = 4, components=['sft'])
     self.cache.clear()
@@ -197,23 +197,27 @@ class GaplotContext:
     else:
       return mass, result
 
-  def imgas(self, component='mass', mode='mean|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0, return_raster=False):
+  def imgas(self, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0, return_raster=False):
+    """raster the gas field. for mass component, the mean density per area is plotted. for other components, mode determines
+       when mode==mean, the mass weighted mean is plotted.
+       when mode==weight, the mass weighted sum is plotted.
+       when mode==intensity, the mass weighted mean is plotted, but the luminosity is reduced according to the log of the mass."""
     if component=='mass':
       todraw = self.raster(component, quick=False)
       todraw /= self.pixel_area
       print 'area of a pixel', self.pixel_area
     else:
       mass,todraw = self.mraster(component, quick=False)
-      todraw /= mass
+      if mode != 'weight':
+        todraw /= mass
 
     if logscale:
       log10(todraw, todraw)
     if vmin == None: vmin = fmin.reduce(todraw.flat)
     if vmax == None: vmax = fmax.reduce(todraw.flat)
-#    N = Normalize(vmin=vmin, vmax=vmax)
     image = zeros(dtype = ('u1', 3), shape = todraw.shape)
+    # gacolor is much faster then matplotlib's normalize and uses less memory(4times fewer).
     gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = gacmap(cmap))
-#    image = cmap(N(todraw))
      
     if mode == 'intensity':
       weight = mass
