@@ -7,7 +7,7 @@ from numpy import log10
 from numpy import log
 from numpy import sinh
 from numpy import linspace
-from constants import SI
+from constant import SI
 
 class Units:
   def __init__(self, h):
@@ -25,12 +25,14 @@ class Units:
 
     #quantities
     SOLARMASS = SI.SOLARMASS / MASS
-    SOLARLUINOSITY = SI.SOLARLUMINOSITY / POWER
+    SOLARLUMINOSITY = SI.SOLARLUMINOSITY / POWER
     PROTONMASS = SI.PROTONMASS / MASS
     KPC_h = SI.KPC / LENGTH / h
     MYEAR_h = SI.MYEAR / TIME / h
+    KPC_h = SI.KPC / LENGTH
+    MYEAR = SI.MYEAR / TIME
     LYMAN_ALPHA_CROSSSECTION = SI.LYMAN_ALPHA_CROSSSECTION / (LENGTH**2)
-    RYDBERG = SI.RYDBERG / ENERGY_J
+    RYDBERG = SI.RYDBERG / ENERGY
     CRITICAL_DENSITY = 3 * H0 ** 2/ (8 * pi * G)
 
     self.set_dict(locals());
@@ -111,8 +113,8 @@ class Cosmology:
         multiply by units.POWER to SI """
     def f(x): return 0.80 - 0.067 * (log10(x) - 12) + 0.017 * (log10(x) - 12)**2 - 0.0023 * (log10(x) - 12)**3
     # 0.1 is coded in gadget bh model.
-    L = mdot * units.C ** 2 * 0.1
-    return 10**(-f(L/units.SOLARLUMINOSITY)) * L
+    L = mdot * self.units.C ** 2 * 0.1
+    return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
 
 default = Cosmology(OmegaR=0.0, OmegaM=0.255, OmegaL=0.745, h=0.702)
 
