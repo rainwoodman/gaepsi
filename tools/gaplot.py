@@ -14,6 +14,7 @@ from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmi
 from numpy import isinf, nan, argsort
 from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
+from numpy import random
 import matplotlib.pyplot as pyplot
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
@@ -87,7 +88,7 @@ class GaplotContext:
     self.snapname = snapname
     self.format = format
     self.__gas = Field(components=self.components, cut=cut)
-    self.__bh = Field(components={'bhmass':'f4', 'bhmdot':'f4'}, cut=cut)
+    self.__bh = Field(components={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, cut=cut)
     self.__star = Field(components={'sft':'f4'}, cut=cut)
     try:
       snapname = self.snapname % 0
@@ -136,7 +137,7 @@ class GaplotContext:
         self.gas.add_snapshot(snap, ptype = 0, components=self.components.keys())
         print snapname , 'loaded', 'gas particles', self.gas.numpoints
       if use_bh:
-        self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot'])
+        self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot', 'id'])
       if use_star:
         self.star.add_snapshot(snap, ptype = 4, components=['sft'])
     self.cache.clear()
@@ -233,11 +234,12 @@ class GaplotContext:
     if return_raster: return (image, vmin, vmax, todraw)
     return image, vmin, vmax
 
-  def bhshow(self, ax, radius=4, vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def bhshow(self, ax, radius=4, labelfmt=None, vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
     Y = self.bh['locations'][mask,1]
+    ID = self.bh['id'][mask]
     bhmass = self.bh['bhmass'][mask]
     if bhmass.size == 0: return
     if vmax is None:
@@ -252,6 +254,7 @@ class GaplotContext:
     X = X[ind[0:count]]
     Y = Y[ind[0:count]]
     R = R[ind[0:count]]
+    ID = ID[ind[0:count]]
     R*=radius**2
     print R.min(), R.max()
 #    R.clip(min=4, max=radius**2)
@@ -260,8 +263,32 @@ class GaplotContext:
     if not 'facecolor' in kwargs:
       kwargs['facecolor'] = (0, 1, 0, 0.0)
     ax.scatter(X,Y, s=R*radius, marker='o', **kwargs)
+    if labelfmt: 
+      for x,y,id in zip(X,Y,ID):
+        rat = random.random() * 360
+        if rat > 90 and rat <= 180:
+          trat = rat + 180
+        elif rat > 180 and rat <=270:
+          trat = rat - 180
+        else:
+          trat = rat
+        if rat < 315 and rat > 135: 
+          dir = 1
+          rat -= 180
+        else: 
+          dir = 0
+        ax.text(x,y, labelfmt % id, withdash=True, 
+          dashlength=radius * 10,
+          dashpush=radius,
+          dashdirection=dir,
+          rotation=trat,
+          dashrotation=rat,
+          color='white'
+          )
+
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
+
   def starshow(self, ax, *args, **kwargs):
     star = self.star
     mask = self.cut.select(star['locations'])
