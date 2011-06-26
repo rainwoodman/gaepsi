@@ -230,8 +230,8 @@ class GaplotContext:
       weight = Nm(weight) ** gamma
       multiply(image[:,:,0:3], weight[:, :, newaxis], image[:,:,0:3])
     print 'max, min =' , vmax, vmin
-    if return_raster: return (image, todraw)
-    return image
+    if return_raster: return (image, vmin, vmax, todraw)
+    return image, vmin, vmax
 
   def bhshow(self, ax, radius=4, vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
@@ -351,14 +351,17 @@ class GaplotFigure(Figure):
   def starshow(self, *args, ** kwargs):
     self.gaplot.starshow(self.gca(), *args, **kwargs)
 
+  def reset_view(self):
+    self.gaplot.reset_view(self.gca())
+
   def gasshow(self, *args, **kwargs):
-    image = self.gaplot.imgas(*args, **kwargs)
+    image, vmin, vmax = self.gaplot.imgas(*args, **kwargs)
 #    if contour_levels != None:
 #      self.gca().contour(todraw.T, extent=self.gaplot.extent, colors='k', linewidth=2, levels=contour_levels)
     try: vmin = kwargs['vmin']
-    except: vmin = None
+    except: pass 
     try: vmax = kwargs['vmax']
-    except: vmax = None
+    except: pass
     try: cmap = kwargs['cmap']
     except: cmap = None
     if 'use_figimage' in kwargs and kwargs['use_figimage']: 
@@ -425,7 +428,7 @@ class GaplotFigure(Figure):
       if(titletext !=None):
         ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
 
-methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'decorate', 'unfold']
+methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'decorate', 'unfold', 'zoom', 'drawscale', 'circle', 'reset_view', 'rotate']
 import sys
 __module__ = sys.modules[__name__]
 def __mkfunc(method):
