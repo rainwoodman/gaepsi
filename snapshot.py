@@ -1,4 +1,4 @@
-from readers import Readers
+
 def is_string_like(v):
   try: v + ''
   except: return False
@@ -21,7 +21,9 @@ class Snapshot:
     if reader == None: return
 
     if is_string_like(reader) :
-      reader = Readers[reader]
+      _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
+              ['Reader'],  -1)
+      reader = _temp.Reader()
 
     reader.prepare(self, file = file, *args, **kwargs)
 
