@@ -140,9 +140,6 @@ class GaplotContext:
         self.star.add_snapshot(snap, ptype = 4, components=['mass', 'sft'])
     self.cache.clear()
 
-    if use_star:
-      self.star.smooth()
-
   def radial_mean(self, component, bins=100, min=None, max=None):
     from numpy import histogram
     d = self.gas.dist(center=self.cut.center)
@@ -247,11 +244,13 @@ class GaplotContext:
     R = log10(bhmass)
     Nm = Normalize(vmax=log10(vmax), vmin=log10(vmin), clip=True)
     R = Nm(R)
-    ind = (-R).argsort()
-    X = X[ind[0:count]]
-    Y = Y[ind[0:count]]
-    R = R[ind[0:count]]
-    ID = ID[ind[0:count]]
+    if count > 0: 
+      ind = (-R).argsort()
+      X = X[ind[0:count]]
+      Y = Y[ind[0:count]]
+      R = R[ind[0:count]]
+      ID = ID[ind[0:count]]
+
     R*=radius**2
     print R.min(), R.max()
 #    R.clip(min=4, max=radius**2)
@@ -383,6 +382,8 @@ class GaplotContext:
        vmax = 10 ** vmax
 
     if component == 'mass':
+      if vmin is None: vmin = 'auto'
+      if vmax is None: vmax = 'auto'
       vmin, vmax = self.mlim(vmin, vmax)
     else:
       if vmin is None: 
@@ -531,6 +532,7 @@ class GaplotFigure(Figure):
 
   def decorate(self, frameon=True, titletext=None):
     ax = self.gca()
+    ax.set_axis_bgcolor('k')
     cut = self.gaplot.cut
     if frameon :
       ax.ticklabel_format(axis='x', useOffset=cut.center[0])
