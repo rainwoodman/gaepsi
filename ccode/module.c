@@ -8,6 +8,7 @@ extern HIDDEN void gadget_initremap(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
 extern HIDDEN void gadget_initrender(PyObject * m);
 extern HIDDEN void gadget_initpmin(PyObject * m);
+extern HIDDEN void gadget_initsml(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}
@@ -23,4 +24,5 @@ void init_gaepsiccode (void) {
 	gadget_initkernel(m);
 	gadget_initrender(m);
 	gadget_initpmin(m);
+	gadget_initsml(m);
 }

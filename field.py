@@ -4,8 +4,10 @@ from numpy import append
 from numpy import asarray
 from remap import remap
 from ccode import NDTree
+from ccode import sml
 from numpy import sin,cos, matrix
 from numpy import inner
+from numpy import newaxis
 
 from cosmology import Cosmology
 
@@ -153,7 +155,14 @@ class Field:
     else:
       return dict(min=None, max=None)
 
-  def rotate(self, angle, axis):
+  def dist(self, center):
+    d2 = ((self['locations'] - center) ** 2).sum(axis=1)
+    return d2 ** 0.5
+
+  def smooth(self, NGB=32):
+    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
+
+  def rotate(self, angle, axis, center):
     """angle is in degrees"""
     angle *= (3.14159/180)
     if axis == 2 or axis == 'z':
@@ -169,10 +178,6 @@ class Field:
                   [ 0, cos(angle), -sin(angle)],
                   [ 0, sin(angle), cos(angle)]])
 
-    if self.cut.center != None:
-      center = self.cut.center
-    else:
-      center = self.boxsize/2
     self['locations'] -= center
     self['locations'] = inner(self['locations'], M)
     self['locations'] += center

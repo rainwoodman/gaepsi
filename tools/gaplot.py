@@ -11,7 +11,7 @@ from gaepsi.plot.render import Colormap, color as gacolor
 from gaepsi.tools.streamplot import streamplot
 from gaepsi import ccode
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax
-from numpy import isinf, nan, argsort
+from numpy import isinf, nan, argsort, isnan
 from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
 from numpy import random
@@ -19,18 +19,13 @@ import matplotlib.pyplot as pyplot
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
-                      b = [0, 0  , 0  , 0.0, 0.4, 0.8, 1.0])
-
-mtempmap = Colormap(levels =[0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
-                      h = [180, 160, 140, 120, 100, 90, 90],
-                      s = [1, 1  , 1.0, 1.0, 1.0, 1.0, 1.0],
-                      v = [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6],
-                      a = [0 , 0,  0.4, 0.5, 0.6, 0.8, 0.8])
-msfrmap = Colormap(levels =[0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
-                      h = [257, 257  , 257, 257, 257, 257, 257],
-                      s = [1, 1  , 1.0, 1.0, 1.0, 1.0, 1.0],
-                      v = [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6],
-                      a = [0 , 0,  0.4, 0.5, 0.6, 0.8, 0.8])
+                      b = [0, 0  , 0  , 0.0, 0.4, 0.8, 1.0],
+                      a = [1, 1,     1,   1,   1,   1,   1])
+starmap = Colormap(levels =[0, 1.0],
+                      r = [1, 1.0],
+                      g = [1, 1.0],
+                      b = [1, 1.0],
+                      a = [1, 1.0])
 
 
 def pycmap(gacmap):
@@ -45,6 +40,7 @@ def pycmap(gacmap):
   return rt
 
 pygascmap = pycmap(gasmap)
+pystarcmap = pycmap(starmap)
 
 def gacmap(pycmap):
   values = linspace(0, 1, 1024)
@@ -56,6 +52,8 @@ class GaplotContext:
     self.format = None
     self.shape = shape
     self.cache = {}
+    self.masslimits = (None, None)
+    self.F = {}
 
   def zoom(self, center=None, size=None):
     if center == None:
@@ -87,9 +85,9 @@ class GaplotContext:
     self.components['vel'] = ('f4', 3)
     self.snapname = snapname
     self.format = format
-    self.__gas = Field(components=self.components, cut=cut)
-    self.__bh = Field(components={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, cut=cut)
-    self.__star = Field(components={'sft':'f4'}, cut=cut)
+    self.F['gas'] = Field(components=self.components, cut=cut)
+    self.F['bh'] = Field(components={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, cut=cut)
+    self.F['star'] = Field(components={'sft':'f4', 'mass':'f4'}, cut=cut)
     try:
       snapname = self.snapname % 0
     except TypeError:
@@ -115,15 +113,15 @@ class GaplotContext:
 
   @property
   def gas(self):
-    return self.__gas
+    return self.F['gas']
 
   @property
   def bh(self):
-    return self.__bh
+    return self.F['bh']
 
   @property
   def star(self):
-    return self.__star
+    return self.F['star']
 
   def read(self, fids=None, use_gas=True, use_bh=True, use_star=True):
     if fids != None:
@@ -139,100 +137,99 @@ class GaplotContext:
       if use_bh:
         self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot', 'id'])
       if use_star:
-        self.star.add_snapshot(snap, ptype = 4, components=['sft'])
+        self.star.add_snapshot(snap, ptype = 4, components=['mass', 'sft'])
     self.cache.clear()
 
+    if use_star:
+      self.star.smooth()
+
+  def radial_mean(self, component, bins=100, min=None, max=None):
+    from numpy import histogram
+    d = self.gas.dist(center=self.cut.center)
+    if min is not None and max is not None: range=(min, max)
+    else: range= None 
+    mass, bins = histogram(d, range=range, bins=bins, weights=self.gas['mass'])
+    value, bins = histogram(d, range=range, bins=bins, weights=self.gas['mass'] * self.gas[component])
+    return bins[:-1], value/mass
+
   def rotate(self, *args, **kwargs):
+    kwargs['center'] = self.cut.center
     self.gas.rotate(*args, **kwargs)
     self.bh.rotate(*args, **kwargs)
     self.star.rotate(*args, **kwargs)
 
     self.cache.clear()
  
-  def vector(self,component, grids=(20,20), quick=True):
+  def vector(self, ftype, component, grids=(20,20), quick=True):
     xs,xstep = linspace(self.cut['x'][0], self.cut['x'][1], grids[0], endpoint=False,retstep=True)
     ys,ystep = linspace(self.cut['y'][0], self.cut['y'][1], grids[1], endpoint=False,retstep=True)
     X,Y=meshgrid(xs+ xstep/2.0,ys+ystep/2.0)
     q = zeros(shape=(grids[0],grids[1],3), dtype='f4')
     mass = zeros(shape = (q.shape[0], q.shape[1]), dtype='f4')
-    print 'num particles rastered', self.mraster(q, mass, component, quick)
+    print 'num particles rastered', self.mraster(q, ftype, mass, component, quick)
     q[:,:,0]/=mass[:,:]
     q[:,:,1]/=mass[:,:]
     q[:,:,2]/=mass[:,:]
     return X,Y,q.transpose((1,0,2))
 
-  def raster(self, component, quick=True, cache=True):
-    cachename = component
+  def raster(self, ftype, component, quick=True, cache=True):
+    """ ftype is amongst 'gas', 'star', those with has an sml  """
+    cachename = ftype + '_' + component
+    field = self.F[ftype]
     if cache and cachename in self.cache:
       return self.cache[cachename].copy()
     result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-    rasterize(self.gas, result, component, xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
+    rasterize(field, result, component, xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
     if cache : 
       self.cache[cachename] = result
       return result.copy()
     else:
       return result
 
-  def mraster(self, component, normed=True, quick=True, cache=True):
-    cachename = component + '_mass'
+  def mraster(self, ftype, component, normed=True, quick=True, cache=True):
+    cachename = ftype + '_' + component + '_mass'
     if cache and cachename in self.cache:
-      return self.cache['mass'].copy(), self.cache[cachename].copy()
+      return self.cache[ftype + '_' + 'mass'].copy(), self.cache[cachename].copy()
 
-    old = self.gas[component].copy()
+    field = self.F[ftype]
+    old = field[component].copy()
     try:
-      self.gas[component][:] *= self.gas['mass'][:]
-    except:
-      self.gas[component][:,0] *= self.gas['mass'][:]
-      self.gas[component][:,1] *= self.gas['mass'][:]
-      self.gas[component][:,2] *= self.gas['mass'][:]
-
+      if len(field[component].shape) == 1:
+        field[component][:] *= field['mass'][:]
+      else:
+        field[component][:,0] *= field['mass'][:]
+        field[component][:,1] *= field['mass'][:]
+        field[component][:,2] *= field['mass'][:]
     
-    result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-    mass = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-    rasterize(self.gas, [mass, result], ['mass', component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
-    self.gas[component] = old
-    if cache:
-      self.cache['mass'] = mass
-      self.cache[cachename] = result
-      return mass.copy(), result.copy()
-    else:
-      return mass, result
+      result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
+      mass = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
+      rasterize(field, [mass, result], ['mass', component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
+      if cache:
+        self.cache[ftype + '_' + 'mass'] = mass
+        self.cache[cachename] = result
+        return mass.copy(), result.copy()
+      else:
+        return mass, result
+    except Exception as e:
+      raise e
+    finally:
+      field[component] = old
 
-  def imgas(self, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=0.0, under=0.0, return_raster=False):
-    """raster the gas field. for mass component, the mean density per area is plotted. for other components, mode determines
+  def imfield(self, ftype, component='mass', mode='mean|weight|intensity'):
+    """raster a field. ftype can be gas or star. for mass component, the mean density per area is plotted. for other components, mode determines
        when mode==mean, the mass weighted mean is plotted.
        when mode==weight, the mass weighted sum is plotted.
        when mode==intensity, the mass weighted mean is plotted, but the luminosity is reduced according to the log of the mass."""
     if component=='mass':
-      todraw = self.raster(component, quick=False)
+      todraw = self.raster(ftype, component, quick=False)
       todraw /= self.pixel_area
       print 'area of a pixel', self.pixel_area
+      return todraw, None
     else:
-      mass,todraw = self.mraster(component, quick=False)
+      mass,todraw = self.mraster(ftype, component, quick=False)
       if mode != 'weight':
         todraw /= mass
-
-    if logscale:
-      log10(todraw, todraw)
-    if vmin == None: vmin = fmin.reduce(todraw.flat)
-    if vmax == None: vmax = fmax.reduce(todraw.flat)
-    image = zeros(dtype = ('u1', 3), shape = todraw.shape)
-    # gacolor is much faster then matplotlib's normalize and uses less memory(4times fewer).
-    gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = gacmap(cmap))
-     
-    if mode == 'intensity':
-      weight = mass
-      log10(weight, weight)
-      sort = argsort(weight.ravel())
-      mmax = weight.ravel()[sort[int((len(sort) - 1 )* (1.0 - over))]]
-      mmin = weight.ravel()[sort[int((len(sort) - 1 )* under)]]
-      print mmax, mmin
-      Nm = Normalize(vmax=mmax, vmin=mmin, clip=True)
-      weight = Nm(weight) ** gamma
-      multiply(image[:,:,0:3], weight[:, :, newaxis], image[:,:,0:3])
-    print 'max, min =' , vmax, vmin
-    if return_raster: return (image, vmin, vmax, todraw)
-    return image, vmin, vmax
+      return todraw, mass
 
   def bhshow(self, ax, radius=4, labelfmt=None, vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
@@ -289,7 +286,7 @@ class GaplotContext:
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
 
-  def starshow(self, ax, *args, **kwargs):
+  def starshow_poor(self, ax, *args, **kwargs):
     star = self.star
     mask = self.cut.select(star['locations'])
     X = star['locations'][mask,0]
@@ -299,6 +296,7 @@ class GaplotContext:
     if not 'alpha' in kwargs:
       kwargs['alpha'] = 0.5
     ax.plot(X, Y, ', ', *args, **kwargs)
+
   def reset_view(self, ax):
     left,right =self.cut['x']
     bottom, top = self.cut['y']
@@ -347,6 +345,91 @@ class GaplotContext:
     bh.numpoints = len(ind)
     for comp in bh: bh[comp] = bh[comp][ind]
 
+  def mlim(self, vmin=None, vmax=None):
+    """ if there isn't a mass limit, calculate one from gas
+        if there is one specified in parameters, override the
+          current limit
+        use 'auto' 'auto' to reset to the auto calculated limits
+        returns the new limits.
+    """
+    if vmin is None:
+      vmin = self.masslimits[0]
+    if vmin is None:
+      vmin = 'auto'
+    if vmax is None:
+      vmax = self.masslimits[1]
+    if vmax is None:
+      vmax = 'auto'
+    if vmin == 'auto' or vmax == 'auto':
+      if self.gas.numpoints == 0:
+        raise Exception("Cannot calculate mlim without a gas field")
+      mass = self.raster('gas', 'mass', quick=False)
+      mass /= self.pixel_area
+      if vmin == 'auto':
+        vmin = ccode.pmin.reduce(mass.flat)
+      if vmax == 'auto':
+        vmax = fmax.reduce(mass.flat)
+
+    self.masslimits = (vmin, vmax)
+    return self.masslimits
+
+  def fieldshow(self, ax_or_fig, ftype, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, over=None, under=None, return_raster=False, levels=None):
+    todraw, mass = self.imfield(ftype=ftype, component=component, mode=mode)
+
+    if logscale:
+     if vmin is not None:
+       vmin = 10 ** vmin
+     if vmax is not None:
+       vmax = 10 ** vmax
+
+    if component == 'mass':
+      vmin, vmax = self.mlim(vmin, vmax)
+    else:
+      if vmin is None: 
+        if logscale:
+          vmin = ccode.pmin.reduce(todraw.flat)
+        else:
+          vmin = fmin.reduce(todraw.flat)
+      if vmax is None: vmax = fmax.reduce(todraw.flat)
+
+    if logscale:
+      log10(todraw, todraw)
+      vmin = log10(vmin)
+      vmax = log10(vmax)
+
+    image = zeros(dtype = ('u1', 4), shape = todraw.shape)
+    # gacolor is much faster then matplotlib's normalize and uses less memory(4times fewer).
+    gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = gacmap(cmap))
+    if mode == 'intensity':
+      weight = mass
+      log10(weight, weight)
+      weight[isinf(weight)] = nan
+      weight[isnan(weight)] = fmin.reduce(weight.ravel())
+      sort = argsort(weight.ravel())
+      mmin, mmax = log10(self.mlim())
+      if over is not None:
+        mmax = weight.ravel()[sort[int((len(sort) - 1 )* (1.0 - over))]]
+      if under is not None:
+        mmin = weight.ravel()[sort[int((len(sort) - 1 )* under)]]
+      print mmax, mmin
+      Nm = Normalize(vmax=mmax, vmin=mmin, clip=True)
+      weight = Nm(weight) ** gamma
+      multiply(image[:,:,3], weight[:, :, ], image[:,:,3])
+    print 'max, min =' , vmax, vmin
+    if return_raster: return (image, vmin, vmax, todraw)
+
+    if hasattr(ax_or_fig, 'figimage'):
+      ret = ax_or_fig.figimage(image.transpose((1,0,2)), 0, 0, origin='lower', vmin=vmin, vmax=vmax, cmap=cmap)
+    else:
+      ret = ax_or_fig.imshow(image.transpose((1,0,2)), origin='lower',
+         extent=self.extent, vmin=vmin, vmax=vmax, cmap=cmap)
+    if levels is not None:
+      if hasattr(ax_or_fig, 'contour'):
+        ax_or_fig.contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
+      else:
+        ax_or_fig.gca().contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
+    return ret
+
 class GaplotFigure(Figure):
   def __init__(self, gaplot_context=None, *args, **kwargs):
     if gaplot_context != None:
@@ -375,35 +458,40 @@ class GaplotFigure(Figure):
     c = Circle(*args, **kwargs)
     self.gca().add_patch(c)
 
-  def starshow(self, *args, ** kwargs):
-    self.gaplot.starshow(self.gca(), *args, **kwargs)
-
   def reset_view(self):
     self.gaplot.reset_view(self.gca())
 
-  def gasshow(self, *args, **kwargs):
-    image, vmin, vmax = self.gaplot.imgas(*args, **kwargs)
-#    if contour_levels != None:
-#      self.gca().contour(todraw.T, extent=self.gaplot.extent, colors='k', linewidth=2, levels=contour_levels)
-    try: vmin = kwargs['vmin']
-    except: pass 
-    try: vmax = kwargs['vmax']
-    except: pass
-    try: cmap = kwargs['cmap']
-    except: cmap = None
-    if 'use_figimage' in kwargs and kwargs['use_figimage']: 
-      ret = self.figimage(image.transpose((1,0,2)), 0, 0, origin='lower', vmin=vmin, vmax=vmax, cmap=cmap)
+  def mlim(self, *args, **kwargs):
+    return self.gaplot.mlim(*args, **kwargs)
+
+  def gasshow(self, component='mass', use_figimage=False, *args, **kwargs):
+    "see fieldshow for docs"
+    kwargs['component'] = component
+    if use_figimage:
+      ret = self.gaplot.fieldshow(self, 'gas', *args, **kwargs)
     else:
-      ret = self.gca().imshow(image.transpose((1,0,2)), origin='lower',
-         extent=self.gaplot.extent, vmin=vmin, vmax=vmax, cmap=cmap)
+      ret = self.gaplot.fieldshow(self.gca(), 'gas', *args, **kwargs)
     self.gca()._sci(ret)
 
-  def velshow(self, relative=False, color='cyan', alpha=0.8):
-    X,Y,vel = self.gaplot.vector('vel', grids=(20,20), quick=False)
+  def starshow(self, component='mass', use_figimage=False, *args, **kwargs):
+    "see fieldshow for docs"
+    kwargs['component'] = component
+    if use_figimage:
+      ret = self.gaplot.fieldshow(self, 'star', *args, **kwargs)
+    else:
+      ret = self.gaplot.fieldshow(self.gca(), 'star', *args, **kwargs)
+    self.gca()._sci(ret)
+
+  def starshow_poor(self, *args, **kwargs):
+     self.gaplot.starshow_poor(self.gca(), *args, **kwargs)
+
+  def velshow(self, ftype, relative=False, color='cyan', alpha=0.8):
+    X,Y,vel = self.gaplot.vector(ftype, 'vel', grids=(20,20), quick=False)
+    field = self.F[ftype]
     mean = None
     if not type(relative) == bool or relative == True:
       if type(relative) == bool:
-        mean = average(self.gas['vel'], weights=self.gas['mass'], axis=0)[0:2]
+        mean = average(field['vel'], weights=field['mass'], axis=0)[0:2]
       else:
         mean = asarray(relative)
       vel[:,:,0]-=mean[0]
@@ -455,7 +543,7 @@ class GaplotFigure(Figure):
       if(titletext !=None):
         ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
 
-methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'decorate', 'unfold', 'zoom', 'drawscale', 'circle', 'reset_view', 'rotate']
+methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'starshow_poor', 'decorate', 'unfold', 'zoom', 'drawscale', 'circle', 'reset_view', 'rotate', 'mlim']
 import sys
 __module__ = sys.modules[__name__]
 def __mkfunc(method):

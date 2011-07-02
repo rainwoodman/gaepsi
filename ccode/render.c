@@ -4,7 +4,7 @@
 
 #define color_doc_string \
 "color(target, raster, min, max, logscale, cmapr,cmapg, cmapb)\n" \
-"cmapr, cmapg, cmapb are floating numbers (0-1.0), target is rgb unsigned int, raster is float or double"
+"cmapr, cmapg, cmapb are floating numbers (0-1.0), target is rgb unsigned int, raster is float or double, when the target is RGB, composite the new rasteron top of the original content. when the target is RGBA, overwrites it."
 
 static PyObject * color(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
@@ -25,6 +25,7 @@ static PyObject * color(PyObject * self,
 		&PyArray_Type, &cmapa
 		)) return NULL;
 	int single_precision = (PyArray_ITEMSIZE(raster) == 4);
+	int rgba = (PyArray_DIM(target, 2) == 4);
 	cmapr = (PyArrayObject*) PyArray_Cast(cmapr, NPY_FLOAT);
 	cmapg = (PyArrayObject*) PyArray_Cast(cmapg, NPY_FLOAT);
 	cmapb = (PyArrayObject*) PyArray_Cast(cmapb, NPY_FLOAT);
@@ -62,12 +63,20 @@ static PyObject * color(PyObject * self,
 		npy_intp index = (raster_value - min) * index_factor;
 		if(index < 0) index = 0;
 		if(index >= Ncmapbins) index = Ncmapbins - 1;
-		float a = cmapa_data[index];
-		float at = 1.0 - a;
-		target_data = PyArray_GETPTR3(target, i, j, 0);
-		target_data[0] = (float) target_data[0] * at + 255.0 * cmapr_data[index] * a;
-		target_data[1] = (float) target_data[1] * at + 255.0 * cmapg_data[index] * a;
-		target_data[2] = (float) target_data[2] * at + 255.0 * cmapb_data[index] * a;
+		if(!rgba) {
+			float a = cmapa_data[index];
+			float at = 1.0 - a;
+			target_data = PyArray_GETPTR3(target, i, j, 0);
+			target_data[0] = (float) target_data[0] * at + 255.0 * cmapr_data[index] * a;
+			target_data[1] = (float) target_data[1] * at + 255.0 * cmapg_data[index] * a;
+			target_data[2] = (float) target_data[2] * at + 255.0 * cmapb_data[index] * a;
+		} else {
+			target_data = PyArray_GETPTR3(target, i, j, 0);
+			target_data[0] = 255.0 * cmapr_data[index];
+			target_data[1] = 255.0 * cmapg_data[index];
+			target_data[2] = 255.0 * cmapb_data[index];
+			target_data[3] = 255.0 * cmapa_data[index];
+		}
 	}
 	}
 	Py_DECREF(cmapr);
