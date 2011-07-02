@@ -156,113 +156,117 @@ static PyObject * sml(PyObject * self,
 		m.ccount[cellindex]++;
 	}
 
-	/* calculate the sml */
-	NgbT * ngb_pool = malloc(sizeof(NgbT) * NGB);
 	float maxdist = (m.cellsize[0] + m.cellsize[1] + m.cellsize[2]) * m.ncellx;
-	for(i = 0; i < m.npar; i++) {
-		int d;
-		int n;
-		float pos[3];
-		int center[3];
-		for(d = 0; d < 3; d++) {
-			pos[d] = *((float*)PyArray_GETPTR2(m.locations, i, d));
-		}
-		par2cell(&m, i, center);
-		size_t count = 0; /* total number of particles looked */
-		int r;
-		NgbT * ngb_head = NULL;
-		for(r = 0; r <= m.ncellx; r++) {
-			/* reset the ngb array */
-			ngb_head = NULL;
-			int ngb_pool_used = 0;
-			for(n = 0; n < NGB; n++) {
-				ngb_pool[n].dist2 = maxdist * maxdist;
-				ngb_pool[n].next = NULL;
-			}
-
-			int c[3];
-			int bot[3];
-			int top[3];
+    #pragma omp parallel private(i) 
+    {
+		/* calculate the sml */
+		NgbT * ngb_pool = malloc(sizeof(NgbT) * NGB);
+		#pragma omp for schedule(dynamic, 1000)
+		for(i = 0; i < m.npar; i++) {
+			int d;
+			int n;
+			float pos[3];
+			int center[3];
 			for(d = 0; d < 3; d++) {
-				bot[d] = center[d] - r;
-				if(bot[d] < 0) bot[d] = 0;
-				top[d] = center[d] + r;
-				if(top[d] >= m.ncellx) top[d] = m.ncellx - 1 ;
+				pos[d] = *((float*)PyArray_GETPTR2(m.locations, i, d));
 			}
-			count = 0;
-			for(c[0] = bot[0]; c[0] <= top[0]; c[0]++)
-			for(c[1] = bot[1]; c[1] <= top[1]; c[1]++)
-			for(c[2] = bot[2]; c[2] <= top[2]; c[2]++) {
-				IndexT cellindex = 0;
-				for(d = 0; d < 3; d++) {
-					cellindex = cellindex * m.ncellx + c[d];
+			par2cell(&m, i, center);
+			size_t count = 0; /* total number of particles looked */
+			int r;
+			NgbT * ngb_head = NULL;
+			for(r = 0; r <= m.ncellx; r++) {
+				/* reset the ngb array */
+				ngb_head = NULL;
+				int ngb_pool_used = 0;
+				for(n = 0; n < NGB; n++) {
+					ngb_pool[n].dist2 = maxdist * maxdist;
+					ngb_pool[n].next = NULL;
 				}
-				count += m.ccount[cellindex];
-				IndexT next = m.cell[cellindex];
-				while(next != (IndexT)-1) {
-					float dist2 = 0.0;
-					for(d = 0; d < 3; d++) {
-						float s = pos[d] - *((float*)PyArray_GETPTR2(m.locations, next, d));
-						dist2 += s * s;
-					}
-					if(ngb_pool_used < NGB) {
-						/* if havn't got enough neighbours */
-						ngb_pool[ngb_pool_used].dist2 = dist2;
-						ngb_pool[ngb_pool_used].ipar = next;
-						/* so that ngb_head is the furthest */
-						ngb_head = ngbt_insert_sorted(ngb_head, &ngb_pool[ngb_pool_used]);
-						ngb_pool_used ++;
-					} else {
-						/* if nearer than the head */
-						if(dist2 < ngb_head->dist2) {
-							/* pop out the head and reinsert */
-							ngb_head->dist2 = dist2;
-							ngb_head->ipar = next;
-							ngb_head = ngbt_insert_sorted(ngb_head->next, ngb_head);
-						}
-					}
-					next = m.link[next];
-				}
-			}
-			if(count > NGB) break;
-		}
-		/* iterate to find a converged density & sml, using rho_j =W(h_j) */
-		/* assuming the mass is 1 for now */
-		double h0 = sqrt(ngb_head->dist2);
-		double h1 = 0;
-		double rho_sph;
-		double mass_sph = 0.0;
-		NgbT * p = NULL;
-		for(p = ngb_head; p != NULL; p = p->next) {
-			mass_sph += *((float*)PyArray_GETPTR1(m.mass, p->ipar));
-		}
-		int icount = 0;
-		while(icount < 128) {
-			rho_sph = 0;
-			for(p = ngb_head; p != NULL; p = p->next) {
-				float ma = *((float*)PyArray_GETPTR1(m.mass, p->ipar));
-				rho_sph += ma * k0f(sqrt(p->dist2) / h0) / (h0 * h0 * h0);
-			}
-			h1 = pow(mass_sph / ( 4 * 3.14 / 3 * rho_sph), 0.33333);
-			if(fabs(h1 - h0) / h0 < 1e-2) break;
-			h0 = h1;
-			icount++;
-		}
-		*((float*)PyArray_GETPTR1(sml, i)) = h1;
 
-/*
-		printf("mass=%g, icount = %d, h1 =%f h0 = %f head = %f, rho = %g\n",
-		*(float*)(PyArray_GETPTR1(m.mass, i)),
-		icount, h1, h0, sqrt(ngb_head->dist2), rho_sph
-		);
-		printf("%f %f %f %d %d ", pos[0], pos[1], pos[2], count, r);
-		for(ngb_head; ngb_head != NULL; ngb_head = ngb_head->next) {
-			printf("%f ", sqrt(ngb_head->dist2));
+				int c[3];
+				int bot[3];
+				int top[3];
+				for(d = 0; d < 3; d++) {
+					bot[d] = center[d] - r;
+					if(bot[d] < 0) bot[d] = 0;
+					top[d] = center[d] + r;
+					if(top[d] >= m.ncellx) top[d] = m.ncellx - 1 ;
+				}
+				count = 0;
+				for(c[0] = bot[0]; c[0] <= top[0]; c[0]++)
+				for(c[1] = bot[1]; c[1] <= top[1]; c[1]++)
+				for(c[2] = bot[2]; c[2] <= top[2]; c[2]++) {
+					IndexT cellindex = 0;
+					for(d = 0; d < 3; d++) {
+						cellindex = cellindex * m.ncellx + c[d];
+					}
+					count += m.ccount[cellindex];
+					IndexT next = m.cell[cellindex];
+					while(next != (IndexT)-1) {
+						float dist2 = 0.0;
+						for(d = 0; d < 3; d++) {
+							float s = pos[d] - *((float*)PyArray_GETPTR2(m.locations, next, d));
+							dist2 += s * s;
+						}
+						if(ngb_pool_used < NGB) {
+							/* if havn't got enough neighbours */
+							ngb_pool[ngb_pool_used].dist2 = dist2;
+							ngb_pool[ngb_pool_used].ipar = next;
+							/* so that ngb_head is the furthest */
+							ngb_head = ngbt_insert_sorted(ngb_head, &ngb_pool[ngb_pool_used]);
+							ngb_pool_used ++;
+						} else {
+							/* if nearer than the head */
+							if(dist2 < ngb_head->dist2) {
+								/* pop out the head and reinsert */
+								ngb_head->dist2 = dist2;
+								ngb_head->ipar = next;
+								ngb_head = ngbt_insert_sorted(ngb_head->next, ngb_head);
+							}
+						}
+						next = m.link[next];
+					}
+				}
+				if(count > NGB) break;
+			}
+			/* iterate to find a converged density & sml, using rho_j =W(h_j) */
+			/* assuming the mass is 1 for now */
+			double h0 = sqrt(ngb_head->dist2);
+			double h1 = 0;
+			double rho_sph;
+			double mass_sph = 0.0;
+			NgbT * p = NULL;
+			for(p = ngb_head; p != NULL; p = p->next) {
+				mass_sph += *((float*)PyArray_GETPTR1(m.mass, p->ipar));
+			}
+			int icount = 0;
+			while(icount < 128) {
+				rho_sph = 0;
+				for(p = ngb_head; p != NULL; p = p->next) {
+					float ma = *((float*)PyArray_GETPTR1(m.mass, p->ipar));
+					rho_sph += ma * k0f(sqrt(p->dist2) / h0) / (h0 * h0 * h0);
+				}
+				h1 = pow(mass_sph / ( 4 * 3.14 / 3 * rho_sph), 0.33333);
+				if(fabs(h1 - h0) / h0 < 1e-2) break;
+				h0 = h1;
+				icount++;
+			}
+			*((float*)PyArray_GETPTR1(sml, i)) = h1;
+
+	/*
+			printf("mass=%g, icount = %d, h1 =%f h0 = %f head = %f, rho = %g\n",
+			*(float*)(PyArray_GETPTR1(m.mass, i)),
+			icount, h1, h0, sqrt(ngb_head->dist2), rho_sph
+			);
+			printf("%f %f %f %d %d ", pos[0], pos[1], pos[2], count, r);
+			for(ngb_head; ngb_head != NULL; ngb_head = ngb_head->next) {
+				printf("%f ", sqrt(ngb_head->dist2));
+			}
+			printf("\n");
+	*/
 		}
-		printf("\n");
-*/
+		free(ngb_pool);
 	}
-	free(ngb_pool);
 	PyMem_Del(m.link);
 	PyMem_Del(m.cell);
 	Py_DECREF(m.locations);
