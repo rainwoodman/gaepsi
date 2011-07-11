@@ -36,6 +36,9 @@ class Snapshot:
     for bn in blocknames: 
       self.reader.save(self, bn, ptype)
  
+  def check(self):
+    self.reader.check(self)
+
   def clear(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     if ptype == None: ptype = 'all'

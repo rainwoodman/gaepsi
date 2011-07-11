@@ -98,6 +98,14 @@ class Reader:
           offset += snapshot.N[i]
       snapshot.file.write_record(snapshot.P[ptype][name], length, offset)
    
+  def check(self, snapshot):
+    for sch in self.schemas:
+      name = sch['name']
+      snapshot.file.seek(snapshot.offsets[name])
+      length = snapshot.sizes[name] // sch['dtype'].itemsize
+      snapshot.file.skip_record(sch['dtype'], length)
+   
+
   def load(self, snapshot, name, ptype='all'):
     if snapshot[ptype].has_key(name) : return
 
