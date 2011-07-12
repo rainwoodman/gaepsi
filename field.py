@@ -12,6 +12,8 @@ from numpy import newaxis
 from cosmology import Cosmology
 
 import threading
+from Queue import Queue
+import sys
 
 def is_string_like(v):
   try: v + ''
@@ -39,10 +41,18 @@ class Cut:
     # uninitialized cut
     self.center = None
 
+  @property
+  def empty(self):
+    return self.center is None
+
   def take(self, cut):
     if cut is not None:
-      self.size = cut.size.copy()
-      self.center = cut.center.copy()
+      if cut.empty:
+        self.center = None
+        self.size = None
+      else:
+        self.size = cut.size.copy()
+        self.center = cut.center.copy()
 
   def __repr__(self):
     if self.center is None:
@@ -69,7 +79,7 @@ class Cut:
   def select(self, locations):
     """return a mask of the locations in the cut"""
     mask = ones(dtype='?', shape = locations.shape[0])
-    if self.center == None:
+    if self.empty :
       return mask
     for axis in range(3):
       mask[:] &= (locations[:, axis] >= self[axis][0])
@@ -85,9 +95,9 @@ class Field(object):
 
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
-    if components != None:
+    if components is not None:
       for comp in components:
-        self[comp] = zeros(shape = numpoints, dtype = components[comp])
+        self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
     self.mask = None
 
     self.__lock = threading.RLock()
@@ -116,6 +126,76 @@ class Field(object):
   def comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
     return comp
+
+  def take_snapshots(self, snapshots, ptype):
+    num_workers = 8
+    job1_q = Queue()
+    job2_q = Queue()
+
+    def work(job, job_q):
+      err_q = Queue()
+      for i in range(num_workers):
+        thread = threading.Thread(target=job, args=[job_q, err_q])
+        thread.daemon = True
+        thread.start()
+      job_q.join()
+      if not err_q.empty() : 
+       e = err_q.get()
+       raise e[0], e[1], e[2]
+ 
+    self.numpoints = 0
+    def job1(queue, error):
+      while True:
+        snapshot = queue.get()
+        try:
+          snapshot.load(ptype = ptype, blocknames = ['pos'])
+          if snapshot.P[ptype]['pos'] is not None:
+            mask = self.cut.select(snapshot.P[ptype]['pos'])
+            length = mask.sum()
+          else:
+            length = 0
+            mask = None
+          with self.__lock:
+            start = self.numpoints
+            job2 = (mask, snapshot, start, length)
+            self.numpoints = self.numpoints + length
+          job2_q.put(job2)
+        except Exception as err:
+          error.put(sys.exc_info())
+        finally:
+          queue.task_done()
+
+    for snapshot in snapshots:
+      job1_q.put(snapshot)
+
+    work(job1, job1_q)
+
+    for comp in self:
+      shape = list(self[comp].shape)
+      shape[0] = self.numpoints
+      self.dict[comp] = zeros(shape = shape,
+         dtype = self.dict[comp].dtype)
+
+    def job2(queue, error):
+      while True:
+        mask, snapshot, start, length = queue.get()
+        if length == 0: 
+          queue.task_done()
+          continue
+        try:
+          for comp in self:
+            snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
+          with self.__lock:
+            for comp in self:
+              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
+              snapshot.clear(self.comp_to_block(comp))
+        except Exception as err:
+          error.put(err)
+        finally:
+          queue.task_done()
+
+    work(job2, job2_q)
+
 
   def add_snapshot(self, snapshot, ptype):
     """ """

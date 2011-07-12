@@ -133,37 +133,14 @@ class GaplotContext:
       snapnames = [self.snapname % i for i in fids]
     else:
       snapnames = [self.snapname]
+    snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
 
-    queue = Queue()
-    errqueue = Queue()
-
-    def run():
-      while True:
-        snapname = queue.get()
-        try:
-          snap = Snapshot(snapname, self.format)
-          if use_gas:
-            self.gas.add_snapshot(snap, ptype = 0)
-            print snapname , 'loaded', 'gas particles', self.gas.numpoints
-          if use_bh:
-            self.bh.add_snapshot(snap, ptype = 5)
-          if use_star:
-            self.star.add_snapshot(snap, ptype = 4)
-        except Exception as err:
-          errqueue.put(err)
-        finally:
-          queue.task_done()
-
-    for i in range(numthreads):
-      thread = threading.Thread(target=run)
-      thread.daemon = True
-      thread.start()
-
-    for snapname in snapnames:
-      queue.put(snapname)
-
-    queue.join()
-    if not errqueue.empty() : raise errqueue.get()
+    if use_gas:
+      self.gas.take_snapshots(snapshots, ptype = 0)
+    if use_bh:
+      self.bh.take_snapshots(snapshots, ptype = 5)
+    if use_star:
+      self.star.take_snapshots(snapshots, ptype = 4)
 
     self.cache.clear()
 
