@@ -20,39 +20,52 @@ def is_string_like(v):
 
 class Cut:
   def __init__(self, xcut=None, ycut=None, zcut=None, center=None, size=None):
-    if xcut != None:
-      self.xcut = asarray(xcut)
-      self.ycut = asarray(ycut)
-      self.zcut = asarray(zcut)
+    if xcut is not None:
       self.center = zeros(3)
       self.size = zeros(3)
-      for cut,axis in [(xcut, 0),(ycut,1),(zcut,2)]:
-        self.center[axis] = (cut[0] + cut[1]) / 2
-        self.size[axis] = (cut[1] - cut[0])
+      self['x'] = xcut
+      self['y'] = ycut
+      self['z'] = zcut
       return
-    if center != None:
-      self.center = center[0:3]
+
+    if size is not None:
       if isscalar(size): size = ones(3) * size
+      if center is not None:
+        self.center = asarray(center[0:3])
+      else:
+        self.center = asarray(size) * 0.5
       self.size = size[0:3]
-      self.xcut = asarray([center[0] - size[0] / 2, center[0] + size[0] / 2])
-      self.ycut = asarray([center[1] - size[1] / 2, center[1] + size[1] / 2])
-      self.zcut = asarray([center[2] - size[2] / 2, center[2] + size[2] / 2])
       return
     # uninitialized cut
     self.center = None
 
+  def take(self, cut):
+    if cut is not None:
+      self.size = cut.size.copy()
+      self.center = cut.center.copy()
+
   def __repr__(self):
-    if self.center == None:
+    if self.center is None:
       return 'Cut()'
     return 'Cut(center=%s, size=%s)' % (repr(self.center), repr(self.size))
 
-  def __getitem__(self, index):
-    if index == 'x' or index == 0:
-      return self.xcut
-    if index == 'y' or index == 1:
-      return self.ycut
-    if index == 'z' or index == 2:
-      return self.zcut
+  def __getitem__(self, axis):
+    if axis == 'x': axis = 0
+    if axis == 'y': axis = 1
+    if axis == 'z': axis = 2
+    return asarray([self.center[axis] - self.size[axis] * 0.5, 
+                    self.center[axis] + self.size[axis] * 0.5])
+
+  def __setitem__(self, axis, value):
+    if axis == 'x': axis = 0
+    if axis == 'y': axis = 1
+    if axis == 'z': axis = 2
+    value = tuple(value)
+    if len(value) != 2:
+      raise ValueError("accepts only (lower, upper)")
+    self.center[axis] = (value[0] + value[1]) * 0.5
+    self.size[axis] = (value[1] - value[0])
+
   def select(self, locations):
     """return a mask of the locations in the cut"""
     mask = ones(dtype='?', shape = locations.shape[0])
@@ -63,20 +76,13 @@ class Cut:
       mask[:] &= (locations[:, axis] < self[axis][1])
     return mask
 
-class Field:
-  def __init__(self, components=None, numpoints = 0, boxsize=None, cut=None):
+class Field(object):
+  def __init__(self, components=None, numpoints = 0, cut=None):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
-    self.cut = None
-    if boxsize != None:
-      if isscalar(boxsize):
-        self.boxsize = ones(3) * boxsize
-      else:
-        self.boxsize = boxsize
-      self._cut_from_boxsize()
-    else:
-      self.boxsize = None
-    if self.cut == None: self.cut = cut
+    self.cut = Cut()
+    self.cut.take(cut)
+
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
     if components != None:
@@ -86,59 +92,52 @@ class Field:
 
     self.__lock = threading.RLock()
 
+  @property
+  def boxsize(self):
+    return self.cut.size
+  @boxsize.setter
+  def boxsize(self, value):
+    if isscalar(value): value = ones(3) * value
+    for axis in range(3):
+      self.cut[axis] = (0, value[axis])
+  
   def set_mask(self, mask):
     if mask != None:
       assert(self.numpoints == mask.size)
     self.mask = mask
 
-  def _cut_from_boxsize(self):
-    self.cut = Cut(xcut = [0, self.boxsize[0]],
-                   ycut = [0, self.boxsize[1]],
-                   zcut = [0, self.boxsize[2]])
-    
-  def init_from_snapshot(self, snapshot):
-    self.boxsize = ones(3) * snapshot.C['L']
-    self.cosmology = Cosmology(0, snapshot.C['OmegaM'], snapshot.C['OmegaL'], snapshot.C['h'])
-    if self.cut == None:
-      self._cut_from_boxsize()
+  def init_from_snapshot(self, snapshot, cut=None):
+    if cut is None:
+      self.boxsize = snapshot.C['L']
+    else: self.cut.take(cut)
 
-  def add_snapshot(self, snapshot, ptype, components):
-    """ components is a dict {component => block}, or a list [ block ]."""
-    if self.boxsize == None: 
-      self.boxsize = ones(3) * snapshot.C['L']
-    if self.cut == None:
-      self._cut_from_boxsize()
+    self.cosmology = Cosmology(0, snapshot.C['OmegaM'], snapshot.C['OmegaL'], snapshot.C['h'])
+
+  def comp_to_block(self, comp):
+    if comp == 'locations': return 'pos'
+    return comp
+
+  def add_snapshot(self, snapshot, ptype):
+    """ """
+
     if snapshot.C['N'][ptype] == 0: return 0
 
-    snapshot.load(ptype = ptype, blocknames = ['pos'])
-    for comp in components:
-      try:
-        block = components[comp]
-      except TypeError:
-        block = comp
-      snapshot.load(ptype = ptype, blocknames = [block])
+    for comp in self:
+      snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
 
     mask = self.cut.select(snapshot.P[ptype]['pos'])
     add_points = mask.sum()
     if add_points == 0: return 0
 
     with self.__lock:
+      for comp in self:
+        self.dict[comp] = append(self[comp], 
+            snapshot.P[ptype][self.comp_to_block(comp)][mask], 
+            axis = 0)
       self.numpoints = self.numpoints + add_points
-      self['locations'] = append(self['locations'], snapshot.P[ptype]['pos'][mask], axis=0)
-      for comp in components:
-        try:
-          block = components[comp]
-        except TypeError:
-          block = comp
-        self.dict[comp] = append(self[comp], snapshot.P[ptype][block][mask], axis = 0)
 
-    snapshot.clear('pos')
-    for comp in components:
-      try:
-        block = components[comp]
-      except TypeError:
-        block = comp
-      snapshot.clear(block)
+    for comp in self:
+      snapshot.clear(self.comp_to_block(comp))
     
     return add_points
 
@@ -153,7 +152,7 @@ class Field:
     if isscalar(value):
       value = ones(self.numpoints) * value
     if value.shape[0] != self.numpoints:
-      raise ValueError("num of points of value doesn't match")
+      raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
     self.dict[index] = value
   
   def __delitem__(self, index):
@@ -166,8 +165,8 @@ class Field:
     d = {}
     for key in self.dict:
       d[key] = self.dict[key].dtype
-    return 'Field(numpoints=%d, components=%s, boxsize=%s, cut=%s>' % (self.numpoints, 
-            repr(d), repr(self.boxsize), repr(self.cut))
+    return 'Field(numpoints=%d, components=%s, cut=%s>' % (self.numpoints, 
+            repr(d), repr(self.cut))
 
   def describe(self, index):
     if self.numpoints > 0:
@@ -176,14 +175,14 @@ class Field:
     else:
       return dict(min=None, max=None)
 
-  def dist(self, center):
-    d2 = ((self['locations'] - center) ** 2).sum(axis=1)
+  def dist(self, origin):
+    d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
   def smooth(self, NGB=32):
     self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
 
-  def rotate(self, angle, axis, center):
+  def rotate(self, angle, axis, origin):
     """angle is in degrees"""
     angle *= (3.14159/180)
     if axis == 2 or axis == 'z':
@@ -199,9 +198,9 @@ class Field:
                   [ 0, cos(angle), -sin(angle)],
                   [ 0, sin(angle), cos(angle)]])
 
-    self['locations'] -= center
+    self['locations'] -= origin
     self['locations'] = inner(self['locations'], M)
-    self['locations'] += center
+    self['locations'] += origin
     for comp in self.dict.keys():
       if comp != 'locations':
         if len(self[comp].shape) > 1:
@@ -212,6 +211,7 @@ class Field:
         the field shall be periodic. M is an
         list of column integer vectors of the shearing
         vectors. abs(det(M)) = 1
+        the field has to be in a cubic box located from (0,0,0)
     """
     boxsize = self.boxsize[0]
     for b in self.boxsize:

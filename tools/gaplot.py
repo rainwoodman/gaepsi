@@ -65,16 +65,16 @@ class GaplotContext:
       center = self.cut.center
     if size == None:
       size = self.cut.size
-    self.cut=Cut(center=center, size=size)
+    self.cut.take(Cut(center=center, size=size))
     self.cache.clear()
 
   def unfold(self, M):
     self.gas.unfold(M)
     self.star.unfold(M)
     self.bh.unfold(M)
-    self.cut = Cut(xcut=[0, self.gas.boxsize[0]], 
+    self.cut.take(Cut(xcut=[0, self.gas.boxsize[0]], 
                    ycut=[0, self.gas.boxsize[1]], 
-                   zcut=[0, self.gas.boxsize[2]])
+                   zcut=[0, self.gas.boxsize[2]]))
   @property
   def pixel_area(self):
     return (self.cut.size[0] * (self.cut.size[1] * 1.0)/(self.shape[0] * self.shape[1]))
@@ -135,18 +135,22 @@ class GaplotContext:
       snapnames = [self.snapname]
 
     queue = Queue()
+    errqueue = Queue()
+
     def run():
       while True:
         snapname = queue.get()
         try:
           snap = Snapshot(snapname, self.format)
           if use_gas:
-            self.gas.add_snapshot(snap, ptype = 0, components=self.components.keys())
+            self.gas.add_snapshot(snap, ptype = 0)
             print snapname , 'loaded', 'gas particles', self.gas.numpoints
           if use_bh:
-            self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot', 'id'])
+            self.bh.add_snapshot(snap, ptype = 5)
           if use_star:
-            self.star.add_snapshot(snap, ptype = 4, components=['mass', 'sft'])
+            self.star.add_snapshot(snap, ptype = 4)
+        except Exception as err:
+          errqueue.put(err)
         finally:
           queue.task_done()
 
@@ -159,11 +163,13 @@ class GaplotContext:
       queue.put(snapname)
 
     queue.join()
+    if not errqueue.empty() : raise errqueue.get()
+
     self.cache.clear()
 
   def radial_mean(self, component, bins=100, min=None, max=None):
     from numpy import histogram
-    d = self.gas.dist(center=self.cut.center)
+    d = self.gas.dist(origin=self.cut.center)
     if min is not None and max is not None: range=(min, max)
     else: range= None 
     mass, bins = histogram(d, range=range, bins=bins, weights=self.gas['mass'])
@@ -171,7 +177,7 @@ class GaplotContext:
     return bins[:-1], value/mass
 
   def rotate(self, *args, **kwargs):
-    kwargs['center'] = self.cut.center
+    kwargs['origin'] = self.cut.origin
     self.gas.rotate(*args, **kwargs)
     self.bh.rotate(*args, **kwargs)
     self.star.rotate(*args, **kwargs)
@@ -305,6 +311,28 @@ class GaplotContext:
 
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
+
+  def velshow(self, ax, ftype, relative=False, color='cyan', alpha=0.8):
+    X,Y,vel = self.vector(ftype, 'vel', grids=(20,20), quick=False)
+    field = self.F[ftype]
+    mean = None
+    if not type(relative) == bool or relative == True:
+      if type(relative) == bool:
+        mean = average(field['vel'], weights=field['mass'], axis=0)[0:2]
+      else:
+        mean = asarray(relative)
+      vel[:,:,0]-=mean[0]
+      vel[:,:,1]-=mean[1]
+      print 'mean = ', mean
+    print 'max component of velocity', abs(vel).max()
+    sorted = absolute(vel.ravel())
+    sorted.sort()
+    scale = sorted[sorted.size * 9 / 10] * 20
+    print X.shape, vel[:,:,0].shape
+    ax.quiver(X,Y, vel[:,:,0], vel[:,:,1], width=0.003, scale=scale, scale_units='width', angles='xy', color=color,alpha=alpha)
+    if mean != None: 
+      ax.quiver(self.cut.center[0], self.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
+
 
   def starshow_poor(self, ax, *args, **kwargs):
     star = self.star
@@ -451,90 +479,22 @@ class GaplotContext:
       else:
         ax_or_fig.gca().contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
     return ret
-
-class GaplotFigure(Figure):
-  def __init__(self, gaplot_context=None, *args, **kwargs):
-    if gaplot_context != None:
-      self.gaplot = gaplot_context
-    else:
-      self.gaplot = GaplotContext()
-    Figure.__init__(self, *args, **kwargs)
-
-  def read(self, *args, **kwargs):
-    return self.gaplot.read(*args, **kwargs)
-  read.__doc__ = GaplotContext.read.__doc__
-
-  def use(self, *args, **kwargs):
-    return self.gaplot.use(*args, **kwargs)
-  def zoom(self, *args, **kwargs):
-    return self.gaplot.zoom(*args, **kwargs)
-  def unfold(self, *args, **kwargs):
-    return self.gaplot.unfold(*args, **kwargs)
-  def rotate(self, *args, **kwargs):
-    return self.gaplot.rotate(*args, **kwargs)
-
-  def bhshow(self, *args, **kwargs):
-    self.gaplot.bhshow(self.gca(), *args, **kwargs)
-  bhshow.__doc__ = GaplotContext.bhshow.__doc__
-
-  def circle(self, *args, **kwargs):
-    from matplotlib.patches import Circle
-    c = Circle(*args, **kwargs)
-    self.gca().add_patch(c)
-
-  def reset_view(self):
-    self.gaplot.reset_view(self.gca())
-
-  def mlim(self, *args, **kwargs):
-    return self.gaplot.mlim(*args, **kwargs)
-
-  def gasshow(self, component='mass', use_figimage=False, *args, **kwargs):
-    "see fieldshow for docs"
-    kwargs['component'] = component
-    if use_figimage:
-      ret = self.gaplot.fieldshow(self, 'gas', *args, **kwargs)
-    else:
-      ret = self.gaplot.fieldshow(self.gca(), 'gas', *args, **kwargs)
-    self.gca()._sci(ret)
-
-  def starshow(self, component='mass', use_figimage=False, *args, **kwargs):
-    "see fieldshow for docs"
-    kwargs['component'] = component
-    if use_figimage:
-      ret = self.gaplot.fieldshow(self, 'star', *args, **kwargs)
-    else:
-      ret = self.gaplot.fieldshow(self.gca(), 'star', *args, **kwargs)
-    self.gca()._sci(ret)
-
-  def starshow_poor(self, *args, **kwargs):
-     self.gaplot.starshow_poor(self.gca(), *args, **kwargs)
-
-  def velshow(self, ftype, relative=False, color='cyan', alpha=0.8):
-    X,Y,vel = self.gaplot.vector(ftype, 'vel', grids=(20,20), quick=False)
-    field = self.F[ftype]
-    mean = None
-    if not type(relative) == bool or relative == True:
-      if type(relative) == bool:
-        mean = average(field['vel'], weights=field['mass'], axis=0)[0:2]
-      else:
-        mean = asarray(relative)
-      vel[:,:,0]-=mean[0]
-      vel[:,:,1]-=mean[1]
-      print 'mean = ', mean
-    print 'max component of velocity', abs(vel).max()
-    sorted = absolute(vel.ravel())
-    sorted.sort()
-    scale = sorted[sorted.size * 9 / 10] * 20
-    print X.shape, vel[:,:,0].shape
-    self.gca().quiver(X,Y, vel[:,:,0], vel[:,:,1], width=0.003, scale=scale, scale_units='width', angles='xy', color=color,alpha=alpha)
-#  streamplot(X[0,:],Y[:,0], vel[:,:,0], vel[:,:,1], color=color)
-    if mean != None: 
-      self.gca().quiver(self.gaplot.cut.center[0], self.gaplot.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
-
-  def drawscale(self, color='white'):
+  def decorate(self, ax, frameon=True, titletext=None, bgcolor='k'):
+    cut = self.cut
+    ax.set_axis_bgcolor(bgcolor)
+    if frameon :
+      ax.ticklabel_format(axis='x', useOffset=cut.center[0])
+      ax.ticklabel_format(axis='y', useOffset=cut.center[1])
+      ax.set_xticks(linspace(cut['x'][0], cut['x'][1], 5))
+      ax.set_yticks(linspace(cut['y'][0], cut['y'][1], 5))
+      ax.set_title(titletext)
+    else :
+      ax.axison = False
+      if(titletext !=None):
+        ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
+  def drawscale(self, ax, color='white'):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
-    ax = self.gca()
-    l = (self.gaplot.cut.size[0]) * 0.2
+    l = (self.cut.size[0]) * 0.2
     l = l // 10 ** int(log10(l)) * 10 ** int(log10(l))
     if l > 500 :
       l/=1000.0
@@ -552,42 +512,79 @@ class GaplotFigure(Figure):
       t.set_color(color)
     ax.add_artist(b)
 
+  def circle(ax, *args, **kwargs):
+    from matplotlib.patches import Circle
+    c = Circle(*args, **kwargs)
+    ax.add_patch(c)
 
-  def decorate(self, frameon=True, titletext=None, bgcolor='k'):
-    ax = self.gca()
-    cut = self.gaplot.cut
-    ax.set_axis_bgcolor(bgcolor)
-    if frameon :
-      ax.ticklabel_format(axis='x', useOffset=cut.center[0])
-      ax.ticklabel_format(axis='y', useOffset=cut.center[1])
-      ax.set_xticks(linspace(cut['x'][0], cut['x'][1], 5))
-      ax.set_yticks(linspace(cut['y'][0], cut['y'][1], 5))
-      ax.set_title(titletext)
-    else :
-      ax.axison = False
-      if(titletext !=None):
-        ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
-      self.set_facecolor(bgcolor)
+context = GaplotContext()
 
-methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'starshow_poor', 'decorate', 'unfold', 'zoom', 'drawscale', 'circle', 'reset_view', 'rotate', 'mlim']
-import sys
-__module__ = sys.modules[__name__]
-def __mkfunc(method):
-  mbfunc = GaplotFigure.__dict__[method]
-  def func(*args, **kwargs):
-    f = gcf()
-    if not hasattr(f, 'gaplot'):
-      setattr(f, 'gaplot', GaplotContext())
-    rt = mbfunc(gcf() , *args, **kwargs)
-    if isinteractive(): draw()
-    return rt
-  func.__doc__ = mbfunc.__doc__
-  return func
-for method in methods:
-  __module__.__dict__[method] = __mkfunc(method)
+def __ensure__(figure):
+  if not has_attr(figure, 'gaplot'):
+    figure.gaplot = GaplotContext()
 
-#def figure(*args, **kwargs):
-#  kwargs['FigureClass'] = GaplotFigure
-#  return pyplot.figure(*args, **kwargs)
+def read(*args, **kwargs):
+  return context.read(*args, **kwargs)
+read.__doc__ = GaplotContext.read.__doc__
 
+def use(*args, **kwargs):
+  return context.use(*args, **kwargs)
+use.__doc__ = GaplotContext.use.__doc__
 
+def zoom(*args, **kwargs):
+  return context.zoom(*args, **kwargs)
+zoom.__doc__ = GaplotContext.zoom.__doc__
+
+def unfold(*args, **kwargs):
+  return context.unfold(*args, **kwargs)
+
+def rotate(*args, **kwargs):
+  return context.rotate(*args, **kwargs)
+
+def mlim(*args, **kwargs):
+  return mlim(*args, **kwargs)
+
+def bhshow(ax=None, *args, **kwargs):
+  if ax is None: ax = gca()
+  context.bhshow(ax, *args, **kwargs)
+bhshow.__doc__ = GaplotContext.bhshow.__doc__
+
+def reset_view(ax=None, *args, **kwargs):
+  if ax is None: ax = gca()
+  context.reset_view(*args, **kwargs)
+
+def gasshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
+  "see fieldshow for docs"
+  kwargs['component'] = component
+  if use_figimage:
+    if ax is None: ax = gcf()
+    ret = context.fieldshow(ax, 'gas', *args, **kwargs)
+    ax.gca()._sci(ret)
+  else:
+    if ax is None: ax = gca()
+    ret = context.fieldshow(ax, 'gas', *args, **kwargs)
+    ax._sci(ret)
+
+def starshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
+  "see fieldshow for docs"
+  kwargs['component'] = component
+  if use_figimage:
+    if ax is None: ax = gcf()
+    ret = contextfieldshow(self, 'star', *args, **kwargs)
+    ax.gca()._sci(ret)
+  else:
+    if ax is None: ax = gca()
+    ret = context.fieldshow(self.gca(), 'star', *args, **kwargs)
+    ax._sci(ret)
+
+def starshow_poor(ax=None, *args, **kwargs):
+  if ax is None: ax = gca()
+  context.starshow_poor(ax, *args, **kwargs)
+
+def decorate(ax=None, *args, **kwargs):
+  if ax is None: ax = gca()
+  context.decorate(ax=ax, *args, **kwargs)
+
+def velshow(ftype, ax=None, relative=False, color='cyan', alpha=0.8):
+  if ax is None: ax = gca()
+  context.velshow()
