@@ -5,7 +5,7 @@ from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
-from gaepsi.meshmap import Meshmap
+from meshmap import Meshmap
 
 from gaepsi.plot.image import rasterize
 from gaepsi.plot.render import Colormap, color as gacolor

@@ -1,5 +1,5 @@
-from numpy import fromfile, dtype
-from readers.io import F77File
+from numpy import fromfile, dtype, zeros, floor, ceil
+from gaepsi.readers.io import F77File
 
 header_dtype = dtype([
   ('ncell1d', 'u4'),
@@ -25,7 +25,23 @@ class Meshmap:
     self.offsets += 1
     self.buf = fromfile(file, dtype='i4')
   def cut2fid(self, cut):
-    
+    min = {}
+    max = {}
+    for ax in ['x', 'y', 'z']:
+      min[ax] = int(floor(cut[ax][0] / self.cellsize))
+      max[ax] = int(ceil(cut[ax][1] / self.cellsize))
+      if min[ax] < 0: min[ax] = 0
+      if max[ax] >= self.ncell1d: max[ax] = self.ncell1d - 1
+
+    allfiles = set([])
+    for i in range(min['x'], max['x']+ 1):
+      for j in range(min['y'], max['y']+ 1):
+        for k in range(min['z'], max['z']+ 1):
+          icell = (i * self.ncell1d * self.ncell1d) + (j * self.ncell1d) + k
+          files = self.get(icell)
+          allfiles = allfiles | set(files)
+    return allfiles
+
   def get(self, icell):
     return self.buf[self.offsets[icell]:self.offsets[icell]+self.Nfiles[icell]]
     
