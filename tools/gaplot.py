@@ -5,6 +5,7 @@ from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
+from gaepsi.meshmap import Meshmap
 
 from gaepsi.plot.image import rasterize
 from gaepsi.plot.render import Colormap, color as gacolor
@@ -16,6 +17,10 @@ from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
 from numpy import random
 import matplotlib.pyplot as pyplot
+
+import threading
+from Queue import Queue
+
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
@@ -123,21 +128,37 @@ class GaplotContext:
   def star(self):
     return self.F['star']
 
-  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True):
+  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, numthreads=8):
     if fids != None:
       snapnames = [self.snapname % i for i in fids]
     else:
       snapnames = [self.snapname]
 
+    queue = Queue()
+    def run():
+      while True:
+        snapname = queue.get()
+        try:
+          snap = Snapshot(snapname, self.format)
+          if use_gas:
+            self.gas.add_snapshot(snap, ptype = 0, components=self.components.keys())
+            print snapname , 'loaded', 'gas particles', self.gas.numpoints
+          if use_bh:
+            self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot', 'id'])
+          if use_star:
+            self.star.add_snapshot(snap, ptype = 4, components=['mass', 'sft'])
+        finally:
+          queue.task_done()
+
+    for i in range(numthreads):
+      thread = threading.Thread(target=run)
+      thread.daemon = True
+      thread.start()
+
     for snapname in snapnames:
-      snap = Snapshot(snapname, self.format)
-      if use_gas:
-        self.gas.add_snapshot(snap, ptype = 0, components=self.components.keys())
-        print snapname , 'loaded', 'gas particles', self.gas.numpoints
-      if use_bh:
-        self.bh.add_snapshot(snap, ptype = 5, components=['bhmass', 'bhmdot', 'id'])
-      if use_star:
-        self.star.add_snapshot(snap, ptype = 4, components=['mass', 'sft'])
+      queue.put(snapname)
+
+    queue.join()
     self.cache.clear()
 
   def radial_mean(self, component, bins=100, min=None, max=None):
@@ -228,7 +249,7 @@ class GaplotContext:
         todraw /= mass
       return todraw, mass
 
-  def bhshow(self, ax, radius=4, labelfmt=None, vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def bhshow(self, ax, radius=4, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
@@ -279,7 +300,7 @@ class GaplotContext:
           dashdirection=dir,
           rotation=trat,
           dashrotation=rat,
-          color='white'
+          color=labelcolor
           )
 
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
@@ -441,6 +462,8 @@ class GaplotFigure(Figure):
 
   def read(self, *args, **kwargs):
     return self.gaplot.read(*args, **kwargs)
+  read.__doc__ = GaplotContext.read.__doc__
+
   def use(self, *args, **kwargs):
     return self.gaplot.use(*args, **kwargs)
   def zoom(self, *args, **kwargs):
@@ -508,7 +531,7 @@ class GaplotFigure(Figure):
     if mean != None: 
       self.gca().quiver(self.gaplot.cut.center[0], self.gaplot.cut.center[1], mean[0], mean[1], scale=scale, scale_units='width', width=0.01, angles='xy', color=(0,0,0,0.5))
 
-  def drawscale(self):
+  def drawscale(self, color='white'):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     ax = self.gca()
     l = (self.gaplot.cut.size[0]) * 0.2
@@ -524,16 +547,16 @@ class GaplotFigure(Figure):
     b = AnchoredSizeBar(ax.transData, l, text, loc = 8, 
         pad=0.1, borderpad=0.5, sep=5, frameon=False)
     for r in b.size_bar.findobj(Rectangle):
-      r.set_edgecolor('w')
+      r.set_edgecolor(color)
     for t in b.txt_label.findobj(Text):
-      t.set_color('w')
+      t.set_color(color)
     ax.add_artist(b)
 
 
-  def decorate(self, frameon=True, titletext=None):
+  def decorate(self, frameon=True, titletext=None, bgcolor='k'):
     ax = self.gca()
-    ax.set_axis_bgcolor('k')
     cut = self.gaplot.cut
+    ax.set_axis_bgcolor(bgcolor)
     if frameon :
       ax.ticklabel_format(axis='x', useOffset=cut.center[0])
       ax.ticklabel_format(axis='y', useOffset=cut.center[1])
@@ -544,6 +567,7 @@ class GaplotFigure(Figure):
       ax.axison = False
       if(titletext !=None):
         ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
+      self.set_facecolor(bgcolor)
 
 methods = ['use', 'gasshow', 'bhshow', 'read', 'starshow', 'starshow_poor', 'decorate', 'unfold', 'zoom', 'drawscale', 'circle', 'reset_view', 'rotate', 'mlim']
 import sys

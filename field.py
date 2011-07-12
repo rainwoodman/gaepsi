@@ -11,6 +11,8 @@ from numpy import newaxis
 
 from cosmology import Cosmology
 
+import threading
+
 def is_string_like(v):
   try: v + ''
   except: return False
@@ -81,6 +83,9 @@ class Field:
       for comp in components:
         self[comp] = zeros(shape = numpoints, dtype = components[comp])
     self.mask = None
+
+    self.__lock = threading.RLock()
+
   def set_mask(self, mask):
     if mask != None:
       assert(self.numpoints == mask.size)
@@ -103,22 +108,38 @@ class Field:
       self.boxsize = ones(3) * snapshot.C['L']
     if self.cut == None:
       self._cut_from_boxsize()
-    snapshot.load(ptype = ptype, blocknames = ['pos'])
     if snapshot.C['N'][ptype] == 0: return 0
-    mask = self.cut.select(snapshot.P[ptype]['pos'])
-    add_points = mask.sum()
-    if add_points == 0: return 0
-    self.numpoints = self.numpoints + add_points
-    self['locations'] = append(self['locations'], snapshot.P[ptype]['pos'][mask], axis=0)
-    snapshot.clear('pos')
+
+    snapshot.load(ptype = ptype, blocknames = ['pos'])
     for comp in components:
       try:
         block = components[comp]
       except TypeError:
         block = comp
       snapshot.load(ptype = ptype, blocknames = [block])
-      self.dict[comp] = append(self[comp], snapshot.P[ptype][block][mask], axis = 0)
+
+    mask = self.cut.select(snapshot.P[ptype]['pos'])
+    add_points = mask.sum()
+    if add_points == 0: return 0
+
+    with self.__lock:
+      self.numpoints = self.numpoints + add_points
+      self['locations'] = append(self['locations'], snapshot.P[ptype]['pos'][mask], axis=0)
+      for comp in components:
+        try:
+          block = components[comp]
+        except TypeError:
+          block = comp
+        self.dict[comp] = append(self[comp], snapshot.P[ptype][block][mask], axis = 0)
+
+    snapshot.clear('pos')
+    for comp in components:
+      try:
+        block = components[comp]
+      except TypeError:
+        block = comp
       snapshot.clear(block)
+    
     return add_points
 
   def __iter__(self):
