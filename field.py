@@ -78,9 +78,9 @@ class Cut:
 
   def select(self, locations):
     """return a mask of the locations in the cut"""
+    if self.empty:
+      return None
     mask = ones(dtype='?', shape = locations.shape[0])
-    if self.empty :
-      return mask
     for axis in range(3):
       mask[:] &= (locations[:, axis] >= self[axis][0])
       mask[:] &= (locations[:, axis] < self[axis][1])
@@ -149,7 +149,7 @@ class Field(object):
         snapshot = queue.get()
         try:
           snapshot.load(ptype = ptype, blocknames = ['pos'])
-          if snapshot.P[ptype]['pos'] is not None:
+          if snapshot.N[ptype] != 0:
             mask = self.cut.select(snapshot.P[ptype]['pos'])
             length = mask.sum()
           else:
@@ -187,7 +187,10 @@ class Field(object):
             snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
           with self.__lock:
             for comp in self:
-              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
+              if mask is None:
+                self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
+              else:
+                self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
               snapshot.clear(self.comp_to_block(comp))
         except Exception as err:
           error.put(err)
