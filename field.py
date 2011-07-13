@@ -11,9 +11,8 @@ from numpy import newaxis
 
 from cosmology import Cosmology
 
-import threading
+from tools import threads
 from Queue import Queue
-import sys
 
 def is_string_like(v):
   try: v + ''
@@ -100,8 +99,6 @@ class Field(object):
         self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
     self.mask = None
 
-    self.__lock = threading.RLock()
-
   @property
   def boxsize(self):
     return self.cut.size
@@ -165,46 +162,30 @@ class Field(object):
 
     self.init_from_snapshot(snapshots[0])
 
-    def work(job, job_q):
-      err_q = Queue()
-      for i in range(num_workers):
-        thread = threading.Thread(target=job, args=[job_q, err_q])
-        thread.daemon = True
-        thread.start()
-      job_q.join()
-      if not err_q.empty() : 
-       e = err_q.get()
-       raise e[0], e[1], e[2]
- 
     self.numpoints = 0
-    def job1(queue, error):
-      while True:
-        snapshot = queue.get()
-        try:
-          snapshot.load(ptype = ptype, blocknames = ['pos'])
-          if snapshot.C.N[ptype] != 0:
-            mask = self.cut.select(snapshot.P[ptype]['pos'])
-            if mask is not None:
-              length = mask.sum()
-            else:
-              length = snapshot.C.N[ptype]
-          else:
-            length = 0
-            mask = None
-          with self.__lock:
-            start = self.numpoints
-            job2 = (mask, snapshot, start, length)
-            self.numpoints = self.numpoints + length
-          job2_q.put(job2)
-        except Exception as err:
-          error.put(sys.exc_info())
-        finally:
-          queue.task_done()
+
+    @threads.job
+    def job1(snapshot, lock):
+      snapshot.load(ptype = ptype, blocknames = ['pos'])
+      if snapshot.C.N[ptype] != 0:
+        mask = self.cut.select(snapshot.P[ptype]['pos'])
+        if mask is not None:
+          length = mask.sum()
+        else:
+          length = snapshot.C.N[ptype]
+      else:
+        length = 0
+        mask = None
+      with lock:
+        start = self.numpoints
+        job2 = (mask, snapshot, start, length)
+        self.numpoints = self.numpoints + length
+      job2_q.put(job2)
 
     for snapshot in snapshots:
-      job1_q.put(snapshot)
+      job1_q.put((snapshot,))
 
-    work(job1, job1_q)
+    threads.work(job1, job1_q)
 
     # allocate the storage space, trashing whatever already there.
     for comp in self:
@@ -215,32 +196,25 @@ class Field(object):
 
     skipped_comps = set([])
 
-
-    def job2(queue, error):
-      while True:
-        mask, snapshot, start, length = queue.get()
-        if length == 0: 
-          queue.task_done()
-          continue
+    @threads.job
+    def job2(mask, snapshot, start, length, lock):
+      if length == 0: 
+        return
+      for comp in self:
         try:
-          for comp in self:
-            try:
-              snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
-            except KeyError:
-              # skip blocks that are not in the snapshot
-              skipped_comps.update(set([comp]))
-              continue
-            if mask is None:
-              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
-            else:
-              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
-            snapshot.clear(self.comp_to_block(comp))
-        except Exception as err:
-          error.put(err)
-        finally:
-          queue.task_done()
+          snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
+        except KeyError:
+          # skip blocks that are not in the snapshot
+          skipped_comps.update(set([comp]))
+          continue
+        if mask is None:
+          self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
+        else:
+          self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
+        snapshot.clear(self.comp_to_block(comp))
 
-    work(job2, job2_q)
+    threads.work(job2, job2_q)
+
     print 'warning: comp not suppored by the snapshot', skipped_comps
 
   def add_snapshot(self, snapshot, ptype):
@@ -255,12 +229,11 @@ class Field(object):
     add_points = mask.sum()
     if add_points == 0: return 0
 
-    with self.__lock:
-      for comp in self:
-        self.dict[comp] = append(self[comp], 
-            snapshot.P[ptype][self.comp_to_block(comp)][mask], 
-            axis = 0)
-      self.numpoints = self.numpoints + add_points
+    for comp in self:
+      self.dict[comp] = append(self[comp], 
+          snapshot.P[ptype][self.comp_to_block(comp)][mask], 
+          axis = 0)
+    self.numpoints = self.numpoints + add_points
 
     for comp in self:
       snapshot.clear(self.comp_to_block(comp))
