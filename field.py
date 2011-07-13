@@ -108,6 +108,8 @@ class Field(object):
   @boxsize.setter
   def boxsize(self, value):
     if isscalar(value): value = ones(3) * value
+    self.cut.center = zeros(3)
+    self.cut.size = zeros(3)
     for axis in range(3):
       self.cut[axis] = (0, value[axis])
   
@@ -127,10 +129,34 @@ class Field(object):
     if comp == 'locations': return 'pos'
     return comp
 
+  def dump_snapshots(self, snapshots, ptype):
+    Nfile = len(snapshots)
+    starts = zeros(dtype = 'u8', shape = Nfile)
+    for i in range(Nfile):
+      snapshot = snapshots[i]
+      starts[i] = self.numpoints * i / Nfile
+      snapshot.C.N[ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
+      snapshot.C['OmegaM'] = self.cosmology.Omega['M']
+      snapshot.C['OmegaL'] = self.cosmology.Omega['L']
+      snapshot.C['h'] = self.cosmology.h
+      snapshot.C['L'] = self.boxsize[0]
+
+    for i in range(Nfile):
+      snapshot = snapshots[i]
+      for comp in self:
+        block = self.comp_to_block(comp)
+        dtype = snapshot.reader.hash[block]['dtype']
+        if dtype.base is not self[comp].dtype:
+          snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]].astype(dtype.base)
+        else:
+          snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]]
+
   def take_snapshots(self, snapshots, ptype):
     num_workers = 8
     job1_q = Queue()
     job2_q = Queue()
+
+    self.init_from_snapshot(snapshots[0])
 
     def work(job, job_q):
       err_q = Queue()
@@ -149,9 +175,12 @@ class Field(object):
         snapshot = queue.get()
         try:
           snapshot.load(ptype = ptype, blocknames = ['pos'])
-          if snapshot.N[ptype] != 0:
+          if snapshot.C.N[ptype] != 0:
             mask = self.cut.select(snapshot.P[ptype]['pos'])
-            length = mask.sum()
+            if mask is not None:
+              length = mask.sum()
+            else:
+              length = snapshot.C.N[ptype]
           else:
             length = 0
             mask = None

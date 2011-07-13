@@ -45,16 +45,15 @@ class Reader(Base):
       ('met', 'f4', [0, 4], ['flag_met']),
       ('bhmass', 'f4', [5], []),
       ('bhmdot', 'f4', [5], [])
-    ]
+    ],
+    constants = {
+     'OmegaB' : 0.044,
+     'PhysDensThresh': 0.000831188,
+     'OmegaL': 'OmegaL',
+     'OmegaM': 'OmegaM',
+     'h': 'h',
+     'N': 'N',
+     'Z': 'redshift',
+     'L': 'boxsize',
+    }
     );
-  def constants(self, snapshot):
-    h = snapshot.header
-    return dict(
-      OmegaB = 0.044,
-      OmegaL = h['OmegaL'],
-      OmegaM = h['OmegaM'],
-      h = h['h'],
-      N = h['N'],
-      Z = h['redshift'],
-      L = h['boxsize'],
-    )

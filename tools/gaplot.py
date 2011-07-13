@@ -101,7 +101,7 @@ class GaplotContext:
     self.gas.init_from_snapshot(snap)
     self.bh.init_from_snapshot(snap)
     self.star.init_from_snapshot(snap)
-    self.C = snap.C.copy()
+    self.C = snap.C
     if cut == None:
       self.cut = Cut(xcut=[0, snap.C['L']], ycut=[0, snap.C['L']], zcut=[0, snap.C['L']])
     else:

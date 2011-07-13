@@ -4,9 +4,9 @@ def is_string_like(v):
   except: return False
   return True
 class Snapshot:
-  def __init__(self, file=None, reader=None, *args, **kwargs):
+  def __init__(self, file=None, reader=None, create=False):
     # constants (cosmology and stuff)
-    self.C = {}
+    self.C = None
     # particle data
     self.P = {}
     for i in range(6):
@@ -17,7 +17,6 @@ class Snapshot:
     self.sizes = {}
     self.offsets = {}
 
-    self.N = None
     if reader == None: return
 
     if is_string_like(reader) :
@@ -25,12 +24,27 @@ class Snapshot:
               ['Reader'],  -1)
       reader = _temp.Reader()
 
-    reader.prepare(self, file = file, *args, **kwargs)
+    if create:
+      self.save_on_delete = True
+      reader.create(self, file = file)
+    else:
+      self.save_on_delete = False
+      reader.open(self, file = file)
+
+  def __del__(self):
+    if self.save_on_delete:
+      print 'saving snapshot %s at destruction' % self.file.name
+      self.save(blocknames = 'header')
+      for ptype in range(6):
+        for block in [sch['name'] for sch in self.reader.schemas]:
+          if block in self.P[ptype]:
+            self.save(ptype = ptype, blocknames = [block])
 
   def load(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.load(self, bn, ptype)
+
   def save(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 

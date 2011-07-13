@@ -70,7 +70,7 @@ class F77File(file):
     if length == None: length = a.size
 
     if length == 0: return
-
+    print 'write record', length, offset
     if self.little_endian != little_endian: a.byteswap(True)
     dtype = a.dtype
     size = int32(length * a.dtype.itemsize)

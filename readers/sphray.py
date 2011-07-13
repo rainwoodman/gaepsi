@@ -52,19 +52,17 @@ class Reader(Base):
       ('HIa_cloudy', 'f4', [0], ['flag_cloudy']),
       ('eos', 'f4', [0], ['flag_eos']),
       ('lasthit', 'u8', [0], []),
-    ]
-    );
-  def constants(self, snapshot):
-    h = snapshot.header
-    return dict(
-      OmegaB = 0.044,
-      OmegaL = h['OmegaL'],
-      OmegaM = h['OmegaM'],
-      h = h['h'],
-      N = h['N'],
-      Z = h['redshift'],
-      L = h['boxsize'],
-    )
+    ],
+    constants = {
+      'OmegaB' : 0.044,
+      'OmegaL' : 'OmegaL',
+      'OmegaM' : 'OmegaM',
+      'h' : 'h',
+      'N' : 'N',
+      'Z' : 'redshift',
+      'L' : 'boxsize',
+    }
 
+    );
 
 
