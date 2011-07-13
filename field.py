@@ -140,16 +140,23 @@ class Field(object):
       snapshot.C['OmegaL'] = self.cosmology.Omega['L']
       snapshot.C['h'] = self.cosmology.h
       snapshot.C['L'] = self.boxsize[0]
+    skipped_comps = set([])
 
     for i in range(Nfile):
       snapshot = snapshots[i]
       for comp in self:
         block = self.comp_to_block(comp)
-        dtype = snapshot.reader.hash[block]['dtype']
+        try:
+          dtype = snapshot.reader.hash[block]['dtype']
+        except KeyError:
+          skipped_comps.update(set([comp]))
+          continue
         if dtype.base is not self[comp].dtype:
           snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]].astype(dtype.base)
         else:
           snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]]
+      #skip if the reader doesn't save the block
+    print 'warning: blocks not supported in snapshot', skipped_comps
 
   def take_snapshots(self, snapshots, ptype):
     num_workers = 8
@@ -199,11 +206,15 @@ class Field(object):
 
     work(job1, job1_q)
 
+    # allocate the storage space, trashing whatever already there.
     for comp in self:
       shape = list(self[comp].shape)
       shape[0] = self.numpoints
       self.dict[comp] = zeros(shape = shape,
          dtype = self.dict[comp].dtype)
+
+    skipped_comps = set([])
+
 
     def job2(queue, error):
       while True:
@@ -213,21 +224,24 @@ class Field(object):
           continue
         try:
           for comp in self:
-            snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
-          with self.__lock:
-            for comp in self:
-              if mask is None:
-                self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
-              else:
-                self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
-              snapshot.clear(self.comp_to_block(comp))
+            try:
+              snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
+            except KeyError:
+              # skip blocks that are not in the snapshot
+              skipped_comps.update(set([comp]))
+              continue
+            if mask is None:
+              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
+            else:
+              self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
+            snapshot.clear(self.comp_to_block(comp))
         except Exception as err:
           error.put(err)
         finally:
           queue.task_done()
 
     work(job2, job2_q)
-
+    print 'warning: comp not suppored by the snapshot', skipped_comps
 
   def add_snapshot(self, snapshot, ptype):
     """ """
