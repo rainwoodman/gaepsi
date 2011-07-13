@@ -34,16 +34,20 @@ class Snapshot:
   def __del__(self):
     if self.save_on_delete:
       print 'saving snapshot %s at destruction' % self.file.name
-      self.save(blocknames = 'header')
-      for ptype in range(6):
-        for block in [sch['name'] for sch in self.reader.schemas]:
-          if block in self.P[ptype]:
-            self.save(ptype = ptype, blocknames = [block])
+      self.save_all()
 
   def load(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.load(self, bn, ptype)
+
+  def save_all(self):
+    self.save(blocknames = 'header')
+    for ptype in range(6):
+      for block in [sch['name'] for sch in self.reader.schemas]:
+        if block in self.P[ptype]:
+          self.save(ptype = ptype, blocknames = [block])
+    self.save_on_delete = False
 
   def save(self, blocknames, ptype='all') :
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
