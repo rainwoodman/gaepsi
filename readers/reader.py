@@ -93,7 +93,6 @@ class Reader:
       for s in self.schemas:
         name = s['name']
         if not snapshot.sizes[name] == None:
-          print 'creating', name, snapshot.offsets[name], snapshot.sizes[name] // s['dtype'].itemsize
           snapshot.file.seek(snapshot.offsets[name])
           snapshot.file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].itemsize)
       snapshot.file.seek(0)
@@ -117,7 +116,6 @@ class Reader:
       for i in range(6):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
-      print length, offset
       snapshot.file.write_record(snapshot.P[ptype][name], length, offset)
       snapshot.file.flush()
    
