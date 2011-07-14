@@ -107,7 +107,8 @@ class ReaderBase:
         name = s['name']
         if not snapshot.sizes[name] == None:
           snapshot.file.seek(snapshot.offsets[name])
-          snapshot.file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].itemsize)
+    # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
+          snapshot.file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
       snapshot.file.seek(0)
       buf = zeros(dtype = self.header_dtype, shape = 1)
       buf[0] = snapshot.header
@@ -117,7 +118,8 @@ class ReaderBase:
 
     sch = self.hash[name]
     snapshot.file.seek(snapshot.offsets[name])
-    length = snapshot.sizes[name] // sch['dtype'].itemsize
+    # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
+    length = snapshot.sizes[name] // sch['dtype'].base.itemsize
     if ptype == 'all':
       if snapshot.sizes[name] != 0 :
         snapshot.file.write_record(snapshot.P['all'][name])
@@ -129,8 +131,8 @@ class ReaderBase:
       for i in range(6):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
+      offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
       snapshot.file.write_record(snapshot.P[ptype][name], length, offset)
-      snapshot.file.flush()
    
   def check(self, snapshot):
     for sch in self.schemas:

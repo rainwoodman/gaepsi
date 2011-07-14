@@ -46,6 +46,16 @@ class Reader(ReaderBase):
       ('bhmass', 'f4', [5], []),
       ('bhmdot', 'f4', [5], [])
     ],
+    defaults = {
+      'flag_sfr': 1,
+      'flag_sft': 1,
+      'flag_met': 1,
+      'flag_entropy': 0,
+      'flag_double': 0,
+      'flag_ic_info': 0,
+      'flag_cool': 1,
+      'flag_feedback': 1,
+    },
     constants = {
      'OmegaB' : 0.044,
      'PhysDensThresh': 0.000831188,
