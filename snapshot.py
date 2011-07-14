@@ -5,6 +5,10 @@ def is_string_like(v):
   return True
 class Snapshot:
   def __init__(self, file=None, reader=None, create=False, **kwargs):
+    """ creats a snapshot
+      **kwargs are the fields in the header to be filled if create=True.
+      **kwargs are ignored when create=False.
+    """
     # constants (cosmology and stuff)
     self.C = None
     # particle data
@@ -45,14 +49,17 @@ class Snapshot:
       self.reader.load(self, bn, ptype)
 
   def save_all(self):
+    self.save_on_delete = False
     self.save(blocknames = 'header')
+    print self.offsets
+    print self.sizes
     for ptype in range(6):
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
-    self.save_on_delete = False
 
   def save(self, blocknames, ptype='all') :
+    self.save_on_delete = False
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.save(self, bn, ptype)

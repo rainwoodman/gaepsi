@@ -12,12 +12,13 @@ class Constants:
     self.reader.set_constant(self.header, index, value)
 
 class ReaderBase:
-  def __init__(self, file_class, header, schemas, constants={}, endian='<'):
+  def __init__(self, file_class, header, schemas, defaults={}, constants={}, endian='<'):
     """file_class is either F77File or CFile,
        header is a numpy dtype describing the header block
        schemas is a list of blocks, (name, dtype, [ptypes], [conditions]),
           for example ('pos', ('f4', 3), [0, 1, 4, 5], []), 
           or ('met', 'f4', [4], ['flags_hasmet'])
+       defaults is a dictionary containing the default values used in the header, when a new snapshot file is created.
        constants is a dictionary of constant values/ corresponding header fields.
           for example, {'N': 'N', 'OmegaB': 0.044}
        endian is either '<'(intel) or '>' (ibm).
@@ -32,11 +33,12 @@ class ReaderBase:
     self.file_class = file_class
     self.endian = endian
     self.hash = {}
+    self.defaults = defaults
     for s in self.schemas:
       self.hash[s['name']] = s
 
-  def open(self, snapshot, file, *args, **kwargs):
-    snapshot.file = self.file_class(file, endian=self.endian, *args, **kwargs)
+  def open(self, snapshot, file):
+    snapshot.file = self.file_class(file, endian=self.endian, mode='r')
     snapshot.reader = self
     self.load(snapshot, name = 'header')
     snapshot.C = Constants(self, snapshot.header)
@@ -47,6 +49,9 @@ class ReaderBase:
     snapshot.reader = self
     buf = zeros(dtype=self.header_dtype, shape=1)
     snapshot.header = buf[0]
+    for f in self.defaults:
+      snapshot.header[f] = self.defaults[f]
+
     snapshot.C = Constants(self, snapshot.header)
 
   def get_constant(self, header, index):
