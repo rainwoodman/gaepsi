@@ -13,6 +13,16 @@ class Constants:
 
 class ReaderBase:
   def __init__(self, file_class, header, schemas, constants={}, endian='<'):
+    """file_class is either F77File or CFile,
+       header is a numpy dtype describing the header block
+       schemas is a list of blocks, (name, dtype, [ptypes], [conditions]),
+          for example ('pos', ('f4', 3), [0, 1, 4, 5], []), 
+          or ('met', 'f4', [4], ['flags_hasmet'])
+       constants is a dictionary of constant values/ corresponding header fields.
+          for example, {'N': 'N', 'OmegaB': 0.044}
+       endian is either '<'(intel) or '>' (ibm).
+    """
+
     self.header_dtype = dtype(header)
     self.constants = constants
     self.schemas = [dict(name = sch[0], 
