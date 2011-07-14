@@ -1,5 +1,5 @@
 from numpy import fromfile, dtype, zeros, floor, ceil
-from gaepsi.readers.io import F77File
+from gaepsi.readers import F77File
 
 header_dtype = dtype([
   ('ncell1d', 'u4'),

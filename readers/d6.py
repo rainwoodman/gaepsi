@@ -1,1 +1,1 @@
-from d4 import Reader
+from gaepsi.readers.d4 import Reader

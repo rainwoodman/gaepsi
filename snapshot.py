@@ -4,7 +4,7 @@ def is_string_like(v):
   except: return False
   return True
 class Snapshot:
-  def __init__(self, file=None, reader=None, create=False):
+  def __init__(self, file=None, reader=None, create=False, **kwargs):
     # constants (cosmology and stuff)
     self.C = None
     # particle data
@@ -27,6 +27,9 @@ class Snapshot:
     if create:
       self.save_on_delete = True
       reader.create(self, file = file)
+      for key in kwargs:
+        self.header[key] = kwargs[key]
+
     else:
       self.save_on_delete = False
       reader.open(self, file = file)

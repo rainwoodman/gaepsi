@@ -1,9 +1,8 @@
-from reader import Reader as Base
-from io import CFile
+from gaepsi.readers import ReaderBase, CFile
 
-class Reader(Base):
+class Reader(ReaderBase):
   def __init__(self) :
-    Base.__init__(self, 
+    ReaderBase.__init__(self, 
     CFile, 
     header = [
       ('N', ('u8', 6)),
@@ -29,16 +28,15 @@ class Reader(Base):
       ('bhmdot', 'f4', [5], []),
       ('type', 'u4', [0, 1, 4, 5], []),
       ('file', 'u4', [0, 1, 4, 5], []),
-    ]
+    ],
+    constants = {
+     'OmegaB' : 0.044,
+     'PhysDensThresh': 0.000831188,
+     'OmegaL': 'OmegaL',
+     'OmegaM': 'OmegaM',
+     'h': 'h',
+     'N': 'N',
+     'Z': 'redshift',
+     'L': 'boxsize',
+    }
     );
-  def constants(self, snapshot):
-    h = snapshot.header
-    return dict(
-      OmegaB = 0.044,
-      OmegaL = 0.0,
-      OmegaM = 0.0,
-      h = 0.72,
-      N = h['N'],
-      Z = 0,
-      L = 0,
-    )

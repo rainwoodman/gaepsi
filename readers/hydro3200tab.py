@@ -1,8 +1,7 @@
-from reader import Reader as Base
-from io import F77File
-from numpy import array
+from gaepsi.readers import ReaderBase, F77File
+
 header = [
-      ('N', 'u8'),
+      ('N', ('u8', 1)),
       ('Nids', 'u8'),
       ('unused0', ('u4',2)),
       ('mass', ('f8', 6)),
@@ -45,16 +44,15 @@ class Reader(Base):
       ('sfr', 'f4', [0], []),
       ('bhmass', 'f4', [0], []),
       ('bhmdot', 'f4', [0], [])
-    ]
+    ],
+    constants = {
+     'OmegaB' : 0.044,
+     'PhysDensThresh': 0.000831188,
+     'OmegaL': 'OmegaL',
+     'OmegaM': 'OmegaM',
+     'h': 'h',
+     'N': 'N',
+     'Z': 'redshift',
+     'L': 'boxsize',
+    }
     );
-  def constants(self, snapshot):
-    h = snapshot.header
-    return dict(
-      OmegaB = 0.044,
-      OmegaL = h['OmegaL'],
-      OmegaM = h['OmegaM'],
-      h = h['h'],
-      N = array([h['N'], 0, 0, 0, 0, 0], dtype='u4'),
-      Z = h['redshift'],
-      L = h['boxsize'],
-    )

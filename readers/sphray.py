@@ -1,9 +1,8 @@
-from reader import Reader as Base
-from io import F77File
+from gaepsi.readers import ReaderBase, F77File
 
-class Reader(Base):
+class Reader(ReaderBase):
   def __init__(self) :
-    Base.__init__(self, 
+    ReaderBase.__init__(self, 
     F77File, 
     header = [
       ('N', ('u4', 6)),
