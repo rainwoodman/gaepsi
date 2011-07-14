@@ -45,6 +45,14 @@ print 'current density', density
 print 'sml = ', field['sml'].mean(), 'separation = ', boxsize / (N * 1.0)
 print 'proton count', mass / cosmology.units.PROTONMASS
 
+bh = Field(numpoints = 1, components={'bhmass':'f4', 'bhmdot':'f4'})
+bh.cosmology = cosmology
+bh.boxsize = boxsize
+bh['locations'][0,:] = ones(3) * boxsize * 0.5
+bh['bhmass'][0] = 1
+bh['bhmdot'][0] = 1
+
 field.dump_snapshots([snapshot], ptype=0)
+bh.dump_snapshots([snapshot], ptype=5)
 
 snapshot.save_all()
