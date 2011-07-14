@@ -113,7 +113,6 @@ class ReaderBase:
       buf = zeros(dtype = self.header_dtype, shape = 1)
       buf[0] = snapshot.header
       snapshot.file.write_record(buf, 1)
-      snapshot.file.flush()
       return
 
     sch = self.hash[name]
@@ -123,7 +122,6 @@ class ReaderBase:
     if ptype == 'all':
       if snapshot.sizes[name] != 0 :
         snapshot.file.write_record(snapshot.P['all'][name])
-        snapshot.file.flush()
     else :
       if not ptype in sch['ptypes'] : 
         return

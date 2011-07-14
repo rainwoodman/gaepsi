@@ -57,6 +57,7 @@ class Snapshot:
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
+    self.file.flush()
 
   def save(self, blocknames, ptype='all') :
     self.save_on_delete = False
