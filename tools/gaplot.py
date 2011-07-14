@@ -11,7 +11,7 @@ from gaepsi.plot.image import rasterize
 from gaepsi.plot.render import Colormap, color as gacolor
 from gaepsi.tools.streamplot import streamplot
 from gaepsi import ccode
-from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax
+from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax, ones
 from numpy import isinf, nan, argsort, isnan
 from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
@@ -258,14 +258,20 @@ class GaplotContext:
     ID = self.bh['id'][mask]
     bhmass = self.bh['bhmass'][mask]
     if bhmass.size == 0: return
+
     if vmax is None:
       vmax = bhmass.max()
     if vmin is None:
       vmin = bhmass.min()
+
     print 'bhshow, vmax, vmin =', vmax, vmin
     R = log10(bhmass)
     Nm = Normalize(vmax=log10(vmax), vmin=log10(vmin), clip=True)
-    R = Nm(R)
+    if bhmass.size > 1:
+      R = Nm(R)
+    else:
+      R = ones(1)
+
     if count > 0: 
       ind = (-R).argsort()
       X = X[ind[0:count]]
@@ -343,6 +349,7 @@ class GaplotContext:
   def reset_view(self, ax):
     left,right =self.cut['x']
     bottom, top = self.cut['y']
+    print left, right, bottom, top
     ax.set_xlim(left, right)
     ax.set_ylim(bottom, top)
 
@@ -542,11 +549,13 @@ def mlim(*args, **kwargs):
 def bhshow(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
   context.bhshow(ax, *args, **kwargs)
+  draw()
 bhshow.__doc__ = GaplotContext.bhshow.__doc__
 
-def reset_view(ax=None, *args, **kwargs):
+def reset_view(ax=None):
   if ax is None: ax = gca()
-  context.reset_view(*args, **kwargs)
+  context.reset_view(ax)
+  draw()
 
 def gasshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
   "see fieldshow for docs"
@@ -559,6 +568,7 @@ def gasshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
     if ax is None: ax = gca()
     ret = context.fieldshow(ax, 'gas', *args, **kwargs)
     ax._sci(ret)
+  draw()
 
 def starshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
   "see fieldshow for docs"
@@ -571,15 +581,19 @@ def starshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
     if ax is None: ax = gca()
     ret = context.fieldshow(self.gca(), 'star', *args, **kwargs)
     ax._sci(ret)
+  draw()
 
 def starshow_poor(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
   context.starshow_poor(ax, *args, **kwargs)
+  draw()
 
 def decorate(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
   context.decorate(ax=ax, *args, **kwargs)
+  draw()
 
 def velshow(ftype, ax=None, relative=False, color='cyan', alpha=0.8):
   if ax is None: ax = gca()
   context.velshow()
+  draw()
