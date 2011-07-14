@@ -17,10 +17,8 @@ from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
 from numpy import random
 import matplotlib.pyplot as pyplot
-
-import threading
+import threads
 from Queue import Queue
-
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
@@ -108,7 +106,6 @@ class GaplotContext:
       self.cut = cut
     self.cache.clear()
     
-
   @property
   def extent(self):
     return (self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1])
@@ -143,6 +140,27 @@ class GaplotContext:
       self.star.take_snapshots(snapshots, ptype = 4)
 
     self.cache.clear()
+
+  def save(self, snapname, format, fids=None, use_gas=True, use_bh=True, use_star=True, **kwargs):
+    if fids != None:
+      snapnames = [snapname % i for i in fids]
+    else:
+      snapnames = [snapname]
+    snapshots = [Snapshot(snapname, format, create=True, **kwargs) for snapname in snapnames]
+    if use_gas:
+      self.gas.dump_snapshots(snapshots, ptype = 0)
+    if use_bh:
+      self.bh.dump_snapshots(snapshots, ptype = 5)
+    if use_star:
+      self.star.dump_snapshots(snapshots, ptype = 4)
+    @threads.job
+    def job(snapshot, lock):
+      snapshot.save_all()
+    job_q = Queue()
+    for snapshot in snapshots:
+      job_q.put((snapshot,))
+
+    threads.work(job, job_q)
 
   def radial_mean(self, component, bins=100, min=None, max=None):
     from numpy import histogram
@@ -519,7 +537,7 @@ def rotate(*args, **kwargs):
   return context.rotate(*args, **kwargs)
 
 def mlim(*args, **kwargs):
-  return mlim(*args, **kwargs)
+  return context.mlim(*args, **kwargs)
 
 def bhshow(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
