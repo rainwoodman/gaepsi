@@ -9,12 +9,15 @@ def gen_reader(reader):
       gen_pstart_func(reader),
       gen_length_func(reader),
       gen_offset_func(reader),
+      gen_def_header_func(reader),
+      gen_get_constant_funcs(reader),
+      gen_set_constant_funcs(reader),
       gen_read_func(reader),
       gen_write_func(reader), "\n"]);
 
 def gen_itemsize_func(reader):
   return "\n".join([
-    "static size_t _itemsize(char * blk, char ** error) {",
+    "static size_t _itemsize(const char * blk, char ** error) {",
     "\n".join([
        " ".join([
        "\tif(!strcmp(blk, \"%s\"))" % schema['name'],
@@ -30,7 +33,7 @@ def gen_itemsize_func(reader):
 
 def gen_length_func(reader):
   return "\n".join([
-    "static size_t _length(struct header_t * h, char * blk, char ** error) {",
+    "static size_t _length(const struct header_t * h, const char * blk, char ** error) {",
     "\n".join([
        " ".join([
        "\tif(!strcmp(blk, \"%s\"))" % schema['name'],
@@ -46,7 +49,7 @@ def gen_length_func(reader):
 
 def gen_pstart_func(reader):
   return "\n".join([
-    "static size_t _pstart(struct header_t * h, char * blk, int ptype, char ** error) {",
+    "static size_t _pstart(const struct header_t * h, const char * blk, int ptype, char ** error) {",
     "\n".join([
        " ".join([
        "\tif(!strcmp(blk, \"%s\"))" % schema['name'],
@@ -61,7 +64,7 @@ def gen_pstart_func(reader):
 
 def gen_blockid_func(reader):
   return "\n".join([
-    "static int _blockid(char * blk, char ** error) {",
+    "static int _blockid(const char * blk, char ** error) {",
     "\n".join([
        " ".join([
        "\tif(!strcmp(blk, \"%s\"))" % schema['name'],
@@ -77,7 +80,7 @@ def gen_blockid_func(reader):
 
 def gen_blockname_func(reader):
   return "\n".join([
-    "static char * _blockname(int blockid, char ** error) {",
+    "static const char * _blockname(const int blockid, char ** error) {",
        "\tstatic char * names[] = {\"header\", ",
        ",".join(["".join(["\"", schema['name'], "\""])
               for schema in reader.schemas]),
@@ -91,16 +94,74 @@ def gen_blockname_func(reader):
      """,
     "}"])
 
+#! FIXME: shall use reader.constants dictionary.
+def gen_get_constant_funcs(reader):
+  def line(f):
+    if f == "N" or f == "Ntot" or f == "mass": return ""
+    if hasattr(reader.constants[f], "isalnum"):
+      return "c->%s = h->%s;" %(f, reader.constants[f])
+    else :
+      return "c->%s = %s;" %(f, str(reader.constants[f]))
+
+  return "\n".join(["""
+static void _get_constants(const struct header_t * h, struct constants_t * c) {
+	int i;
+	for(i = 0; i< 6; i++) {
+		c->N[i] = h->N[i];
+		c->Ntot[i] = h->Nparticle_total_low[i]
+			+ (((size_t) h->Nparticle_total_high[i]) << 32);
+		c->mass[i] = h->mass[i];
+	}
+""",
+    "\n".join([line(f) for f in reader.constants]),
+"""
+}
+"""])
+
+def gen_set_constant_funcs(reader):
+  def line(f):
+    if f == "N" or f == "Ntot" or f == "mass": return ""
+    if hasattr(reader.constants[f], "isalnum"):
+      return "h->%s = c->%s;" %(reader.constants[f], f)
+    else :
+      return ""
+  return "\n".join(["""
+static void _set_constants(struct header_t * h, const struct constants_t * c) {
+	int i;
+	for(i = 0; i< 6; i++) {
+		h->N[i] = c->N[i];
+		h->Nparticle_total_low[i] = c->Ntot[i];
+		h->Nparticle_total_high[i] = c->Ntot[i] >> 32;
+		h->mass[i] = c->mass[i];
+	}
+}
+""",
+    "\n".join([line(f) for f in reader.constants]),
+"""
+}
+"""])
+   
+
+def gen_def_header_func(reader):
+  return "\n".join([
+    "static void _def_header(struct header_t * h) {",
+    "\n".join([
+      "h->%s = %s;" %( d, str(reader.defaults[d])) for
+      d in reader.defaults
+    ]),
+    "}"])
+
+
 def gen_offset_func(reader):
   return """
-static size_t _offset(struct header_t * h, char * blk, char ** error) {
+static size_t _offset(const struct header_t * h, const char * blk, char ** error) {
 	int id = _blockid(blk, error);
 	int i;
 	if(*error) return (size_t) -1;
 	size_t offset = 0;
 	for(i = 0; i < id; i++) {
 /* we are sure there won't be errors here*/
-		char * blknm = _blockname(i, error);
+		const char * blknm = _blockname(i, error);
 		size_t bsize = _length(h, blknm, error) * _itemsize(blknm, error);
 		if(bsize > 0) offset += (bsize + 8);
 	}
@@ -110,7 +171,7 @@ static size_t _offset(struct header_t * h, char * blk, char ** error) {
 
 def gen_read_func(reader):
   return """
-static void _read(struct header_t * h, char * blk, void * buffer, int start, int length, FILE * fp, char ** error) {
+static void _read(struct header_t * h, const char * blk, void * buffer, int start, int length, FILE * fp, char ** error) {
 	size_t off = _offset(h, blk, error);
 	if(*error) return;
 	size_t l = _length(h, blk, error);
@@ -128,10 +189,11 @@ static void _read(struct header_t * h, char * blk, void * buffer, int start, int
 	fseek(fp, start * b, SEEK_CUR);
 	if(!strcmp(blk, "header")) buffer = h;
 	fread(buffer, b, length, fp);
+	fseek(fp, (l - length - start) * b, SEEK_CUR);
 	blksize = 0;
 	fread(&blksize, sizeof(int), 1, fp);
 	if(blksize != (int)bsize) {
-		asprintf(stderr, "block end size of %s mismatch; file says %u, reader says %lu\\n",
+		asprintf(error, "block end size of %s mismatch; file says %u, reader says %lu\\n",
 				blk, blksize, bsize);
 		return;
 	}
@@ -140,7 +202,7 @@ static void _read(struct header_t * h, char * blk, void * buffer, int start, int
 
 def gen_write_func(reader):
   return """
-static void _write(struct header_t * h, char * blk, void * buffer, int start, int length, FILE * fp, char ** error) {
+static void _write(const struct header_t * h, const char * blk, const void * buffer, int start, int length, FILE * fp, char ** error) {
 	size_t off = _offset(h, blk, error);
 	if(*error) return;
 	size_t l = _length(h, blk, error);
@@ -153,6 +215,7 @@ static void _write(struct header_t * h, char * blk, void * buffer, int start, in
 	fwrite(&blksize, sizeof(int), 1, fp);
 	fseek(fp, start * b, SEEK_CUR);
 	fwrite(buffer, b, length, fp);
+	fseek(fp, (l - length - start) * b, SEEK_CUR);
 	blksize = bsize;
 	fwrite(&blksize, sizeof(int), 1, fp);
 }

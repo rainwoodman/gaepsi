@@ -66,7 +66,7 @@ else:
 #decide the boxsize
 if comm.rank == 0:
   snap = Snapshot(snapfiles[0], opt.format)
-  boxsize = snap.C['L']
+  boxsize = snap.C['boxsize']
   del snap
 else: boxsize = None
 opt.boxsize = comm.bcast(boxsize)

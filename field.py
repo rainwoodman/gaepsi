@@ -117,7 +117,7 @@ class Field(object):
 
   def init_from_snapshot(self, snapshot, cut=None):
     if cut is None:
-      self.boxsize = snapshot.C['L']
+      self.boxsize = snapshot.C['boxsize']
     else: self.cut.take(cut)
 
     self.cosmology = Cosmology(0, snapshot.C['OmegaM'], snapshot.C['OmegaL'], snapshot.C['h'])
@@ -136,7 +136,7 @@ class Field(object):
       snapshot.C['OmegaM'] = self.cosmology.Omega['M']
       snapshot.C['OmegaL'] = self.cosmology.Omega['L']
       snapshot.C['h'] = self.cosmology.h
-      snapshot.C['L'] = self.boxsize[0]
+      snapshot.C['boxsize'] = self.boxsize[0]
     skipped_comps = set([])
 
     for i in range(Nfile):

@@ -101,7 +101,7 @@ class GaplotContext:
     self.star.init_from_snapshot(snap)
     self.C = snap.C
     if cut == None:
-      self.cut = Cut(xcut=[0, snap.C['L']], ycut=[0, snap.C['L']], zcut=[0, snap.C['L']])
+      self.cut = Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']])
     else:
       self.cut = cut
     self.cache.clear()
@@ -111,7 +111,7 @@ class GaplotContext:
     return (self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1])
   @property
   def redshift(self):
-    return self.C['Z']
+    return self.C['redshift']
 
   @property
   def gas(self):

@@ -62,7 +62,9 @@ class Reader(ReaderBase):
      'OmegaM': 'OmegaM',
      'h': 'h',
      'N': 'N',
-     'Z': 'redshift',
-     'L': 'boxsize',
+     'redshift': 'redshift',
+     'time': 'time',
+     'boxsize': 'boxsize',
+     'Nfiles': 'Nfiles',
     }
     );

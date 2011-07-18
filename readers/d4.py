@@ -57,12 +57,13 @@ class Reader(ReaderBase):
     },
     constants = {
      'OmegaB' : 0.044,
-     'PhysDensThresh': 0.000831188,
      'OmegaL': 'OmegaL',
      'OmegaM': 'OmegaM',
      'h': 'h',
      'N': 'N',
-     'Z': 'redshift',
-     'L': 'boxsize',
+     'redshift': 'redshift',
+     'time': 'time',
+     'boxsize': 'boxsize',
+     'Nfiles': 'Nfiles',
     }
     );
