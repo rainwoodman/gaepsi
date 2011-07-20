@@ -66,6 +66,12 @@ class GaplotContext:
     self.cut.take(Cut(center=center, size=size))
     self.cache.clear()
 
+  def slice(self, z, thickness):
+    cut = Cut(center=self.cut.center, size=self.cut.size)
+    cut['z'] = [z - thickness / 2.0, z + thickness / 2.0]
+    self.cut.take(cut)
+    self.cache.clear()
+
   def unfold(self, M):
     self.gas.unfold(M)
     self.star.unfold(M)
@@ -83,7 +89,7 @@ class GaplotContext:
 
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
-          starcomponents={'sft':'f4', 'mass':'f4'}, cut=None):
+          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None):
     self.components = components
     self.components['mass'] = 'f4'
     self.components['sml'] = 'f4'
@@ -92,6 +98,11 @@ class GaplotContext:
     self.F['gas'] = Field(components=self.components, cut=cut)
     self.F['bh'] = Field(components=bhcomponents, cut=cut)
     self.F['star'] = Field(components=starcomponents, cut=cut)
+    self.ptype = {
+      "gas": gas,
+      "star": star,
+      "bh": bh,
+    }
     try:
       snapname = self.snapname % 0
     except TypeError:
@@ -134,11 +145,11 @@ class GaplotContext:
     snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
 
     if use_gas:
-      self.gas.take_snapshots(snapshots, ptype = 0)
+      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'])
     if use_bh:
-      self.bh.take_snapshots(snapshots, ptype = 5)
+      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'])
     if use_star:
-      self.star.take_snapshots(snapshots, ptype = 4)
+      self.star.take_snapshots(snapshots, ptype = self.ptype['star'])
 
     self.cache.clear()
 
@@ -173,7 +184,7 @@ class GaplotContext:
     return bins[:-1], value/mass
 
   def rotate(self, *args, **kwargs):
-    kwargs['origin'] = self.cut.origin
+    kwargs['origin'] = self.cut.center
     self.gas.rotate(*args, **kwargs)
     self.bh.rotate(*args, **kwargs)
     self.star.rotate(*args, **kwargs)
@@ -537,6 +548,10 @@ use.__doc__ = GaplotContext.use.__doc__
 def zoom(*args, **kwargs):
   return context.zoom(*args, **kwargs)
 zoom.__doc__ = GaplotContext.zoom.__doc__
+
+def slice(*args, **kwargs):
+  return context.slice(*args, **kwargs)
+zoom.__doc__ = GaplotContext.slice.__doc__
 
 def unfold(*args, **kwargs):
   return context.unfold(*args, **kwargs)
