@@ -33,19 +33,32 @@ def gen_itemsize_func(reader):
 
 def gen_length_func(reader):
   return "\n".join([
-    "static size_t _length(const struct header_t * h, const char * blk, char ** error) {",
+    """
+static size_t _length(const struct header_t * h, const char * blk, char ** error) {
+""",
     "\n".join([
-       " ".join([
-       "\tif(!strcmp(blk, \"%s\"))" % schema['name'],
-       "return",
-       "+".join(["(size_t)(h->N[%d])" % ptype for ptype in schema['ptypes']]),
-       ";"
-       ]) for schema in reader.schemas]
-     ),
-     "\tif(!strcmp(blk, \"header\")) return 1;",
-     "\tasprintf(error, \"block %s is unknown\", blk);",
-     "\treturn (size_t)-1;"
-    "}"])
+     "\n".join([
+"""
+	if(!strcmp(blk, "%s")) {
+""" % schema['name'],
+"""
+		if(%s) {
+""" % "&&".join(["1"] + ["h->%s" % field for field in schema['conditions']]),
+"""
+			return %s;
+""" % "+".join(["(size_t)(h->N[%d])" % ptype for ptype in schema['ptypes']]),
+"""
+		} else {
+			return 0;
+		}
+	}
+"""]) for schema in reader.schemas]),
+"""
+	if(!strcmp(blk, "header")) return 1;
+	asprintf(error, "block %s is unknown", blk);
+	return (size_t)-1;
+}
+"""])
 
 def gen_pstart_func(reader):
   return "\n".join([
@@ -134,7 +147,6 @@ static void _set_constants(struct header_t * h, const struct constants_t * c) {
 		h->Nparticle_total_high[i] = c->Ntot[i] >> 32;
 		h->mass[i] = c->mass[i];
 	}
-}
 """,
     "\n".join([line(f) for f in reader.constants]),
 """

@@ -81,16 +81,17 @@ class GaplotContext:
     self.gas.set_mask(mask)
     self.cache.clear()
 
-  def use(self, snapname, format, components={}, cut=None):
+  def use(self, snapname, format, components={}, 
+          bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
+          starcomponents={'sft':'f4', 'mass':'f4'}, cut=None):
     self.components = components
     self.components['mass'] = 'f4'
     self.components['sml'] = 'f4'
-    self.components['vel'] = ('f4', 3)
     self.snapname = snapname
     self.format = format
     self.F['gas'] = Field(components=self.components, cut=cut)
-    self.F['bh'] = Field(components={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, cut=cut)
-    self.F['star'] = Field(components={'sft':'f4', 'mass':'f4'}, cut=cut)
+    self.F['bh'] = Field(components=bhcomponents, cut=cut)
+    self.F['star'] = Field(components=starcomponents, cut=cut)
     try:
       snapname = self.snapname % 0
     except TypeError:
@@ -250,13 +251,13 @@ class GaplotContext:
         todraw /= mass
       return todraw, mass
 
-  def bhshow(self, ax, radius=4, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def bhshow(self, ax, component='bhmass', radius=4, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
     Y = self.bh['locations'][mask,1]
     ID = self.bh['id'][mask]
-    bhmass = self.bh['bhmass'][mask]
+    bhmass = self.bh[component][mask]
     if bhmass.size == 0: return
 
     if vmax is None:

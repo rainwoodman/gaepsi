@@ -133,6 +133,10 @@ class Field(object):
       snapshot = snapshots[i]
       starts[i] = self.numpoints * i / Nfile
       snapshot.C.N[ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
+      tmp = snapshot.C.Ntot
+      tmp[ptype] = self.numpoints
+      snapshot.C['Ntot'] = tmp
+      snapshot.C['Nfiles'] = Nfile
       snapshot.C['OmegaM'] = self.cosmology.Omega['M']
       snapshot.C['OmegaL'] = self.cosmology.Omega['L']
       snapshot.C['h'] = self.cosmology.h

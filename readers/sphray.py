@@ -67,13 +67,13 @@ class Reader(ReaderBase):
       'flag_eos': 0,
     },
     constants = {
-      'OmegaB' : 0.044,
+      'OmegaB' : 'OmegaB',
       'OmegaL' : 'OmegaL',
       'OmegaM' : 'OmegaM',
       'h' : 'h',
       'N' : 'N',
-      'Z' : 'redshift',
-      'L' : 'boxsize',
+      'redshift' : 'redshift',
+      'boxsize' : 'boxsize',
     }
 
     );

@@ -1,5 +1,6 @@
 from numpy import dtype
 from numpy import zeros
+from numpy import uint64
 class Constants:
   def __init__(self, reader, header):
     self.header = header
@@ -55,12 +56,20 @@ class ReaderBase:
     snapshot.C = Constants(self, snapshot.header)
 
   def get_constant(self, header, index):
+    if index == 'Ntot':
+      return header['Nparticle_total_low'][:] +(uint64(header['Nparticle_total_high']) << 32)
     entry = self.constants[index]
     if hasattr(entry, 'isalnum'):
       return header[entry]
     return entry
 
   def set_constant(self, header, index, value):
+    if index == 'Ntot':
+      header['Nparticle_total_low'][:] = value[:]
+      header['Nparticle_total_high'][:] = value[:] << 32
+      print value
+      return
+
     entry = self.constants[index]
     if hasattr(entry, 'isalnum'):
       header[entry] = value
