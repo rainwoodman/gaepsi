@@ -35,7 +35,7 @@ class Cut:
         self.center = asarray(center[0:3])
       else:
         self.center = asarray(size) * 0.5
-      self.size = size[0:3]
+      self.size = asarray(size[0:3])
       return
     # uninitialized cut
     self.center = None
