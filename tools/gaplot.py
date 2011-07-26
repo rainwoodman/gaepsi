@@ -174,14 +174,23 @@ class GaplotContext:
 
     threads.work(job, job_q)
 
-  def radial_mean(self, component, bins=100, min=None, max=None):
+  def radial_mean(self, component, bins=100, min=None, max=None, std=False, origin=None):
     from numpy import histogram
-    d = self.gas.dist(origin=self.cut.center)
+    if origin is None: origin = self.cut.center
+    d = self.gas.dist(origin=origin)
     if min is not None and max is not None: range=(min, max)
     else: range= None 
-    mass, bins = histogram(d, range=range, bins=bins, weights=self.gas['mass'])
-    value, bins = histogram(d, range=range, bins=bins, weights=self.gas['mass'] * self.gas[component])
-    return bins[:-1], value/mass
+    m = self.gas['mass']
+    mx = self.gas['mass'] * self.gas[component]
+    mass, bins = histogram(d, range=range, bins=bins, weights=m)
+    value, bins = histogram(d, range=range, bins=bins, weights=mx)
+    value /= mass
+    if std:
+      mxx = mx * self.gas[component]
+      std, bins = histogram(d, range=range, bins=bins, weights=mxx)
+      std = sqrt(abs(std / mass - value ** 2))
+      return bins[:-1], value, std
+    return bins[:-1], value
 
   def rotate(self, *args, **kwargs):
     kwargs['origin'] = self.cut.center
