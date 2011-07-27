@@ -43,6 +43,14 @@ class Cut:
   def empty(self):
     return self.center is None
 
+  @property
+  def origin(self):
+    return self.center - self.size * 0.5
+  @origin.setter
+  def origin(self, value):
+    value = asarray(value)
+    self.center[:] = value + self.size * 0.5
+
   def take(self, cut):
     if cut is not None:
       if cut.empty:
@@ -229,13 +237,21 @@ class Field(object):
       snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
 
     mask = self.cut.select(snapshot.P[ptype]['pos'])
-    add_points = mask.sum()
-    if add_points == 0: return 0
+    if mask is not None:
+      add_points = mask.sum()
+      if add_points == 0: return 0
 
-    for comp in self:
-      self.dict[comp] = append(self[comp], 
-          snapshot.P[ptype][self.comp_to_block(comp)][mask], 
-          axis = 0)
+      for comp in self:
+        self.dict[comp] = append(self[comp], 
+            snapshot.P[ptype][self.comp_to_block(comp)][mask], 
+            axis = 0)
+    else:
+      add_points = snapshot.C['N'][ptype]
+      for comp in self:
+        self.dict[comp] = append(self[comp], 
+            snapshot.P[ptype][self.comp_to_block(comp)], 
+            axis = 0)
+
     self.numpoints = self.numpoints + add_points
 
     for comp in self:
