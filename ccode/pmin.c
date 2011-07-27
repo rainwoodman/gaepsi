@@ -21,10 +21,6 @@ static PyUFuncGenericFunction generic_functions[] = {NULL, NULL};
 static char generic_signatures[] = {PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE};
 static void * pmin_data[] = {(void*) pmind, (void*)pmind };
 
-static PyMethodDef module_methods[] = {
-	{NULL}
-};
-
 void HIDDEN gadget_initpmin(PyObject * m) {
 	import_array();
 	import_ufunc();

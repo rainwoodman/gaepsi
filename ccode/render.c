@@ -320,11 +320,11 @@ static PyObject * circle(PyObject * self,
 	Py_RETURN_NONE;
 }
 static PyMethodDef line_method = 
-	{"line", line, METH_KEYWORDS, line_doc_string };
+	{"line", (PyCFunction) line, METH_KEYWORDS, line_doc_string };
 static PyMethodDef circle_method = 
-	{"circle", circle, METH_KEYWORDS, circle_doc_string };
+	{"circle", (PyCFunction) circle, METH_KEYWORDS, circle_doc_string };
 static PyMethodDef color_method = 
-	{"color", color, METH_KEYWORDS, color_doc_string };
+	{"color", (PyCFunction) color, METH_KEYWORDS, color_doc_string };
 void HIDDEN gadget_initrender(PyObject * m) {
 	import_array();
 	PyObject * circle_f = PyCFunction_New(&circle_method, NULL);

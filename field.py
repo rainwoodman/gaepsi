@@ -3,7 +3,6 @@ from numpy import ones,zeros
 from numpy import append
 from numpy import asarray
 from remap import remap
-from ccode import NDTree
 from ccode import sml
 from numpy import sin,cos, matrix
 from numpy import inner

@@ -117,7 +117,7 @@ static PyObject * shift(PyObject * self,
 }
 
 static PyMethodDef module_methods[] = {
-	{"remap_shift", shift, METH_KEYWORDS, doc_string },
+	{"remap_shift", (PyCFunction)shift, METH_KEYWORDS, doc_string },
 	{NULL}
 };
 void HIDDEN gadget_initremap(PyObject * m) {

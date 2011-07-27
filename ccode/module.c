@@ -3,6 +3,7 @@
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
 extern HIDDEN void gadget_initNDTree(PyObject * m);
+extern HIDDEN void gadget_initOctTree(PyObject * m);
 extern HIDDEN void gadget_initimage(PyObject * m);
 extern HIDDEN void gadget_initremap(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
@@ -18,7 +19,7 @@ static PyObject * m = NULL;
 void init_gaepsiccode (void) {
 	import_array();
 	m = Py_InitModule3("_gaepsiccode", module_methods, "gaepsi internal ccode module");
-	gadget_initNDTree(m);
+	gadget_initOctTree(m);
 	gadget_initimage(m);
 	gadget_initremap(m);
 	gadget_initkernel(m);

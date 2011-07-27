@@ -25,7 +25,7 @@ unsigned int icbrt64(unsigned long long x) {
   }
   return y;
 }
-typedef unsigned long long IndexT;
+
 typedef struct {
 	float min[3];
 	float max[3];
@@ -34,14 +34,14 @@ typedef struct {
 	PyArrayObject * locations;
 	PyArrayObject * mass;
 	int * ccount;
-	IndexT * link;
-	IndexT * cell;
+	intptr_t * link;
+	intptr_t * cell;
 	size_t npar;
 } MeshT;
 
 typedef struct _NgbT{
 	float dist2;
-	IndexT ipar;
+	intptr_t ipar;
 	struct _NgbT * next;
 } NgbT;
 
@@ -74,7 +74,7 @@ NgbT * ngbt_insert_sorted(NgbT * list, NgbT * node) {
 	}
 	return list;
 }
-IndexT par2cell(MeshT * m, IndexT ipar, int * cellid_out) {
+intptr_t par2cell(MeshT * m, intptr_t ipar, int * cellid_out) {
 	float pos[3];
 	int d;
 	int cellid_internal[3];
@@ -84,7 +84,7 @@ IndexT par2cell(MeshT * m, IndexT ipar, int * cellid_out) {
 	} else {
 		cellid = cellid_internal;
 	}
-	IndexT cellindex = 0;
+	intptr_t cellindex = 0;
 	for(d = 0; d < 3; d++) {
 		pos[d] = *((float*)PyArray_GETPTR2(m->locations, ipar, d));
 		cellid[d] = (pos[d] - m->min[d]) / m->cellsize[d];
@@ -103,7 +103,8 @@ static PyObject * sml(PyObject * self,
 	int NGB = 32;
 	PyArrayObject * locations = NULL;
 	PyArrayObject * mass = NULL;
-	MeshT m = {0};
+	MeshT m;
+	memset(&m, 0, sizeof(m));
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!i", kwlist,
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &mass, 
@@ -113,16 +114,16 @@ static PyObject * sml(PyObject * self,
 	m.npar = PyArray_DIM(locations, 0);
 	m.ncellx = icbrt64(m.npar/8); /* 8 particles per cell*/
 	npy_intp dims[] = {m.npar};
-	PyArrayObject * sml = PyArray_SimpleNew(1, dims, NPY_FLOAT);
-	m.link = PyMem_New(IndexT, m.npar);
-	m.cell = PyMem_New(IndexT, m.ncellx * m.ncellx * m.ncellx);
+	PyArrayObject * sml = (PyArrayObject *) PyArray_SimpleNew(1, dims, NPY_FLOAT);
+	m.link = PyMem_New(intptr_t, m.npar);
+	m.cell = PyMem_New(intptr_t, m.ncellx * m.ncellx * m.ncellx);
 	m.ccount = PyMem_New(int, m.ncellx * m.ncellx * m.ncellx);
 
-	memset(m.cell, -1, sizeof(IndexT) * m.ncellx * m.ncellx * m.ncellx);
+	memset(m.cell, -1, sizeof(intptr_t) * m.ncellx * m.ncellx * m.ncellx);
 	memset(m.ccount, 0, sizeof(int) * m.ncellx * m.ncellx * m.ncellx);
-	memset(m.link, -1, sizeof(IndexT) * m.npar);
+	memset(m.link, -1, sizeof(intptr_t) * m.npar);
 
-	IndexT i;
+	intptr_t i;
 	/* calculate the cell size */
 	for(i = 0; i < m.npar; i++) {
 		int d;
@@ -148,9 +149,9 @@ static PyObject * sml(PyObject * self,
 	}
 	/* populate the cells */
 	for(i = 0; i < m.npar; i++) {
-		IndexT cellindex = par2cell(&m, i, NULL);
+		intptr_t cellindex = par2cell(&m, i, NULL);
 		/* insert the particle to the link list of the cell*/
-		IndexT head = m.cell[cellindex];
+		intptr_t head = m.cell[cellindex];
 		m.cell[cellindex] = i;
 		m.link[i] = head;
 		m.ccount[cellindex]++;
@@ -196,13 +197,13 @@ static PyObject * sml(PyObject * self,
 				for(c[0] = bot[0]; c[0] <= top[0]; c[0]++)
 				for(c[1] = bot[1]; c[1] <= top[1]; c[1]++)
 				for(c[2] = bot[2]; c[2] <= top[2]; c[2]++) {
-					IndexT cellindex = 0;
+					intptr_t cellindex = 0;
 					for(d = 0; d < 3; d++) {
 						cellindex = cellindex * m.ncellx + c[d];
 					}
 					count += m.ccount[cellindex];
-					IndexT next = m.cell[cellindex];
-					while(next != (IndexT)-1) {
+					intptr_t next = m.cell[cellindex];
+					while(next != (intptr_t)-1) {
 						float dist2 = 0.0;
 						for(d = 0; d < 3; d++) {
 							float s = pos[d] - *((float*)PyArray_GETPTR2(m.locations, next, d));
@@ -275,7 +276,7 @@ static PyObject * sml(PyObject * self,
 }
 
 static PyMethodDef module_methods[] = {
-	{"sml", sml, METH_KEYWORDS, sml_doc_string },
+	{"sml", (PyCFunction) sml, METH_KEYWORDS, sml_doc_string },
 	{NULL}
 };
 void HIDDEN gadget_initsml(PyObject * m) {

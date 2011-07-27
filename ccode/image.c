@@ -107,11 +107,6 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 	exit:
 	return addbit;
 }
-static time_t _ptime_t = 0;
-static void ptime(char * str) {
-	printf("time = %lf: %s\n", (double) difftime(clock(), _ptime_t)/CLOCKS_PER_SEC, str);
-	_ptime_t = clock();
-}
 static PyObject * image(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
 	static char * kwlist[] = {
@@ -146,8 +141,8 @@ static PyObject * image(PyObject * self,
 	PyArrayObject ** target_arrays = malloc(sizeof(void*) * Ntargets);
 	PyArrayObject ** V_arrays = malloc(sizeof(void*) * Ntargets);
 	for(n = 0; n < Ntargets; n++) {
-		target_arrays[n] = PyList_GET_ITEM(targets, n);
-		V_arrays[n] = PyArray_Cast(PyList_GET_ITEM(Vs, n), NPY_FLOAT);
+		target_arrays[n] = (PyArrayObject*)PyList_GET_ITEM(targets, n);
+		V_arrays[n] = (PyArrayObject*)PyArray_Cast((PyArrayObject*)PyList_GET_ITEM(Vs, n), NPY_FLOAT);
 	}
 	locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
 	if((PyObject*)mask != Py_None)
@@ -164,7 +159,7 @@ static PyObject * image(PyObject * self,
 	npixelx = PyArray_DIM((PyObject*)target_arrays[0], 0);
 	npixely = PyArray_DIM((PyObject*)target_arrays[0], 1);
 
-	npy_intp im_dims[] = {npixelx, npixely};
+//	npy_intp im_dims[] = {npixelx, npixely};
 
 	float psizeX = (xmax - xmin) / npixelx;
 	float psizeY = (ymax - ymin) / npixely;
@@ -378,12 +373,12 @@ static PyObject * image(PyObject * self,
 	free(V_arrays);
  	Py_DECREF(S);
  	Py_DECREF(locations);
-	if(mask != Py_None)
+	if(mask != (void*)Py_None)
 		Py_DECREF(mask);
 	return PyInt_FromLong(ic);
 }
 static PyMethodDef module_methods[] = {
-	{"image", image, METH_KEYWORDS, image_doc_string },
+	{"image", (PyCFunction) image, METH_KEYWORDS, image_doc_string },
 	{NULL}
 };
 void HIDDEN gadget_initimage(PyObject * m) {
