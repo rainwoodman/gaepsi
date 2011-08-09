@@ -2,9 +2,9 @@
 #include <numpy/arrayobject.h>
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
-extern HIDDEN void gadget_initNDTree(PyObject * m);
 extern HIDDEN void gadget_initOctTree(PyObject * m);
 extern HIDDEN void gadget_initimage(PyObject * m);
+extern HIDDEN void gadget_initscanline(PyObject * m);
 extern HIDDEN void gadget_initremap(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
 extern HIDDEN void gadget_initrender(PyObject * m);
@@ -21,6 +21,7 @@ void init_gaepsiccode (void) {
 	m = Py_InitModule3("_gaepsiccode", module_methods, "gaepsi internal ccode module");
 	gadget_initOctTree(m);
 	gadget_initimage(m);
+	gadget_initscanline(m);
 	gadget_initremap(m);
 	gadget_initkernel(m);
 	gadget_initrender(m);
