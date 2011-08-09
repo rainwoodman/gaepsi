@@ -14,11 +14,11 @@
 extern HIDDEN float kline[];
 extern HIDDEN float klinesq[];
 extern HIDDEN float koverlap[][KOVERLAP_BINS][KOVERLAP_BINS][KOVERLAP_BINS];
-static inline npy_intp overlap_index(float f) {
+static inline npy_intp overlap_index(const float f) {
 	return f * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1);
 }
-static inline float interp_koverlap(int x0, int y0, int x1, int y1,
-	float pxmin, float pymin, float pxmax, float pymax) {
+static inline float interp_koverlap(const int x0, const int y0, const int x1, const int y1,
+	const float pxmin, const float pymin, const float pxmax, const float pymax) {
 
 	const float dpx = (pxmax - pxmin) * (KOVERLAP_BINS >> 1);
 	const float dpy = (pymax - pymin) * (KOVERLAP_BINS >> 1);
@@ -27,28 +27,28 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 
 #define RW(a) ((a) > KOVERLAP_BINS -1)?(KOVERLAP_BINS - 1):(a)
 #define LW(a) ((a) < 0)?0:(a)
-	float x0y0 = koverlap[x0][y0][x0][y0];
+	const float x0y0 = koverlap[x0][y0][x0][y0];
 	if(x1 == x0 && y0 == y1) {
 		addbit = x0y0 * dpy * dpx ;
 		goto exit;
 	}
-	float x0y1 = koverlap[x0][y1][x0][y1];
-	float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
-	float rdy = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - y1;
+	const float x0y1 = koverlap[x0][y1][x0][y1];
+	const float ldy = (y0 + 1) - pymin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
+	const float rdy = pymax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - y1;
 	if(x1 == x0 && y1 == y0 + 1) {
 		addbit += x0y0 * ldy * dpx;
 		addbit += x0y1 * rdy * dpx;
 		goto exit;
 	}
-	float x1y0 = koverlap[x1][y0][x1][y0];
-	float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
-	float rdx = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - x1;
+	const float x1y0 = koverlap[x1][y0][x1][y0];
+	const float ldx = (x0 + 1) - pxmin * (KOVERLAP_BINS >> 1) - (KOVERLAP_BINS >> 1);
+	const float rdx = pxmax * (KOVERLAP_BINS >> 1) + (KOVERLAP_BINS >> 1) - x1;
 	if(x1 == x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * (pymax - pymin);
 		addbit += x1y0 * rdx * (pymax - pymin);
 		goto exit;
 	}
-	float x1y1 = koverlap[x1][y1][x1][y1];
+	const float x1y1 = koverlap[x1][y1][x1][y1];
 	if(x1 == x0 + 1 && y1 == y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -56,14 +56,14 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 		addbit += x1y1 * rdx * rdy;
 		goto exit;
 	}
-	float left = koverlap[x0][RW(y0 + 1)][x0][LW(y1 - 1)];
+	const float left = koverlap[x0][RW(y0 + 1)][x0][LW(y1 - 1)];
 	if(x1 == x0 && y1 > y0 + 1) {
 		addbit += x0y0 * ldy * dpx;
 		addbit += x0y1 * rdy * dpx;
 		addbit += left * dpx;
 		goto exit;
 	}
-	float top = koverlap[RW(x0 + 1)][y0][LW(x1 - 1)][y0];
+	const float top = koverlap[RW(x0 + 1)][y0][LW(x1 - 1)][y0];
 	if(x1 > x0 + 1 && y1 == y0) {
 		addbit += x0y0 * ldx * dpy;
 		addbit += x1y0 * rdx * dpy;
@@ -80,7 +80,7 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 		addbit += right * rdx;
 		goto exit;
 	}
-	float bottom = koverlap[RW(x0 + 1)][y1][LW(x1 - 1)][y1];
+	const float bottom = koverlap[RW(x0 + 1)][y1][LW(x1 - 1)][y1];
 	if(x1 > x0 + 1 && y1 == y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;
@@ -90,7 +90,7 @@ static inline float interp_koverlap(int x0, int y0, int x1, int y1,
 		addbit += bottom * rdy;
 		goto exit;
 	}
-	float center = koverlap[RW(x0 + 1)][RW(y0 + 1)][LW(x1 - 1)][RW(y1 - 1)];
+	const float center = koverlap[RW(x0 + 1)][RW(y0 + 1)][LW(x1 - 1)][RW(y1 - 1)];
 	if(x1 > x0 + 1 && y1 > y0 + 1) {
 		addbit += x0y0 * ldx * ldy;
 		addbit += x1y0 * rdx * ldy;

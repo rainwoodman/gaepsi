@@ -63,7 +63,7 @@ double HIDDEN klined(double d) {
 	}
 }
 
-float HIDDEN koverlapf(float x0, float y0, float x1, float y1) {
+float HIDDEN koverlapf(const float x0, const float y0, const float x1, const float y1) {
 	int indx0 = 0.5 * (x0 + 1.0) * KOVERLAP_BINS;
 	int indy0 = 0.5 * (y0 + 1.0) * KOVERLAP_BINS;
 	int indx1 = 0.5 * (x1 + 1.0) * KOVERLAP_BINS;
@@ -78,7 +78,7 @@ float HIDDEN koverlapf(float x0, float y0, float x1, float y1) {
 	if(indy1 >= KOVERLAP_BINS) indy1 = KOVERLAP_BINS - 1;
 	return koverlap[indx0][indy0][indx1][indy1];
 }
-double HIDDEN koverlapd(double x0, double y0, double x1, double y1) {
+double HIDDEN koverlapd(const double x0, const double y0, const double x1, const double y1) {
 	int indx0 = 0.5 * (x0 + 1.0) * KOVERLAP_BINS;
 	int indy0 = 0.5 * (y0 + 1.0) * KOVERLAP_BINS;
 	int indx1 = 0.5 * (x1 + 1.0) * KOVERLAP_BINS;
@@ -101,13 +101,13 @@ static void fill_koverlap(void) {
 	for(i0 = 0; i0 < KOVERLAP_BINS; i0++)
 		for(j0 = 0; j0 < KOVERLAP_BINS; j0++) {
 			for(i1 = i0; i1 < KOVERLAP_BINS; i1++) {
-				float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
-				float d2 = (j0 - KOVERLAP_BINS/2) + 0.5;
+				const float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
+				const float d2 = (j0 - KOVERLAP_BINS/2) + 0.5;
 				rowsum[i1][j0] = 
 				klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
 				for(j1 = j0 + 1; j1 < KOVERLAP_BINS; j1++) {
-					float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
-					float d2 = (j1 - KOVERLAP_BINS/2) + 0.5;
+					const float d1 = (i1 - KOVERLAP_BINS/2) + 0.5;
+					const float d2 = (j1 - KOVERLAP_BINS/2) + 0.5;
 					rowsum[i1][j1] = rowsum[i1][j1-1] +
 					klinef(sqrt(d1*d1 + d2*d2) * 2 / KOVERLAP_BINS);
 				}
@@ -121,7 +121,7 @@ static void fill_koverlap(void) {
 			}
 		}
 	for(i0 = 0; i0 < KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS; i0++) {
-		float v = ((float*)koverlap)[i0];
+		const float v = ((float*)koverlap)[i0];
 		if(v > max) max = v;
 	}
 	for(i0 = 0; i0 < KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS * KOVERLAP_BINS; i0++) {
