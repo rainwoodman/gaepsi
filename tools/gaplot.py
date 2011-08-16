@@ -448,6 +448,9 @@ class GaplotContext:
   def fieldshow(self, ax, ftype, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, mmin=None, mmax=None, return_raster=False, levels=None, use_cache=True):
     todraw, mass = self.imfield(ftype=ftype, component=component, use_cache=use_cache)
 
+    if mode == 'intensity' or mode == 'mean':
+      todraw /= mass
+
     if logscale:
      if vmin is not None:
        vmin = 10 ** vmin
@@ -469,8 +472,7 @@ class GaplotContext:
     print 'vmax, vmin =' , vmax, vmin
 
     image = zeros(dtype = ('u1', 4), shape = todraw.shape)
-    if mode == 'intensity' or mode == 'mean':
-      todraw /= mass
+
     # gacolor is much faster then matplotlib's normalize and uses less memory(4times fewer).
     gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = gacmap(cmap))
     del todraw
