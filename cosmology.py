@@ -19,7 +19,7 @@ class Units:
     TIME = H0 / (SI.H0 * h)
     LENGTH = TIME * (SI.C / C)
     MASS = G / SI.G * LENGTH ** 3 * TIME ** -2
-    TEMPERATURE = (LENGTH / TIME) ** 2 * SI.PROTONMASS / SI.BOLTZMANN
+    TEMPERATURE = 1.0
     ENERGY = MASS * (LENGTH / TIME) ** 2
     POWER = ENERGY / TIME
 
@@ -71,10 +71,11 @@ class Cosmology:
     """ return the hubble constant at the given z or a, 
         in GADGET units,(and h is not multiplied)
     """
+    O = self.Omega
   ## OmegaR != 0 this fails! 
-    if not self.R == 0: raise ValueError("OmegaR !=0 is not implemented")
-    Omega0 = self.R + self.M + self.L
-    return H0 * sqrt(Omega0 / a**3 + (1 - Omega0 - self.L)/ a**2 + self.L)
+    if not O['R']== 0: raise ValueError("OmegaR !=0 is not implemented")
+    Omega0 = O['R'] + O['M'] + O['L']
+    return self.units.H0 * sqrt(Omega0 / a**3 + (1 - Omega0 - O['L'])/ a**2 + O['L'])
 
   def DtoZ(self, distance, z0):
     """ integrate the redshift on a sightline based on the distance taking GADGET, comoving. 
@@ -103,11 +104,12 @@ class Cosmology:
   def ie2T(self, Xh, ie, ye, out=None):
     """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
        multiply by units.TEMPERATURE to SI"""
+    fac = self.units.PROTONMASS / self.units.BOLTZMANN
     if out != None:
-      out[:] = ie[:] / (ye[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      out[:] = ie[:] / (ye[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
       return out
     else:
-      return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0)
+      return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
 
   def Lblue(self, mdot):
     """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
