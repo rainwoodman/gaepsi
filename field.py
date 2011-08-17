@@ -324,6 +324,13 @@ class Field(object):
         if len(self[comp].shape) > 1:
           self[comp] = inner(self[comp], M)
 
+  def redshift_distort(self, dir, redshift, vel=None):
+    """ perform redshift distortion along direction dir, needs 'vel' and 'pos'"""
+    if vel is None: vel = self['vel']
+    H = self.cosmology.H(a = 1 / (1. + redshift))
+    v = inner(vel, dir) / H
+    self['locations'] += dir[newaxis,:] * v[:, newaxis]
+
   def unfold(self, M):
     """ unfold the field position by transformation M
         the field shall be periodic. M is an
