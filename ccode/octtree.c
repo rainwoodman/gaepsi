@@ -410,7 +410,8 @@ static size_t trace(OctTree * tree, const float s[3], const float dir[3], const 
 						printf("\nipar = %ld, dist = %g, proj = %g, sml = %g, sml / d = %g d= %g\n",
 							ipar, dist, proj, sml, sml / sqrt(dist - proj * proj), sqrt(dist -  proj * proj));
 					}
-					if( sml * sml < (dist - proj * proj)) {
+					dist = sqrt(dist);
+					if( sml * sml < (dist - proj) * (dist + proj)) {
 						continue;
 					}
 					if(length == *size) {

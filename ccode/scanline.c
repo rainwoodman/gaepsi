@@ -54,6 +54,9 @@ static PyObject * scanline(PyObject * self,
 	
 	const npy_intp npar = PyArray_DIM(locations, 0);
 	const npy_intp npix = PyArray_DIM(targets[0], 0);
+	const int double_precision = (PyArray_ITEMSIZE(targets[0]) != 4);
+
+	printf("npar = %ld", npar);
 
 	float pixc[npix][3];
 	npy_intp ipix;
@@ -71,14 +74,15 @@ static PyObject * scanline(PyObject * self,
 			pos[d] = *(float*) PyArray_GETPTR2(locations, ipar, d);
 		}
 		const float sml = *(float*) PyArray_GETPTR1(smls, ipar);
-		float dist2 = 0.0;
-		float proj = 0.0;
+		double dist = 0.0;
+		double proj = 0.0;
 		for(d = 0; d < 3; d++) {
 			const float dd = pos[d] - src[d];
-			dist2 += dd * dd;
+			dist += dd * dd;
 			proj += dd * dir[d];
 		}
-		const float r0 = sqrt(fabs(sml * sml - dist2 + proj * proj));
+		dist = sqrt(dist);
+		const float r0 = sqrt(fabs((sml - dist) * (sml + dist) + proj * proj));
 		const float sml3_inv = 1.0 / (sml * sml * sml);
 		npy_intp ip0 = ceil((proj - r0) / L * npix);
 		npy_intp ip1 = floor((proj + r0) / L * npix);
@@ -88,7 +92,7 @@ static PyObject * scanline(PyObject * self,
 		if(ip1 >= npix ) ip1 = npix - 1;
 		npy_intp ip;
 		for(ip = ip0; ip <=ip1; ip++) {
-			float dist2 = 0;
+			double dist2 = 0;
 			for(d = 0; d < 3; d++) {
 				const float dd = pos[d] - pixc[ip][d];
 				dist2 += dd * dd;
@@ -98,10 +102,18 @@ static PyObject * scanline(PyObject * self,
 			const float k = k0f(sqrt(dist2) / sml) * sml3_inv;
 //			printf("dist = %g sml = %g k = %g\n", sqrt(dist2), sml, k);
 			if(k > 0.0) {
-				for(n = 0; n < Ntargets; n++) {
-					#pragma omp atomic
-					* (float*)PyArray_GETPTR1(targets[n], ip) += 
-					k * *(float*)PyArray_GETPTR1(values[n], ipar);
+				if(double_precision) {
+					for(n = 0; n < Ntargets; n++) {
+						#pragma omp atomic
+						* (double*)PyArray_GETPTR1(targets[n], ip) += 
+						k * *(float*)PyArray_GETPTR1(values[n], ipar);
+					}
+				} else {
+					for(n = 0; n < Ntargets; n++) {
+						#pragma omp atomic
+						* (float*)PyArray_GETPTR1(targets[n], ip) += 
+						k * *(float*)PyArray_GETPTR1(values[n], ipar);
+					}
 				}
 			}
 		}
