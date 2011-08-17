@@ -399,12 +399,16 @@ static size_t trace(OctTree * tree, const float s[3], const float dir[3], const 
 					getpos(tree, pos, ipar);
 					float sml = getsml(tree, ipar);
 					int d ;
-					float dist = 0.0;
-					float proj = 0.0;
+					double dist = 0.0;
+					double proj = 0.0;
 					for(d = 0; d < 3; d++) {
 						float dd = pos[d] - s[d];
 						proj += dd * dir[d];
 						dist += dd * dd;
+					}
+					if(ipar == 4946290) {
+						printf("\nipar = %ld, dist = %g, proj = %g, sml = %g, sml / d = %g d= %g\n",
+							ipar, dist, proj, sml, sml / sqrt(dist - proj * proj), sqrt(dist -  proj * proj));
 					}
 					if( sml * sml < (dist - proj * proj)) {
 						continue;
