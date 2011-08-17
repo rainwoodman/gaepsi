@@ -107,6 +107,12 @@ class Field(object):
     self.mask = None
 
   @property
+  def tree(self):
+    if self.__tree__ is None:
+      self.__tree__ = OctTree(f)
+    return self.__tree__
+
+  @property
   def boxsize(self):
     return self.cut.size
   @boxsize.setter
