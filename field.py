@@ -331,11 +331,14 @@ class Field(object):
           self[comp] = inner(self[comp], M)
 
   def redshift_distort(self, dir, redshift, vel=None):
-    """ perform redshift distortion along direction dir, needs 'vel' and 'pos'"""
-    if vel is None: vel = self['vel']
-    H = self.cosmology.H(a = 1 / (1. + redshift))
+    """ perform redshift distortion along direction dir, needs 'vel' and 'pos'
+        if vel is None, field['vel'] is converted to peculiar velocity via multiplying by sqrt(1 / ( 1 + redshift)). A constant H calculated from redshift is used. The position are still given in comoving distance units, NOT the velocity unit. 
+    """
+    a = 1 / (1. + redshift)
+    if vel is None: vel = sqrt(a) * self['vel']
+    H = self.cosmology.H(a = a)
     v = inner(vel, dir) / H
-    self['locations'] += dir[newaxis,:] * v[:, newaxis]
+    self['locations'] += dir[newaxis,:] * v[:, newaxis] / a
 
   def unfold(self, M):
     """ unfold the field position by transformation M
