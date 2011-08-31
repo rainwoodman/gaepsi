@@ -591,7 +591,7 @@ def reset_view(ax=None):
 
 def drawscale(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
-  context.drawscale(ax)
+  context.drawscale(ax, *args, **kwargs)
   draw()
 
 def gasshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
