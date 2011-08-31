@@ -320,7 +320,7 @@ tryagain:
 		add(tree, ipar, icell);
 	}
 	if(tree->skipped > 0)
-		printf("%ld particles out of cell", tree->skipped);
+		printf("%ld particles out of cell\n", tree->skipped);
 
 	/* now recalculate the AABB boxes */
 	size_t done = 0;
@@ -373,7 +373,6 @@ tryagain:
 				child_done[tree->pool[icell].parent]++;
 			}
 		}
-		printf("updating AABB %lu/%lu done ", done, tree->pool_length);
 	}
 	free(child_done);
 }
@@ -386,6 +385,7 @@ static size_t trace(OctTree * tree, const float s[3], const float dir[3], const 
 	}
 
 	intptr_t icell = 0;
+	size_t ncell = 0;
 	while(icell != -1) {
 		if(hit(tree, s, dir, dist, icell)) {
 			if(tree->pool[icell].first_child != -1) {
@@ -407,10 +407,6 @@ static size_t trace(OctTree * tree, const float s[3], const float dir[3], const 
 						proj += dd * dir[d];
 						dist += dd * dd;
 					}
-					if(ipar == 4946290) {
-						printf("\nipar = %ld, dist = %g, proj = %g, sml = %g, sml / d = %g d= %g\n",
-							ipar, dist, proj, sml, sml / sqrt(dist - proj * proj), sqrt(dist -  proj * proj));
-					}
 					dist = sqrt(dist);
 					if( sml * sml < (dist - proj) * (dist + proj)) {
 						continue;
@@ -422,6 +418,7 @@ static size_t trace(OctTree * tree, const float s[3], const float dir[3], const 
 					(*pars)[length] = ipar;
 					length ++;
 				}
+				ncell++;
 			}
 		}
 		intptr_t next = -1;

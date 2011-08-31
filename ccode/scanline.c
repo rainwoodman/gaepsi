@@ -56,8 +56,6 @@ static PyObject * scanline(PyObject * self,
 	const npy_intp npix = PyArray_DIM(targets[0], 0);
 	const int double_precision = (PyArray_ITEMSIZE(targets[0]) != 4);
 
-	printf("npar = %ld", npar);
-
 	float pixc[npix][3];
 	npy_intp ipix;
 	for(ipix = 0; ipix < npix; ipix++) {
@@ -102,17 +100,20 @@ static PyObject * scanline(PyObject * self,
 			const float k = k0f(sqrt(dist2) / sml) * sml3_inv;
 //			printf("dist = %g sml = %g k = %g\n", sqrt(dist2), sml, k);
 			if(k > 0.0) {
+				int n;
 				if(double_precision) {
 					for(n = 0; n < Ntargets; n++) {
+						const float val = *(float*)PyArray_GETPTR1(values[n], ipar);
+						double * dst = (double*)PyArray_GETPTR1(targets[n], ip);
 						#pragma omp atomic
-						* (double*)PyArray_GETPTR1(targets[n], ip) += 
-						k * *(float*)PyArray_GETPTR1(values[n], ipar);
+						*dst += k * val;
 					}
 				} else {
 					for(n = 0; n < Ntargets; n++) {
+						const float val = *(float*)PyArray_GETPTR1(values[n], ipar);
+						float * dst = (float*)PyArray_GETPTR1(targets[n], ip);
 						#pragma omp atomic
-						* (float*)PyArray_GETPTR1(targets[n], ip) += 
-						k * *(float*)PyArray_GETPTR1(values[n], ipar);
+						*dst += k * val;
 					}
 				}
 			}

@@ -12,6 +12,7 @@ from cosmology import Cosmology
 
 from tools import threads
 from Queue import Queue
+from octtree import OctTree
 
 def is_string_like(v):
   try: v + ''
@@ -98,7 +99,7 @@ class Field(object):
     self.dict = {}
     self.cut = Cut()
     self.cut.take(cut)
-
+    self.__tree__ = None
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
     if components is not None:
@@ -109,7 +110,7 @@ class Field(object):
   @property
   def tree(self):
     if self.__tree__ is None:
-      self.__tree__ = OctTree(f)
+      self.__tree__ = OctTree(self)
     return self.__tree__
 
   @property

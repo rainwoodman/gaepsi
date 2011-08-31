@@ -1,8 +1,9 @@
 from ccode import OctTree as _OctTree
-
+from numpy import asarray, arange
+import weakref
 class OctTree:
   def __init__(self, field):
-    self.field = field
+    self.field = weakref.proxy(field)
     self._tree = _OctTree(locations = field['locations'], sml=field['sml'], boxsize=field.cut.size, origin=field.cut.origin)
   def __repr__(self):
     return "OctTree: occupied %d/%d" %(self._tree.pool_length, self._tree.pool_size)
@@ -13,5 +14,5 @@ class OctTree:
   def trace(self, src, dir, dist=None):
     if dist is None:
       dist = self._tree.boxsize[0] * 2
-    return self._tree.trace(src=src, dir=dir, dist=dist)
+    return self._tree.trace(src=asarray(src), dir=asarray(dir), dist=dist)
   
