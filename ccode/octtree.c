@@ -297,6 +297,7 @@ tryagain:
 		/* if par not in the root cell, skip it*/
 		if(icell == -1) {
 			tree->skipped ++;
+			icell = 0;
 			continue;
 		}
 
