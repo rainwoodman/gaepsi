@@ -55,7 +55,6 @@ class GaplotContext:
     self.format = None
     self.shape = shape
     self.cache = {}
-    self.masslimits = (None, None)
     self.F = {}
 
   def zoom(self, center=None, size=None):
@@ -240,16 +239,29 @@ class GaplotContext:
     finally:
       field[component] = old
 
-  def imfield(self, ftype, component='mass', use_cache=True):
+  def linefield(self, ftype, component, src, dir, length=None):
+    """ return a line of sight of a field, pos, value """
+    f = self.F[ftype]
+    tree = f.tree
+    if length is None: length = f.boxsize[0]
+    pars = tree.trace(src, dir, length)
+    pos = f['locations'][pars, :]
+    sml = f['sml'][pars]
+    mass = f['mass'][pars]
+    comp = f[component][pars] * mass
+    Larray = zeros(shape=1024, dtype='f8')
+    Lmass = zeros(shape=1024, dtype='f8')
+    ccode.scanline(locations = pos, sml = sml, targets = [Lmass, Larray], values = [mass, comp], src=asarray(src), dir=asarray(dir), L=length)
+    Larray /= Lmass
+    return linspace(0, length, 1024), Larray
+
+  def projfield(self, ftype, component='mass', use_cache=True):
     """raster a field. ftype can be gas or star. for mass component, the mean density per area is plotted. for other components, mode determines
        when mode==weight, the mass weighted sum is plotted, and the mass weight is also returned.
        """
     if use_cache :
       if ftype not in self.cache:
         self.cache[ftype] = {}
-
-      if component in self.cache[ftype]:
-        return self.cache[ftype][component].copy(), self.cache[ftype]['__mass__'].copy()
 
     if component=='mass':
       if use_cache and component in self.cache[ftype]:
@@ -420,33 +432,8 @@ class GaplotContext:
     bh.numpoints = len(ind)
     for comp in bh: bh[comp] = bh[comp][ind]
 
-  def mlim(self, vmin=None, vmax=None):
-    """ DEPRECATED: useless if there isn't a mass limit, calculate one from gas
-        if there is one specified in parameters, override the
-          current limit
-        use 'auto' 'auto' to reset to the auto calculated limits
-        returns the new limits.
-    """
-    if vmin is None:
-      if self.masslimits[0] is None: vmin = 'auto'
-      else: vmin = self.masslimits[0] / self.pixel_area
-    if vmax is None:
-      if self.masslimits[1] is None: vmax = 'auto'
-      else: vmax = self.masslimits[1] / self.pixel_area
-    if vmin == 'auto' or vmax == 'auto':
-      if self.gas.numpoints == 0:
-        raise Exception("Cannot calculate mlim without a gas field")
-      mass = self.raster('gas', 'mass', quick=True)
-      if vmin == 'auto':
-        vmin = ccode.pmin.reduce(mass.flat) / self.pixel_area
-      if vmax == 'auto':
-        vmax = fmax.reduce(mass.flat) / self.pixel_area
-
-    self.masslimits = (vmin * self.pixel_area, vmax * self.pixel_area)
-    return self.masslimits / self.pixel_area
-
   def fieldshow(self, ax, ftype, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, mmin=None, mmax=None, return_raster=False, levels=None, use_cache=True):
-    todraw, mass = self.imfield(ftype=ftype, component=component, use_cache=use_cache)
+    todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
 
     if mode == 'intensity' or mode == 'mean':
       todraw /= mass
@@ -567,10 +554,6 @@ def unfold(*args, **kwargs):
 
 def rotate(*args, **kwargs):
   return context.rotate(*args, **kwargs)
-
-def mlim(*args, **kwargs):
-  "DEPRECATED"
-  return context.mlim(*args, **kwargs)
 
 def circle(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
