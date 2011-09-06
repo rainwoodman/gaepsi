@@ -1,23 +1,26 @@
 import threading
-from Queue import Queue
+from Queue import Queue, Empty
 import sys
 
 def work(job, job_q, num_workers=8):
   err_q = Queue()
   for i in range(num_workers):
     thread = threading.Thread(target=job, args=[job_q, err_q])
-    thread.daemon = True
+    thread.daemon = False
     thread.start()
   job_q.join()
   if not err_q.empty() : 
     e = err_q.get()
     raise e[0], e[1], e[2]
-
+  
 def job(func):
   lock = threading.RLock()
   def wrapped(queue, error):
     while True:
-      args = queue.get()
+      try:
+        args = queue.get(block=False)
+      except Empty:
+        break 
       args = list(args) + [lock]
       try:
         func(*args)
