@@ -175,15 +175,14 @@ static PyObject * sml(PyObject * self,
 			size_t count = 0; /* total number of particles looked */
 			int r;
 			NgbT * ngb_head = NULL;
+			ngb_head = NULL;
+			/* reset the ngb array */
+			int ngb_pool_used = 0;
+			for(n = 0; n < NGB; n++) {
+				ngb_pool[n].dist2 = maxdist * maxdist;
+				ngb_pool[n].next = NULL;
+			}
 			for(r = 0; r <= m.ncellx; r++) {
-				/* reset the ngb array */
-				ngb_head = NULL;
-				int ngb_pool_used = 0;
-				for(n = 0; n < NGB; n++) {
-					ngb_pool[n].dist2 = maxdist * maxdist;
-					ngb_pool[n].next = NULL;
-				}
-
 				int c[3];
 				int bot[3];
 				int top[3];
@@ -193,10 +192,18 @@ static PyObject * sml(PyObject * self,
 					top[d] = center[d] + r;
 					if(top[d] >= m.ncellx) top[d] = m.ncellx - 1 ;
 				}
+				int c0[] = { bot[0], top[0]};
+				int c1[] = { bot[1], top[1]};
+				int c2[] = { bot[2], top[2]};
+				int i0, i1, i2;
 				count = 0;
-				for(c[0] = bot[0]; c[0] <= top[0]; c[0]++)
-				for(c[1] = bot[1]; c[1] <= top[1]; c[1]++)
-				for(c[2] = bot[2]; c[2] <= top[2]; c[2]++) {
+				int added = 0;
+				for(i0 = 0; i0 < 2; i0+=r?1:2)
+				for(i1 = 0; i1 < 2; i1+=r?1:2)
+				for(i2 = 0; i2 < 2; i2+=r?1:2) {
+					c[0] = c0[i0];
+					c[1] = c1[i1];
+					c[2] = c2[i2];
 					intptr_t cellindex = 0;
 					for(d = 0; d < 3; d++) {
 						cellindex = cellindex * m.ncellx + c[d];
@@ -216,6 +223,7 @@ static PyObject * sml(PyObject * self,
 							/* so that ngb_head is the furthest */
 							ngb_head = ngbt_insert_sorted(ngb_head, &ngb_pool[ngb_pool_used]);
 							ngb_pool_used ++;
+							added = 1;
 						} else {
 							/* if nearer than the head */
 							if(dist2 < ngb_head->dist2) {
@@ -223,15 +231,18 @@ static PyObject * sml(PyObject * self,
 								ngb_head->dist2 = dist2;
 								ngb_head->ipar = next;
 								ngb_head = ngbt_insert_sorted(ngb_head->next, ngb_head);
+								added = 1;
 							}
 						}
 						next = m.link[next];
 					}
 				}
-				if(count > NGB) break;
+				float r5 = r > 0?r-1:r;
+				if(ngb_head->dist2 < r5 * r5 * m.cellsize[0] * m.cellsize[0]
+				 &&ngb_head->dist2 < r5 * r5 * m.cellsize[1] * m.cellsize[1]
+				 &&ngb_head->dist2 < r5 * r5 * m.cellsize[2] * m.cellsize[2]) break;
 			}
 			/* iterate to find a converged density & sml, using rho_j =W(h_j) */
-			/* assuming the mass is 1 for now */
 			double h0 = sqrt(ngb_head->dist2);
 			double h1 = 0;
 			double rho_sph;
@@ -247,10 +258,13 @@ static PyObject * sml(PyObject * self,
 					float ma = *((float*)PyArray_GETPTR1(m.mass, p->ipar));
 					rho_sph += ma * k0f(sqrt(p->dist2) / h0) / (h0 * h0 * h0);
 				}
-				h1 = pow(mass_sph / ( 4 * 3.14 / 3 * rho_sph), 0.33333);
+				h1 = cbrt(mass_sph / ( 4 * 3.14 / 3 * rho_sph));
 				if(fabs(h1 - h0) / h0 < 1e-2) break;
 				h0 = h1;
 				icount++;
+			}
+			if(icount >=128) {
+				printf("warning a sml failed to converge\n");
 			}
 			*((float*)PyArray_GETPTR1(sml, i)) = h1;
 
