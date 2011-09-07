@@ -249,11 +249,16 @@ class GaplotContext:
     sml = f['sml'][pars]
     mass = f['mass'][pars]
     comp = f[component][pars] * mass
-    Larray = zeros(shape=1024, dtype='f8')
-    Lmass = zeros(shape=1024, dtype='f8')
-    ccode.scanline(locations = pos, sml = sml, targets = [Lmass, Larray], values = [mass, comp], src=asarray(src), dir=asarray(dir), L=length)
-    Larray /= Lmass
-    return linspace(0, length, 1024), Larray
+    if component == 'mass':
+      Lmass = zeros(shape=1024, dtype='f8')
+      ccode.scanline(locations = pos, sml = sml, targets = [Lmass], values = [mass], src=asarray(src), dir=asarray(dir), L=length)
+      return linspace(0, length, 1024), Lmass
+    else:
+      Larray = zeros(shape=1024, dtype='f8')
+      Lmass = zeros(shape=1024, dtype='f8')
+      ccode.scanline(locations = pos, sml = sml, targets = [Lmass, Larray], values = [mass, comp], src=asarray(src), dir=asarray(dir), L=length)
+      Larray /= Lmass
+      return linspace(0, length, 1024), Larray
 
   def projfield(self, ftype, component='mass', use_cache=True):
     """raster a field. ftype can be gas or star. for mass component, the mean density per area is plotted. for other components, mode determines
