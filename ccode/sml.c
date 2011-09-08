@@ -188,9 +188,9 @@ static PyObject * sml(PyObject * self,
 				int top[3];
 				for(d = 0; d < 3; d++) {
 					bot[d] = center[d] - r;
-					if(bot[d] < 0) bot[d] = 0;
+					if(bot[d] < 0) bot[d] += m.ncellx;
 					top[d] = center[d] + r;
-					if(top[d] >= m.ncellx) top[d] = m.ncellx - 1 ;
+					if(top[d] >= m.ncellx) top[d] -= m.ncellx ;
 				}
 				int c0[] = { bot[0], top[0]};
 				int c1[] = { bot[1], top[1]};
@@ -265,6 +265,7 @@ static PyObject * sml(PyObject * self,
 			}
 			if(icount >=128) {
 				printf("warning a sml failed to converge\n");
+				h1 = sqrt(ngb_head->dist2);
 			}
 			*((float*)PyArray_GETPTR1(sml, i)) = h1;
 
