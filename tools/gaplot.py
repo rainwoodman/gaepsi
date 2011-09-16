@@ -54,22 +54,27 @@ class GaplotContext:
   def __init__(self, shape = (600,600)):
     self.format = None
     self.shape = shape
-    self.cache = {}
+    self.cache1 = {}
+    self.cache2 = {}
     self.F = {}
 
+  def invalidate(self):
+    self.cache1.clear()
+    self.cache2.clear()
+   
   def zoom(self, center=None, size=None):
     if center == None:
       center = self.cut.center
     if size == None:
       size = self.cut.size
     self.cut.take(Cut(center=center, size=size))
-    self.cache.clear()
+    self.invalidate()
 
   def slice(self, z, thickness):
     cut = Cut(center=self.cut.center, size=self.cut.size)
     cut['z'] = [z - thickness / 2.0, z + thickness / 2.0]
     self.cut.take(cut)
-    self.cache.clear()
+    self.invalidate()
 
   def unfold(self, M):
     self.gas.unfold(M)
@@ -84,7 +89,7 @@ class GaplotContext:
 
   def select(self, mask):
     self.gas.set_mask(mask)
-    self.cache.clear()
+    self.invalidate()
 
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
@@ -115,7 +120,7 @@ class GaplotContext:
       self.cut = Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']])
     else:
       self.cut = cut
-    self.cache.clear()
+    self.invalidate()
     
   @property
   def extent(self):
@@ -150,7 +155,7 @@ class GaplotContext:
     if use_star:
       self.star.take_snapshots(snapshots, ptype = self.ptype['star'])
 
-    self.cache.clear()
+    self.invalidate()
 
   def save(self, snapname, format, fids=None, use_gas=True, use_bh=True, use_star=True, **kwargs):
     if fids != None:
@@ -196,8 +201,8 @@ class GaplotContext:
     self.gas.rotate(*args, **kwargs)
     self.bh.rotate(*args, **kwargs)
     self.star.rotate(*args, **kwargs)
+    self.invalidate()
 
-    self.cache.clear()
  
   def vector(self, ftype, component, grids=(20,20), quick=True):
     xs,xstep = linspace(self.cut['x'][0], self.cut['x'][1], grids[0], endpoint=False,retstep=True)
@@ -205,6 +210,7 @@ class GaplotContext:
     X,Y=meshgrid(xs+ xstep/2.0,ys+ystep/2.0)
     q = zeros(shape=(grids[0],grids[1],3), dtype='f4')
     mass = zeros(shape = (q.shape[0], q.shape[1]), dtype='f4')
+    raise NotImplemented('fix me')
     print 'num particles rastered', self.mraster(q, ftype, mass, component, quick)
     q[:,:,0]/=mass[:,:]
     q[:,:,1]/=mass[:,:]
@@ -218,22 +224,21 @@ class GaplotContext:
     rasterize(field, result, component, xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
     return result
 
-  def mraster(self, ftype, component, normed=True, quick=True):
-
+  def wraster(self, ftype, component, weightcomponent, quick=True):
     field = self.F[ftype]
     old = field[component].copy()
     try:
       if len(field[component].shape) == 1:
-        field[component][:] *= field['mass'][:]
+        field[component][:] *= field[weightcomponent][:]
       else:
-        field[component][:,0] *= field['mass'][:]
-        field[component][:,1] *= field['mass'][:]
-        field[component][:,2] *= field['mass'][:]
+        field[component][:,0] *= field[weightcomponent][:]
+        field[component][:,1] *= field[weightcomponent][:]
+        field[component][:,2] *= field[weightcomponent][:]
     
       result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
       mass = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-      rasterize(field, [mass, result], ['mass', component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
-      return mass, result
+      rasterize(field, [mass, result], [weightcomponent, component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
+      return result, mass
     except Exception as e:
       raise e
     finally:
@@ -260,33 +265,78 @@ class GaplotContext:
       Larray /= Lmass
       return linspace(0, length, 1024), Larray
 
-  def projfield(self, ftype, component='mass', use_cache=True):
-    """raster a field. ftype can be gas or star. for mass component, the mean density per area is plotted. for other components, mode determines
-       when mode==weight, the mass weighted sum is plotted, and the mass weight is also returned.
+  def projfield(self, ftype, component, weightcomponent=None, use_cache=True):
+    """raster a field. ftype can be gas or star. 
+       there are two types of components, depending if
+       weightcommponent is given.
+       If not given, assume component is 'intensive', 
+       If given assume component is 'extensive'.
+
+       Extensive component:
+       After dividing a particle in two, an extensive quantity is divided by two.
+       Examples: mass, sfr.
+
+       Interpolation formula (of component A)
+         
+         rho_A(x) = sum_i A_i W_i(x, x_i, h_i)
+
+         raster returns the integral of the density rho_A with in a pixel.
+         divided by the area of the pixel it becomes the column density of A.
+
+         the pixel integral of rho_A is saved in the cache, if cache enabled.
+
+         returns the pixel mean column density.
+
+       Intensive component:
+       After dividing a particle in two, an intensive quantity doesn't change.
+
+       Examples: T, xHI.
+
+       An intensive component has to be weighted by an extensive component.
+       For example, weighting the temperature T by total mass or xHI * mass.
+
+       Interpolation formula (of component A, weighted by M)
+
+         A(x) = sum_i A_i M_i / rho_M(x_i) W_i(x, x_i, h_i)
+       
+         raster is invoked so that it returns an approximation of the
+         pixel integral of the M weighted A, as well as the pixel
+         integral of M. pixel mean is then obtained by dividing the two.
+
+         returns the pixel weighted integral, and the integrated weight.
+
        """
     if use_cache :
-      if ftype not in self.cache:
-        self.cache[ftype] = {}
+      if ftype not in self.cache1:
+        self.cache1[ftype] = {}
+      if ftype not in self.cache2:
+        self.cache2[ftype] = {}
 
-    if component=='mass':
-      if use_cache and component in self.cache[ftype]:
-        return self.cache[ftype][component].copy(), None
+    if weightcomponent is None:
+      if use_cache and component in self.cache1[ftype]:
+        return self.cache1[ftype][component] / self.pixel_area, None
 
-      todraw = self.raster(ftype, component, quick=False)
-      todraw /= self.pixel_area
+      integral = self.raster(ftype, component, quick=False)
+
       if use_cache:
-        self.cache[ftype][component] = todraw.copy()
-      return todraw, None
+        self.cache1[ftype][component] = integral.copy()
+
+      integral /= self.pixel_area
+      columnden = integral
+      return columnden, None
+
     else:
-      if use_cache and component in self.cache[ftype]:
-        return self.cache[ftype][component].copy(), self.cache[ftype]['__mass__'].copy()
+      cache2name = component + weightcomponent
+      if use_cache and cache2name in self.cache2[ftype] and weightcomponent in self.cache1[ftype]:
+        return self.cache2[ftype][cache2name].copy(), self.cache1[ftype][weightcomponent].copy()
 
-      mass,todraw = self.mraster(ftype, component, quick=False)
+      integral, weight_int = self.wraster(ftype, component, weightcomponent, quick=False)
+
       if use_cache :
-        self.cache[ftype][component] = todraw.copy()
-        self.cache[ftype]['__mass__'] = mass.copy()
+        self.cache2[ftype][cache2name] = integral.copy()
+        self.cache1[ftype][weightcomponent] = weight_int.copy()
 
-      return todraw, mass
+      return integral, weight_int
 
   def bhshow(self, ax, component='bhmass', radius=4, logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
@@ -437,8 +487,16 @@ class GaplotContext:
     bh.numpoints = len(ind)
     for comp in bh: bh[comp] = bh[comp][ind]
 
-  def fieldshow(self, ax, ftype, component='mass', mode='mean|weight|intensity', vmin=None, vmax=None, logscale=True, cmap=pygascmap, gamma=1.0, mmin=None, mmax=None, return_raster=False, levels=None, use_cache=True):
-    todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
+  def fieldshow(self, ax, ftype, component, mode=None,
+    vmin=None, vmax=None,
+    logscale=True, cmap=pygascmap,
+    gamma=1.0, mmin=None, mmax=None,
+    return_raster=False, levels=None, use_cache=True):
+
+    if mode is None: # extensive, mass->density, sfr->sf density, 
+      todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
+    else: # intensive, decorate the result aftwards, assuming always mass weighted for now
+      todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent='mass', use_cache=use_cache)
 
     if mode == 'intensity' or mode == 'mean':
       todraw /= mass
