@@ -171,7 +171,8 @@ class Field(object):
         else:
           snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]]
       #skip if the reader doesn't save the block
-    print 'warning: blocks not supported in snapshot', skipped_comps
+    if skipped_comps:
+      print 'warning: blocks not supported in snapshot', skipped_comps
 
   def take_snapshots(self, snapshots, ptype):
     num_workers = 8
@@ -233,7 +234,8 @@ class Field(object):
 
     threads.work(job2, job2_q)
 
-    print 'warning: comp not suppored by the snapshot', skipped_comps
+    if skipped_comps:
+      print 'warning: comp not suppored by the snapshot', skipped_comps
 
   def add_snapshot(self, snapshot, ptype):
     """ """
