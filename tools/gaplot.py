@@ -1,6 +1,6 @@
 #! python
 from numpy import asarray, newaxis
-from numpy import multiply
+from numpy import multiply, divide
 from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
@@ -50,13 +50,14 @@ def gacmap(pycmap):
   colors = pycmap(values)
   return Colormap(levels = values, r = colors[:,0], g = colors[:, 1], b = colors[:,2], a = colors[:,3])
 
-class GaplotContext:
+class GaplotContext(object):
   def __init__(self, shape = (600,600)):
     self.format = None
     self.shape = shape
     self.cache1 = {}
     self.cache2 = {}
     self.F = {}
+    self.cut = Cut()
 
   def invalidate(self):
     self.cache1.clear()
@@ -117,9 +118,9 @@ class GaplotContext:
     self.star.init_from_snapshot(snap)
     self.C = snap.C
     if cut == None:
-      self.cut = Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']])
+      self.cut.take(Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']]))
     else:
-      self.cut = cut
+      self.cut.take(cut)
     self.invalidate()
     
   @property
@@ -132,6 +133,11 @@ class GaplotContext:
   @property
   def gas(self):
     return self.F['gas']
+  @gas.setter
+  def gas(self, value):
+    self.F['gas'] = value
+    print 'gas set'
+    self.invalidate()
 
   @property
   def bh(self):
@@ -490,7 +496,7 @@ class GaplotContext:
   def fieldshow(self, ax, ftype, component, mode=None,
     vmin=None, vmax=None,
     logscale=True, cmap=pygascmap,
-    gamma=1.0, mmin=None, mmax=None,
+    gamma=1.0, mmin=None, mmax=None, over=None,
     return_raster=False, levels=None, use_cache=True):
 
     if mode is None: # extensive, mass->density, sfr->sf density, 
@@ -535,14 +541,22 @@ class GaplotContext:
       if mmin is None:
         mmin = weight.min()
       if mmax is None:
-        mmax = weight.max()
+        if over is None:
+          mmax = weight.max()
+        else:
+          sort = weight.ravel().argsort()
+          ind = sort[(len(sort) - 1) * (1.0 - over)]
+          mmax = weight.ravel()[ind]
       print 'mmax, mmin', mmax, mmin
       weight -= mmin
       weight /= (mmax - mmin)
       weight.clip(0, 1, weight)
       weight **= gamma
-      multiply(image[:,:,3], weight[:, :], image[:,:,3])
-
+      
+      multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
+#      weight **= 0.33333333333
+#      multiply(255.9999, weight[:, :], image[:,:,3])
+#      print 'alpha', image[:, :, 3].ravel().min(), image[:,:,3].ravel().max()
     if return_raster: return image
 
     ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
@@ -565,6 +579,8 @@ class GaplotContext:
       ax.axison = False
       if(titletext !=None):
         ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
+      ax.figure.set_facecolor(bgcolor)
+
   def drawscale(self, ax, color='white'):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     l = (self.cut.size[0]) * 0.2
