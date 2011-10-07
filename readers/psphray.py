@@ -57,8 +57,8 @@ class Reader(ReaderBase):
       ('sml', 'f4', [0], []),
       ('Hmf', 'f4', [0], ['flag_Hmf']),
       ('Hemf', 'f4', [0], ['flag_Hemf']),
-      ('HeIa', 'f4', [0], ['flag_Helium']),
-      ('HeIIa', 'f4', [0], ['flag_Helium']),
+      ('xHeI', 'f4', [0], ['flag_Helium']),
+      ('xHeII', 'f4', [0], ['flag_Helium']),
       ('gammaHI', 'f4', [0], ['flag_gammaHI']),
       ('HIa_cloudy', 'f4', [0], ['flag_cloudy']),
       ('eos', 'f4', [0], ['flag_eos']),
@@ -78,6 +78,7 @@ class Reader(ReaderBase):
      'time': 'time',
      'boxsize': 'boxsize',
      'Nfiles': 'Nfiles',
+     'hasHe': 'flag_Helium',
     }
     );
 
