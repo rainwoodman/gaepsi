@@ -31,8 +31,12 @@ class Units:
     KPC_h = SI.KPC / LENGTH / h
     MYEAR_h = SI.MYEAR / TIME / h
     KPC = SI.KPC / LENGTH
+    METER = SI.METER / LENGTH
+    NANOMETER = SI.NANOMETER / LENGTH
     MYEAR = SI.MYEAR / TIME
     LYMAN_ALPHA_CROSSSECTION = SI.LYMAN_ALPHA_CROSSSECTION / (LENGTH**2)
+    EV = SI.EV / ENERGY
+    SECOND = SI.SECOND / TIME
     RYDBERG = SI.RYDBERG / ENERGY
     CRITICAL_DENSITY = 3 * H0 ** 2/ (8 * pi * G)
 
@@ -118,6 +122,45 @@ class Cosmology:
     # 0.1 is coded in gadget bh model.
     L = mdot * self.units.C ** 2 * 0.1
     return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
+  def Lsoft(self, mdot):
+    """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
+        multiply by units.POWER to SI """
+    def f(x): return 1.65 + 0.22 * (log10(x) - 12) + 0.012 * (log10(x) - 12)**2 - 0.0015 * (log10(x) - 12)**3
+    # 0.1 is coded in gadget bh model.
+    L = mdot * self.units.C ** 2 * 0.1
+    return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
+
+  def QSObol(self, mdot, type):
+    """ Hopkins etal 2006, added UV (13.6ev -> 250.0 ev with index=1.76),
+        type can be 'blue', 'ir', 'soft', 'hard', or 'uv'. """
+    params = {
+      'blue': (6.25,-0.37,9.00,-0.012,),
+      'ir':   (7.40,-0.37, 10.66,-0.014,),
+      'soft':(17.87,0.28,10.03,-0.020,),
+      'hard':(10.83,0.28,6.08,-0.020,),
+    }
+
+    L = mdot * self.units.C ** 2 * 0.1
+    if type == 'bol': return L 
+
+    if type == 'uv': 
+      c1,k1,c2,k2 = params['blue']
+    else:
+      c1,k1,c2,k2 = params[type]
+    x = L / (1e10 * self.units.SOLARLUMINOSITY)
+    ratio = c1 * x ** k1 + c2 * x ** k2
+    if type == 'uv':
+      LB = L / ratio
+      fB = self.units.C / (445e-9 * self.units.NANOMETER)
+      fX = self.units.C / (120e-9 * self.units.NANOMETER)
+      fI = self.units.C / (91.1e-9 * self.units.NANOMETER)
+      lB = LB / fB
+      lX = lB * (fX / fB) ** -0.44
+      lI = lX * (fI / fX) ** -1.76
+      Lband = lI * fI / -0.76 * ((250.0 / 13.6) ** -0.76 - 1)
+    else:
+      Lband = L / ratio
+    return Lband
 
 default = Cosmology(OmegaR=0.0, OmegaM=0.255, OmegaL=0.745, h=0.702)
 
