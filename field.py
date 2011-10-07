@@ -130,7 +130,7 @@ class Field(object):
     self.mask = mask
 
   def init_from_snapshot(self, snapshot, cut=None):
-    if cut is None:
+    if cut is None and self.cut.empty:
       self.boxsize = snapshot.C['boxsize']
     else: self.cut.take(cut)
 
