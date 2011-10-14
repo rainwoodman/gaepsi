@@ -8,11 +8,12 @@ from gaepsi.field import Field, Cut
 from meshmap import Meshmap
 
 from gaepsi.plot.image import rasterize
-from gaepsi.plot.render import Colormap, color as gacolor
+from gaepsi.plot.render import Colormap, color as gacolor, gacmap, pycmap
 from gaepsi.tools.streamplot import streamplot
 from gaepsi import ccode
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax, ones
 from numpy import isinf, nan, argsort, isnan, inf
+from numpy import float32
 from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
 from numpy import random
@@ -30,25 +31,17 @@ starmap = Colormap(levels =[0, 1.0],
                       b = [1, 1.0],
                       a = [1, 1.0])
 
-
-def pycmap(gacmap):
-  from matplotlib.colors import ListedColormap
-  r = gacmap.table['r']
-  g = gacmap.table['g']
-  b = gacmap.table['b']
-  rt = ListedColormap(vstack((r, g, b)).T)
-  rt.set_over((r[-1], g[-1], b[-1]))
-  rt.set_under((r[0], g[0], b[0]))
-  rt.set_bad(color='k', alpha=0)
-  return rt
-
 pygascmap = pycmap(gasmap)
 pystarcmap = pycmap(starmap)
 
-def gacmap(pycmap):
-  values = linspace(0, 1, 1024)
-  colors = pycmap(values)
-  return Colormap(levels = values, r = colors[:,0], g = colors[:, 1], b = colors[:,2], a = colors[:,3])
+class Camera(object):
+  def __init__(self, pos, near, far, fov, target, up):
+    self.near = near
+    self.far = far
+    self.fov = fov
+    self.target = target
+    self.up = up
+    self.pos = pos
 
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
@@ -270,6 +263,26 @@ class GaplotContext(object):
       ccode.scanline(locations = pos, sml = sml, targets = [Lmass, Larray], values = [mass, comp], src=asarray(src), dir=asarray(dir), L=length)
       Larray /= Lmass
       return linspace(0, length, 1024), Larray
+
+  def camera(self, ftype, component, camera, weightcomponent=None):
+    f = self.F[ftype]
+    if weightcomponent is None:
+      sph = [float32(f[component])]
+      raster = [zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))]
+    else:
+      m = float32(f[weightcomponent])
+      t = float32(f[component] * m)
+      sph = [m, t]
+      raster = [ zeros(dtype='f4', shape = (self.shape[0], self.shape[1])),
+               zeros(dtype='f4', shape = (self.shape[0], self.shape[1])), ]
+    ccode.camera(raster=raster, sph=sph, locations=f['locations'], 
+           sml=f['sml'], near=camera.near, far=camera.far, Fov=camera.fov / 360. * 3.1415, 
+           dim=asarray(raster[0].shape), target=asarray(camera.target), up = asarray(camera.up),
+           pos=asarray(camera.pos), mask=None, boxsize=asarray(f.boxsize))
+    if weightcomponent is None:
+      return raster[0], None
+
+    return raster[1], raster[0]
 
   def projfield(self, ftype, component, weightcomponent=None, use_cache=True):
     """raster a field. ftype can be gas or star. 
@@ -493,17 +506,23 @@ class GaplotContext(object):
     bh.numpoints = len(ind)
     for comp in bh: bh[comp] = bh[comp][ind]
 
-  def fieldshow(self, ax, ftype, component, mode=None,
+  def fieldshow(self, ax, ftype, component, mode=None, camera=None,
     vmin=None, vmax=None,
     logscale=True, cmap=pygascmap,
     gamma=1.0, mmin=None, mmax=None, over=None,
     return_raster=False, levels=None, use_cache=True):
 
-    if mode is None: # extensive, mass->density, sfr->sf density, 
-      todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
-    else: # intensive, decorate the result aftwards, assuming always mass weighted for now
-      todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent='mass', use_cache=use_cache)
-
+    if camera is None:
+      if mode is None: # extensive, mass->density, sfr->sf density, 
+        todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
+      else : # intensive, decorate the result aftwards, assuming always mass weighted for now
+        todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent='mass', use_cache=use_cache)
+    else:
+      if mode is None: # extensive, mass->density, sfr->sf density, 
+        todraw, mass = self.camera(ftype=ftype, component=component, camera=camera)
+      else : # intensive, decorate the result aftwards, assuming always mass weighted for now
+        todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent='mass', camera=camera)
+     
     if mode == 'intensity' or mode == 'mean':
       todraw /= mass
 
@@ -518,7 +537,14 @@ class GaplotContext(object):
         vmin = ccode.pmin.reduce(todraw.flat)
       else:
         vmin = fmin.reduce(todraw.flat)
-    if vmax is None: vmax = fmax.reduce(todraw.flat)
+    if vmax is None: 
+      if mode == 'intensity' or mode == 'mean' or over is None:
+        vmax = fmax.reduce(todraw.flat)
+      else:
+        sort = todraw.ravel().argsort()
+        ind = sort[(len(sort) - 1) * (1.0 - over)]
+        vmax = todraw.ravel()[ind]
+        del sort
 
     if logscale:
       log10(todraw, todraw)
@@ -535,8 +561,10 @@ class GaplotContext(object):
     if mode == 'intensity':
       weight = mass
       weight /= self.pixel_area
-      weight.clip(ccode.pmin.reduce(weight.ravel()), inf, weight)
-      log10(weight, weight)
+      if camera is None:
+      # in camera mode do not use logscale for mass.
+        weight.clip(ccode.pmin.reduce(weight.ravel()), inf, weight)
+        log10(weight, weight)
       print 'weight', weight.mean(), weight.max(), weight.min()
       if mmin is None:
         mmin = weight.min()

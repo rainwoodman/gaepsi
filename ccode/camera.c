@@ -23,9 +23,9 @@ typedef struct _Camera {
 } Camera;
 
 static float interp(const Camera * cam, const npy_intp ipix, const npy_intp jpix, const float pixpos[2], const float pixsml[2]);
-static float camera_transform(const Camera * cam, const float pos[4], const float sml, float NDCpos[2]);
+static float camera_transform(const Camera * cam, const float pos[4], const float sml, float NDCpos[2], float NDCsml[2]);
 static float splat(const Camera * cam, const float NDCpos[2], 
-	const float NDCsml, float ** cache, size_t * cache_size, 
+	const float NDCsml[2], float ** cache, size_t * cache_size, 
 	npy_intp ipixlim[2], npy_intp jpixlim[2]);
 static const float quad_linear(const float x, const float y, const float z, const float w);
 static float interp_overlap( const float x0f, const float y0f, const float x1f, const float y1f);
@@ -69,6 +69,19 @@ static void normalize(float v[3]) {
 	v[0] *= s;
 	v[1] *= s;
 	v[2] *= s;
+	/* dealing with subnormal vectors */
+	if(fabs(v[0]) < 1e-6 && fabs(v[1]) < 1e-6) {
+		if(v[2] < 0) v[2] = -1.0;
+		else v[2] = 1.0;
+	}
+	if(fabs(v[1]) < 1e-6 && fabs(v[2]) < 1e-6) {
+		if(v[0] < 0) v[0] = -1.0;
+		else v[0] = 1.0;
+	}
+	if(fabs(v[0]) < 1e-6 && fabs(v[2]) < 1e-6) {
+		if(v[1] < 0) v[1] = -1.0;
+		else v[1] = 1.0;
+	}
 }
 
 static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
@@ -76,24 +89,26 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		"raster", 
 		"sph", 
 		"locations", "sml",
-		"dir", "up",
+		"target", "up",
 		"near", "far", "Fov", "dim", 
-		"pos", "mask",
+		"pos", "boxsize", "mask",
 		NULL
 	};
 	PyObject * Lraster, * Lsph, * Alocations, * Asmls, * Adim, 
-		* Apos, * Amask, * Adirection, *Aup;
+		* Apos, * Amask, * Atarget, *Aup, *Aboxsize;
 	float near, far, Fov;
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!O!fffO!O!O", kwlist,
+	float boxsize[3];
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!O!fffO!O!O!O", kwlist,
 		&PyList_Type, &Lraster, 
 		&PyList_Type, &Lsph, 
 		&PyArray_Type, &Alocations, 
 		&PyArray_Type, &Asmls, 
-		&PyArray_Type, &Adirection,
+		&PyArray_Type, &Atarget,
 		&PyArray_Type, &Aup,
 		&near, &far, &Fov,
 		&PyArray_Type, &Adim, 
 		&PyArray_Type, &Apos, 
+		&PyArray_Type, &Aboxsize,
 		&Amask)) return NULL;
 	Camera c = {0};
 
@@ -101,11 +116,12 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		Amask = PyArray_Cast((PyArrayObject*)Amask, NPY_BOOL);
 
 	Alocations = PyArray_Cast((PyArrayObject*)Alocations, NPY_FLOAT);
-	Adirection = PyArray_Cast((PyArrayObject*)Adirection, NPY_FLOAT);
+	Atarget = PyArray_Cast((PyArrayObject*)Atarget, NPY_FLOAT);
 	Aup = PyArray_Cast((PyArrayObject*)Aup, NPY_FLOAT);
 	Asmls = PyArray_Cast((PyArrayObject*)Asmls, NPY_FLOAT);
 	Apos = PyArray_Cast((PyArrayObject*)Apos, NPY_FLOAT);
 	Adim = PyArray_Cast((PyArrayObject*)Adim, NPY_INTP);
+	Aboxsize = PyArray_Cast((PyArrayObject*)Aboxsize, NPY_FLOAT);
 
 	c.sph_length = PyList_GET_SIZE(Lsph);
 	c.sph = PyMem_New(PyObject*, PyList_GET_SIZE(Lsph));
@@ -119,16 +135,52 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	c.near = near;
 	c.Fov = Fov;
 	c.ctnFov = 1.0 / tan(Fov);
-	c.dir[0] = *(float*)PyArray_GETPTR1(Adirection, 0);
-	c.dir[1] = *(float*)PyArray_GETPTR1(Adirection, 1);
-	c.dir[2] = *(float*)PyArray_GETPTR1(Adirection, 2);
+	c.dir[0] = *(float*)PyArray_GETPTR1(Atarget, 0) - *(float*)PyArray_GETPTR1(Apos, 0);
+	c.dir[1] = *(float*)PyArray_GETPTR1(Atarget, 1) - *(float*)PyArray_GETPTR1(Apos, 1);
+	c.dir[2] = *(float*)PyArray_GETPTR1(Atarget, 2) - *(float*)PyArray_GETPTR1(Apos, 2);
 
+	boxsize[0] = *(float*)PyArray_GETPTR1(Aboxsize, 0);
+	boxsize[1] = *(float*)PyArray_GETPTR1(Aboxsize, 1);
+	boxsize[2] = *(float*)PyArray_GETPTR1(Aboxsize, 2);
+
+	printf("boxsize %g %g %g\n", boxsize[0], boxsize[1], boxsize[2]);
+    normalize(c.dir);
 	c.up[0] = *(float*)PyArray_GETPTR1(Aup, 0);
 	c.up[1] = *(float*)PyArray_GETPTR1(Aup, 1);
 	c.up[2] = *(float*)PyArray_GETPTR1(Aup, 2);
 	c.pos[0] = *(float*)PyArray_GETPTR1(Apos, 0);
 	c.pos[1] = *(float*)PyArray_GETPTR1(Apos, 1);
 	c.pos[2] = *(float*)PyArray_GETPTR1(Apos, 2);
+
+	float imoff[27][3] = {
+		{0., 0., 0.},
+		{boxsize[0], 0., 0.},
+		{-boxsize[0], 0., 0.},
+		{0., boxsize[1], 0.},
+		{0., -boxsize[1], 0.},
+		{0., 0., boxsize[1]},
+		{0., 0., -boxsize[1]},
+		{boxsize[0], boxsize[1], 0.},
+		{-boxsize[0], boxsize[1], 0.},
+		{boxsize[0], -boxsize[1], 0.},
+		{-boxsize[0], -boxsize[1], 0.},
+		{boxsize[0], 0., boxsize[2]},
+		{-boxsize[0], 0., boxsize[2]},
+		{boxsize[0], 0., -boxsize[2]},
+		{-boxsize[0], 0., -boxsize[2]},
+		{0., boxsize[1], boxsize[2]},
+		{0., -boxsize[1], boxsize[2]},
+		{0., boxsize[1], -boxsize[2]},
+		{0., -boxsize[1], -boxsize[2]},
+		{boxsize[0], boxsize[1], boxsize[2]},
+		{boxsize[0], -boxsize[1], boxsize[2]},
+		{boxsize[0], boxsize[1], -boxsize[2]},
+		{boxsize[0], -boxsize[1], -boxsize[2]},
+		{-boxsize[0], boxsize[1], boxsize[2]},
+		{-boxsize[0], -boxsize[1], boxsize[2]},
+		{-boxsize[0], boxsize[1], -boxsize[2]},
+		{-boxsize[0], -boxsize[1], -boxsize[2]}
+	};
 
 	float side[3];
 	crossproduct(c.dir, c.up, side);
@@ -199,26 +251,36 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		
 		#pragma omp for schedule(dynamic, 10)
 		for(ipar = 0; ipar < PyArray_Size((PyObject*) Asmls); ipar++) {
-			float pos[4];
+			float realpos[3];
 			int d ;
 			for(d = 0; d < 3; d++) {
-				pos[d] = *(float*)PyArray_GETPTR2(Alocations, ipar, d);
+				realpos[d] = *(float*)PyArray_GETPTR2(Alocations, ipar, d);
 			}
-			pos[3] = 1.0;
 			float sml = *(float*)PyArray_GETPTR1(Asmls, ipar);
-			float NDCpos[2] = {0};
-			float NDCsml = camera_transform(&c, pos, sml, NDCpos);
-		//	printf("pos=(%g %g %g) pixpos = (%g %g ) sml = %g \n", pos[0], pos[1], pos[2], NDCpos[0], NDCpos[1], sml);
-			if(NDCsml > 0.0) {
+			float impos[4] = {0};
+			impos[3] = 1.0;
+			int im;
+			for(im = 0; im < 27; im++) {
+				for(d = 0; d < 3; d++) {
+					impos[d] = realpos[d] + imoff[im][d];
+				}
+
+				float NDCpos[2] = {0};
+				float NDCsml[2] = {0};
+			
+				float factor = camera_transform(&c, impos, sml, NDCpos, NDCsml);
+//				printf("pos=(%g %g %g) pixpos = (%g %g ) sml = %g factor = %g\n", pos[0], pos[1], pos[2], NDCpos[0], NDCpos[1], sml, factor);
+				if(factor <= 0.0) continue;
+
 				npy_intp ipixlim[2];
 				npy_intp jpixlim[2];
 				float sum = splat(&c, NDCpos, NDCsml, &cache, &cache_size, ipixlim, jpixlim);
-			//	printf("sml = %g sum = %g pix_area = %g x -> %ld %ld y -> %ld %ld\n", sml, sum, c.pix_area, ipixlim[0], ipixlim[1], jpixlim[0], jpixlim[1]);
+//				printf("sml = %g sum = %g pix_area = %g x -> %ld %ld y -> %ld %ld\n", sml, sum, c.pix_area, ipixlim[0], ipixlim[1], jpixlim[0], jpixlim[1]);
+				if(sum <= 0.0) continue;
 				int i;
-				if(sum > 0.0)
 				for(i = 0; i < c.sph_length; i++) {
 					npy_intp k = 0;
-					float value = *((float*)PyArray_GETPTR1(c.sph[i], ipar));
+					float value = *((float*)PyArray_GETPTR1(c.sph[i], ipar)) * factor;
 					int single_precision = (PyArray_ITEMSIZE(c.sph[i]) == 4);
 					npy_intp ipix, jpix;
 					if(single_precision) {
@@ -249,9 +311,10 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	}
 	PyMem_Del(c.sph);
 	PyMem_Del(c.raster);
-	Py_XDECREF(Adirection);
+	Py_XDECREF(Atarget);
 	Py_XDECREF(Aup);
 	Py_XDECREF(Amask);
+	Py_XDECREF(Aboxsize);
 	Py_XDECREF(Apos);
 	Py_XDECREF(Alocations);
 	Py_XDECREF(Asmls);
@@ -261,16 +324,20 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 
 static float camera_transform(const Camera * cam, 
 	const float pos[4], const float sml,
-	float NDCpos[2]) {
+	float NDCpos[2], float NDCsml[2]) {
 	/* returns 0.0 if the pos is not on the cam, 
-     * otherwise fill NDCpos, return the sml in NDC units */
+     * otherwise fill NDCpos, NDCsml, returns the inverse sq law */
 	float tpos[4] = {0.0, 0.0, 0.0, 0.0};
 	int i;
+	float d2 = 0.0;
 	for(i = 0; i < 4; i++) {
 		tpos[0] += pos[i] * cam->matrix[0][i];
 		tpos[1] += pos[i] * cam->matrix[1][i];
 		tpos[2] += pos[i] * cam->matrix[2][i];
 		tpos[3] += pos[i] * cam->matrix[3][i];
+	}
+	for(i = 0; i < 4; i++) {
+		d2 += (pos[i] - cam->pos[i]) * (pos[i] - cam->pos[i]);
 	}
 	for(i = 0; i < 3; i++) {
 		tpos[i] /= tpos[3];
@@ -278,11 +345,12 @@ static float camera_transform(const Camera * cam,
 	}
 	NDCpos[0] = tpos[0];
 	NDCpos[1] = tpos[1];
-
-	return sml * cam->ctnFov / tpos[3];
+	NDCsml[0] = sml * cam->ctnFov / tpos[3];
+	NDCsml[1] = sml * cam->ctnFov / tpos[3];
+	return (cam->far * cam->far) / d2;
 }
 
-static float splat(const Camera * cam, const float NDCpos[2], const float NDCsml, float ** cache, size_t * cache_size, npy_intp ipixlim[2], npy_intp jpixlim[2]) {
+static float splat(const Camera * cam, const float NDCpos[2], const float NDCsml[2], float ** cache, size_t * cache_size, npy_intp ipixlim[2], npy_intp jpixlim[2]) {
 	/* splats a sph particle to pixels. return 0 if the particle covers too many pixels,
      * assuming it will be too diluted to be shown. 
      * 
@@ -292,8 +360,8 @@ static float splat(const Camera * cam, const float NDCpos[2], const float NDCsml
 	pixpos[1] = 0.5 * (NDCpos[1] + 1.0) * cam->displaydim[1];
 
 	float pixsml[2];
-	pixsml[0] = 0.5 * NDCsml * cam->displaydim[0];
-	pixsml[1] = 0.5 * NDCsml * cam->displaydim[1];
+	pixsml[0] = 0.5 * NDCsml[0] * cam->displaydim[0];
+	pixsml[1] = 0.5 * NDCsml[1] * cam->displaydim[1];
 
 	npy_intp ipix, jpix;
 	ipixlim[0] = idim(pixpos[0], pixsml[0]);

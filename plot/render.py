@@ -142,3 +142,20 @@ def color(target, raster, min, max, logscale=True, colormap=None):
     cmapa=colormap.table['a'])
   return target
 
+def gacmap(pycmap):
+  values = linspace(0, 1, 1024)
+  colors = pycmap(values)
+  return Colormap(levels = values, r = colors[:,0], g = colors[:, 1], b = colors[:,2], a = colors[:,3])
+
+def pycmap(gacmap):
+  from matplotlib.colors import ListedColormap
+  from numpy import vstack
+  r = gacmap.table['r']
+  g = gacmap.table['g']
+  b = gacmap.table['b']
+  rt = ListedColormap(vstack((r, g, b)).T)
+  rt.set_over((r[-1], g[-1], b[-1]))
+  rt.set_under((r[0], g[0], b[0]))
+  rt.set_bad(color='k', alpha=0)
+  return rt
+
