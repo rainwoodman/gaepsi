@@ -264,8 +264,8 @@ static PyObject * sml(PyObject * self,
 				icount++;
 			}
 			if(icount >=128) {
-				printf("warning a sml failed to converge\n");
-				h1 = sqrt(ngb_head->dist2);
+//				printf("warning a sml failed to converge\n");
+				h1 = 10 *sqrt(ngb_head->dist2);
 			}
 			*((float*)PyArray_GETPTR1(sml, i)) = h1;
 
