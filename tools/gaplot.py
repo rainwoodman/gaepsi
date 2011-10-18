@@ -148,11 +148,11 @@ class GaplotContext(object):
     snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
 
     if use_gas:
-      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'])
+      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], Nthreads=numthreads)
     if use_bh:
-      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'])
+      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], Nthreads=numthreads)
     if use_star:
-      self.star.take_snapshots(snapshots, ptype = self.ptype['star'])
+      self.star.take_snapshots(snapshots, ptype = self.ptype['star'], Nthreads=numthreads)
 
     self.invalidate()
 
