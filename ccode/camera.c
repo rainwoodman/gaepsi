@@ -7,6 +7,7 @@
 
 typedef struct _Camera {
 	npy_intp displaydim[2];  /* pixels*/
+	float aspect;
 	float pos[3];
 	float boxsize[3];
 	float far;  /* far cut of distant objects */
@@ -130,6 +131,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 
 	c.displaydim[0] = *(npy_intp*)PyArray_GETPTR1(Adim, 0);
 	c.displaydim[1] = *(npy_intp*)PyArray_GETPTR1(Adim, 1);
+	c.aspect = c.displaydim[0] / (1.0 * c.displaydim[1]);
 	c.pix_area = 1.0 / (c.displaydim[0] * c.displaydim[1]);
 	c.far = far;
 	c.near = near;
@@ -220,7 +222,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	matrixmul(matrix2, translate, matrix3);
 
 	float persp[4][4] = {{0}};
-	persp[0][0] = 1.0 / tan(c.Fov);
+	persp[0][0] = 1.0 / tan(c.Fov) / c.aspect;
 	persp[1][1] = 1.0 / tan(c.Fov);
 	persp[2][2] = - (c.far + c.near) / (c.far - c.near);
 	persp[2][3] = - 2.0 * c.far * c.near / (c.far - c.near);
@@ -345,7 +347,7 @@ static float camera_transform(const Camera * cam,
 	}
 	NDCpos[0] = tpos[0];
 	NDCpos[1] = tpos[1];
-	NDCsml[0] = sml * cam->ctnFov / tpos[3];
+	NDCsml[0] = sml * cam->ctnFov / cam->aspect / tpos[3];
 	NDCsml[1] = sml * cam->ctnFov / tpos[3];
 	return (cam->far * cam->far) / d2;
 }
