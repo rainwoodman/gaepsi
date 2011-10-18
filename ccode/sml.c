@@ -1,6 +1,7 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <time.h>
+#include <math.h>
 #include "defines.h"
 #define HIDDEN __attribute__ ((visibility ("hidden")))
 
@@ -87,9 +88,12 @@ intptr_t par2cell(MeshT * m, intptr_t ipar, int * cellid_out) {
 	intptr_t cellindex = 0;
 	for(d = 0; d < 3; d++) {
 		pos[d] = *((float*)PyArray_GETPTR2(m->locations, ipar, d));
-		cellid[d] = (pos[d] - m->min[d]) / m->cellsize[d];
+		cellid[d] = fdim(pos[d], m->min[d])/ m->cellsize[d];
 		if(cellid[d] >= m->ncellx) cellid[d] = m->ncellx - 1;
-		if(cellid[d] < 0) fprintf(stderr, "cellid < 0 shall never happen\n");
+		if(cellid[d] < 0) 
+			fprintf(stderr, 
+"cellid < 0 shall never happen, mmin=%g pos=%g cellid[d] = %d m->cellsize[d] = %g diff = %g\n", 
+m->min[d], pos[d], cellid[d], m->cellsize[d], fdim(pos[d], m->min[d]));
 		cellindex = cellindex * m->ncellx + cellid[d];
 	}
 	return cellindex;
@@ -113,6 +117,7 @@ static PyObject * sml(PyObject * self,
 	m.mass = (PyArrayObject*) PyArray_Cast(mass, NPY_FLOAT);
 	m.npar = PyArray_DIM(locations, 0);
 	m.ncellx = icbrt64(m.npar/8); /* 8 particles per cell*/
+	if(m.ncellx < 1) m.ncellx = 1;
 	npy_intp dims[] = {m.npar};
 	PyArrayObject * sml = (PyArrayObject *) PyArray_SimpleNew(1, dims, NPY_FLOAT);
 	m.link = PyMem_New(intptr_t, m.npar);
@@ -146,6 +151,8 @@ static PyObject * sml(PyObject * self,
 	int d;
 	for(d = 0; d < 3; d++) {
 		m.cellsize[d] = (m.max[d] - m.min[d]) / m.ncellx;
+		if(m.cellsize[d] <= 0 ) m.cellsize[d] = 1.0;
+		printf("%g %g %g %d\n", m.cellsize[d], m.max[d], m.min[d], m.ncellx);
 	}
 	/* populate the cells */
 	for(i = 0; i < m.npar; i++) {
