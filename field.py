@@ -174,8 +174,7 @@ class Field(object):
     if skipped_comps:
       print 'warning: blocks not supported in snapshot', skipped_comps
 
-  def take_snapshots(self, snapshots, ptype):
-    num_workers = 8
+  def take_snapshots(self, snapshots, ptype, Nthreads=8):
     job1_q = Queue()
     job2_q = Queue()
 
@@ -204,7 +203,7 @@ class Field(object):
     for snapshot in snapshots:
       job1_q.put((snapshot,))
 
-    threads.work(job1, job1_q)
+    threads.work(job1, job1_q, Nthreads)
 
     # allocate the storage space, trashing whatever already there.
     for comp in self:
@@ -232,7 +231,7 @@ class Field(object):
           self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
         snapshot.clear(self.comp_to_block(comp))
 
-    threads.work(job2, job2_q)
+    threads.work(job2, job2_q, Nthreads)
 
     if skipped_comps:
       print 'warning: comp not suppored by the snapshot', skipped_comps
