@@ -1,6 +1,6 @@
 #! python
 from numpy import asarray, newaxis
-from numpy import multiply, divide
+from numpy import multiply, divide, add
 from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
@@ -522,7 +522,24 @@ class GaplotContext(object):
         todraw, mass = self.camera(ftype=ftype, component=component, camera=camera)
       else : # intensive, decorate the result aftwards, assuming always mass weighted for now
         todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent='mass', camera=camera)
+
+    if camera is None:
+      image = self.render(todraw, mass, mode, vmin, vmax, logscale, True, cmap, gamma, mmin, mmax, over)
+
+      ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
+         extent=self.extent, vmin=vmin, vmax=vmax, cmap=cmap)
+      if levels is not None:
+        ax.contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
+    else:
+      image = self.render(todraw, mass, mode, vmin, vmax, logscale, False, cmap, gamma, mmin, mmax, over)
+      ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
+         extent=(0, self.shape[0], 0, self.shape[1]), vmin=vmin, vmax=vmax, cmap=cmap)
+      if levels is not None:
+        ax.contour(todraw.T, extent=(0, self.shape[0], 0, self.shape[1]), colors='k', linewidth=2, levels=levels)
+  
+    return ret
      
+  def render(self, todraw, mass, mode=None, vmin=None, vmax=None, logscale=True, logweight=True, cmap=pygascmap, gamma=1.0, mmin=None, mmax=None, over=None, composite=None):
     if mode == 'intensity' or mode == 'mean':
       todraw /= mass
 
@@ -556,12 +573,15 @@ class GaplotContext(object):
     image = zeros(dtype = ('u1', 4), shape = todraw.shape)
 
     # gacolor is much faster then matplotlib's normalize and uses less memory(4times fewer).
-    gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = gacmap(cmap))
+    if not hasattr(cmap, 'table'):
+      cmap = gacmap(cmap)
+
+    gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = cmap)
     del todraw
     if mode == 'intensity':
       weight = mass
       weight /= self.pixel_area
-      if camera is None:
+      if logweight:
       # in camera mode do not use logscale for mass.
         weight.clip(ccode.pmin.reduce(weight.ravel()), inf, weight)
         log10(weight, weight)
@@ -580,19 +600,24 @@ class GaplotContext(object):
       weight /= (mmax - mmin)
       weight.clip(0, 1, weight)
       weight **= gamma
-      
+    else:
+      weight = image[:, :, 3] / 255.0
+
+    if composite is not None:
+      alpha = composite[:, :, 3] / 255.0
+      multiply(1.0 - weight[:, :], alpha[:, :], alpha[:, :])
       multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
+      multiply(composite[:, :, 0:3], alpha[:, :, newaxis], composite[:, :, 0:3])
+      add(image[:, :, 0:3], composite[:, :, 0:3], image[:, :, 0:3])
+      image[:, :, 3] = (alpha[:, :] + weight[:, :]) * 255
+    else:
+      multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
+      image[:, :, 3] = 255
+       
 #      weight **= 0.33333333333
 #      multiply(255.9999, weight[:, :], image[:,:,3])
 #      print 'alpha', image[:, :, 3].ravel().min(), image[:,:,3].ravel().max()
-    if return_raster: return image
-
-    ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
-         extent=self.extent, vmin=vmin, vmax=vmax, cmap=cmap)
-    if levels is not None:
-        ax.contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
-
-    return ret
+    return image
 
   def decorate(self, ax, frameon=True, titletext=None, bgcolor='k'):
     cut = self.cut
