@@ -268,13 +268,13 @@ class GaplotContext(object):
     f = self.F[ftype]
     if weightcomponent is None:
       sph = [float32(f[component])]
-      raster = [zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))]
+      raster = [zeros(dtype='f8', shape = (self.shape[0], self.shape[1]))]
     else:
       m = float32(f[weightcomponent])
       t = float32(f[component] * m)
       sph = [m, t]
-      raster = [ zeros(dtype='f4', shape = (self.shape[0], self.shape[1])),
-               zeros(dtype='f4', shape = (self.shape[0], self.shape[1])), ]
+      raster = [ zeros(dtype='f8', shape = (self.shape[0], self.shape[1])),
+               zeros(dtype='f8', shape = (self.shape[0], self.shape[1])), ]
     ccode.camera(raster=raster, sph=sph, locations=f['locations'], 
            sml=f['sml'], near=camera.near, far=camera.far, Fov=camera.fov / 360. * 3.1415, 
            dim=asarray(raster[0].shape), target=asarray(camera.target), up = asarray(camera.up),
