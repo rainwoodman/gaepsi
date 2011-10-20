@@ -183,7 +183,7 @@ class Field(object):
     self.numpoints = 0
 
     @threads.job
-    def job1(snapshot, lock):
+    def job1(snapshot, var, lock):
       snapshot.load(ptype = ptype, blocknames = ['pos'])
       if snapshot.C.N[ptype] != 0:
         mask = self.cut.select(snapshot.P[ptype]['pos'])
@@ -194,16 +194,22 @@ class Field(object):
       else:
         length = 0
         mask = None
-      with lock:
-        start = self.numpoints
-        job2 = (mask, snapshot, start, length)
-        self.numpoints = self.numpoints + length
-      job2_q.put(job2)
+      var['mask'] = mask
+      var['length'] = length
 
+    vars = []
     for snapshot in snapshots:
-      job1_q.put((snapshot,))
+      vars += [{}]
+
+    for snapshot, var in zip(snapshots, vars):
+      job1_q.put((snapshot, var))
 
     threads.work(job1, job1_q, Nthreads)
+
+    for snapshot, var in zip(snapshots, vars):
+      start = self.numpoints
+      self.numpoints = self.numpoints + var['length']
+      job2_q.put((snapshot, var['mask'], var['length'], start))
 
     # allocate the storage space, trashing whatever already there.
     for comp in self:
@@ -215,7 +221,7 @@ class Field(object):
     skipped_comps = set([])
 
     @threads.job
-    def job2(mask, snapshot, start, length, lock):
+    def job2(snapshot, mask, length, start, lock):
       if length == 0: 
         return
       for comp in self:
