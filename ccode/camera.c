@@ -125,8 +125,8 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	Aboxsize = PyArray_Cast((PyArrayObject*)Aboxsize, NPY_FLOAT);
 
 	c.sph_length = PyList_GET_SIZE(Lsph);
-	c.sph = PyMem_New(PyObject*, PyList_GET_SIZE(Lsph));
-	c.raster = PyMem_New(PyObject*, PyList_GET_SIZE(Lraster));
+	c.sph = calloc(PyList_GET_SIZE(Lsph), sizeof(PyObject*));
+	c.raster = calloc(PyList_GET_SIZE(Lraster), sizeof(PyObject*));
 	
 
 	c.displaydim[0] = *(npy_intp*)PyArray_GETPTR1(Adim, 0);
@@ -191,6 +191,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	normalize(c.up);
 
 	float matrix2[4][4] = {{0}};
+	memset(matrix2, 4 * 4 * sizeof(float), 0);
 	matrix2[0][0] = side[0];
 	matrix2[0][1] = side[1];
 	matrix2[0][2] = side[2];
@@ -209,6 +210,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	matrix2[3][3] = 1;
 
 	float translate[4][4] = {{0}};
+	memset(translate, 4 * 4 * sizeof(float), 0);
 	translate[0][0] = 1.0;
 	translate[1][1] = 1.0;
 	translate[2][2] = 1.0;
@@ -219,9 +221,11 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	translate[3][3] = 1;
 
 	float matrix3[4][4];
+	memset(matrix3, 4 * 4 * sizeof(float), 0);
 	matrixmul(matrix2, translate, matrix3);
 
 	float persp[4][4] = {{0}};
+	memset(persp, 4 * 4 * sizeof(float), 0);
 	persp[0][0] = 1.0 / tan(c.Fov) / c.aspect;
 	persp[1][1] = 1.0 / tan(c.Fov);
 	persp[2][2] = - (c.far + c.near) / (c.far - c.near);
@@ -238,20 +242,15 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	}
 	for(i = 0; i < c.sph_length; i++) {
 		c.sph[i] = PyArray_Cast((PyArrayObject*)c.sph[i], NPY_FLOAT);
-		c.raster[i] = PyArray_Cast((PyArrayObject*)c.raster[i], NPY_FLOAT);
-	}
-	for(i = 0; i < c.sph_length; i++) {
-		Py_DECREF(c.sph[i]);
-		Py_DECREF(c.raster[i]);
 	}
 	
 	npy_intp ipar;
 	#pragma omp parallel private(ipar)
 	{
-		float * cache = PyMem_New(float, 1000);
-		size_t cache_size = 1000;
+		float * cache = calloc(1024, sizeof(float));
+		size_t cache_size = 1024;
 		
-		#pragma omp for schedule(dynamic, 10)
+		#pragma omp for schedule(dynamic, 20)
 		for(ipar = 0; ipar < PyArray_Size((PyObject*) Asmls); ipar++) {
 			float realpos[3];
 			int d ;
@@ -283,7 +282,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 				for(i = 0; i < c.sph_length; i++) {
 					npy_intp k = 0;
 					float value = *((float*)PyArray_GETPTR1(c.sph[i], ipar)) * factor;
-					int single_precision = (PyArray_ITEMSIZE(c.sph[i]) == 4);
+					int single_precision = (PyArray_ITEMSIZE(c.raster[i]) == 4);
 					npy_intp ipix, jpix;
 					if(single_precision) {
 						for(ipix = ipixlim[0]; ipix <= ipixlim[1]; ipix++) {
@@ -309,10 +308,15 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 				}
 			}
 		}
-		PyMem_Del(cache);
+		free(cache);
 	}
-	PyMem_Del(c.sph);
-	PyMem_Del(c.raster);
+
+	for(i = 0; i < c.sph_length; i++) {
+		Py_XDECREF(c.sph[i]);
+	}
+	
+	free(c.sph);
+	free(c.raster);
 	Py_XDECREF(Atarget);
 	Py_XDECREF(Aup);
 	Py_XDECREF(Amask);
@@ -338,7 +342,7 @@ static float camera_transform(const Camera * cam,
 		tpos[2] += pos[i] * cam->matrix[2][i];
 		tpos[3] += pos[i] * cam->matrix[3][i];
 	}
-	for(i = 0; i < 4; i++) {
+	for(i = 0; i < 3; i++) {
 		d2 += (pos[i] - cam->pos[i]) * (pos[i] - cam->pos[i]);
 	}
 	for(i = 0; i < 3; i++) {
@@ -380,8 +384,8 @@ static float splat(const Camera * cam, const float NDCpos[2], const float NDCsml
 		while(pixsml_area > *cache_size) {
 			(*cache_size) *= 2;
 		}
-		PyMem_Del(*cache);
-		*cache = PyMem_New(float, *cache_size);
+		free(*cache);
+		*cache = calloc(*cache_size, sizeof(float));
 	}
 
 	npy_intp k = 0;
