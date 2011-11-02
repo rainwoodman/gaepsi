@@ -5,6 +5,8 @@ from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
+from gaepsi.tools.keyframes import KeyFrames
+
 from meshmap import Meshmap
 
 from gaepsi.plot.image import rasterize
@@ -51,6 +53,7 @@ class GaplotContext(object):
     self.cache2 = {}
     self.F = {}
     self.cut = Cut()
+    self.periodic = False
 
   def invalidate(self):
     self.cache1.clear()
@@ -87,7 +90,7 @@ class GaplotContext(object):
 
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
-          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None):
+          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None, periodic=True):
     self.components = components
     self.components['mass'] = 'f4'
     self.components['sml'] = 'f4'
@@ -115,7 +118,8 @@ class GaplotContext(object):
     else:
       self.cut.take(cut)
     self.invalidate()
-    
+    self.periodic = periodic
+ 
   @property
   def extent(self):
     return (self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1])
@@ -275,10 +279,12 @@ class GaplotContext(object):
       sph = [m, t]
       raster = [ zeros(dtype='f8', shape = (self.shape[0], self.shape[1])),
                zeros(dtype='f8', shape = (self.shape[0], self.shape[1])), ]
+    if self.periodic: boxsize = asarray(f.boxsize)
+    else: boxsize = None
     ccode.camera(raster=raster, sph=sph, locations=f['locations'], 
            sml=f['sml'], near=camera.near, far=camera.far, Fov=camera.fov / 360. * 3.1415, 
            dim=asarray(raster[0].shape), target=asarray(camera.target), up = asarray(camera.up),
-           pos=asarray(camera.pos), mask=None, boxsize=asarray(f.boxsize))
+           pos=asarray(camera.pos), mask=None, boxsize=boxsize)
     if weightcomponent is None:
       return raster[0], None
 
@@ -322,7 +328,7 @@ class GaplotContext(object):
          pixel integral of the M weighted A, as well as the pixel
          integral of M. pixel mean is then obtained by dividing the two.
 
-         returns the pixel weighted integral, and the integrated weight.
+         returns the pixel weighted integral per pixel, and the integrated weight per pixel.
 
        """
     if use_cache :
@@ -347,13 +353,16 @@ class GaplotContext(object):
     else:
       cache2name = component + weightcomponent
       if use_cache and cache2name in self.cache2[ftype] and weightcomponent in self.cache1[ftype]:
-        return self.cache2[ftype][cache2name].copy(), self.cache1[ftype][weightcomponent].copy()
+        return self.cache2[ftype][cache2name].copy() / self.pixel_area, self.cache1[ftype][weightcomponent].copy() / self.pixel_area
 
       integral, weight_int = self.wraster(ftype, component, weightcomponent, quick=False)
 
       if use_cache :
         self.cache2[ftype][cache2name] = integral.copy()
         self.cache1[ftype][weightcomponent] = weight_int.copy()
+
+      integral /= self.pixel_area
+      weight_int /= self.pixel_area
 
       return integral, weight_int
 
@@ -580,7 +589,6 @@ class GaplotContext(object):
     del todraw
     if mode == 'intensity':
       weight = mass
-      weight /= self.pixel_area
       if logweight:
       # in camera mode do not use logscale for mass.
         weight.clip(ccode.pmin.reduce(weight.ravel()), inf, weight)
