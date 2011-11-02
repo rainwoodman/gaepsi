@@ -99,7 +99,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		* Apos, * Amask, * Atarget, *Aup, *Aboxsize;
 	float near, far, Fov;
 	float boxsize[3];
-	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!O!fffO!O!O!O", kwlist,
+	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!O!O!O!O!fffO!O!OO", kwlist,
 		&PyList_Type, &Lraster, 
 		&PyList_Type, &Lsph, 
 		&PyArray_Type, &Alocations, 
@@ -109,12 +109,14 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		&near, &far, &Fov,
 		&PyArray_Type, &Adim, 
 		&PyArray_Type, &Apos, 
-		&PyArray_Type, &Aboxsize,
+		&Aboxsize,
 		&Amask)) return NULL;
 	Camera c = {0};
 
-	if(Amask != Py_None)
+	if(Amask != Py_None) {
 		Amask = PyArray_Cast((PyArrayObject*)Amask, NPY_BOOL);
+		Py_XDECREF(Amask);
+	}
 
 	Alocations = PyArray_Cast((PyArrayObject*)Alocations, NPY_FLOAT);
 	Atarget = PyArray_Cast((PyArrayObject*)Atarget, NPY_FLOAT);
@@ -122,7 +124,6 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	Asmls = PyArray_Cast((PyArrayObject*)Asmls, NPY_FLOAT);
 	Apos = PyArray_Cast((PyArrayObject*)Apos, NPY_FLOAT);
 	Adim = PyArray_Cast((PyArrayObject*)Adim, NPY_INTP);
-	Aboxsize = PyArray_Cast((PyArrayObject*)Aboxsize, NPY_FLOAT);
 
 	c.sph_length = PyList_GET_SIZE(Lsph);
 	c.sph = calloc(PyList_GET_SIZE(Lsph), sizeof(PyObject*));
@@ -141,11 +142,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	c.dir[1] = *(float*)PyArray_GETPTR1(Atarget, 1) - *(float*)PyArray_GETPTR1(Apos, 1);
 	c.dir[2] = *(float*)PyArray_GETPTR1(Atarget, 2) - *(float*)PyArray_GETPTR1(Apos, 2);
 
-	boxsize[0] = *(float*)PyArray_GETPTR1(Aboxsize, 0);
-	boxsize[1] = *(float*)PyArray_GETPTR1(Aboxsize, 1);
-	boxsize[2] = *(float*)PyArray_GETPTR1(Aboxsize, 2);
 
-	printf("boxsize %g %g %g\n", boxsize[0], boxsize[1], boxsize[2]);
     normalize(c.dir);
 	c.up[0] = *(float*)PyArray_GETPTR1(Aup, 0);
 	c.up[1] = *(float*)PyArray_GETPTR1(Aup, 1);
@@ -153,6 +150,22 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	c.pos[0] = *(float*)PyArray_GETPTR1(Apos, 0);
 	c.pos[1] = *(float*)PyArray_GETPTR1(Apos, 1);
 	c.pos[2] = *(float*)PyArray_GETPTR1(Apos, 2);
+
+	int periodic = 1;
+	if(Aboxsize != Py_None) {
+		Aboxsize = PyArray_Cast((PyArrayObject*)Aboxsize, NPY_FLOAT);
+
+		boxsize[0] = *(float*)PyArray_GETPTR1(Aboxsize, 0);
+		boxsize[1] = *(float*)PyArray_GETPTR1(Aboxsize, 1);
+		boxsize[2] = *(float*)PyArray_GETPTR1(Aboxsize, 2);
+		Py_XDECREF(Aboxsize);
+	} else {
+		boxsize[0] = 0;
+		boxsize[1] = 0;
+		boxsize[2] = 0;
+		periodic = 0;
+	}
+	//printf("boxsize %g %g %g\n", boxsize[0], boxsize[1], boxsize[2]);
 
 	float imoff[27][3] = {
 		{0., 0., 0.},
@@ -261,7 +274,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 			float impos[4] = {0};
 			impos[3] = 1.0;
 			int im;
-			for(im = 0; im < 27; im++) {
+			for(im = 0; im < (periodic?27:1); im++) {
 				for(d = 0; d < 3; d++) {
 					impos[d] = realpos[d] + imoff[im][d];
 				}
@@ -319,8 +332,6 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	free(c.raster);
 	Py_XDECREF(Atarget);
 	Py_XDECREF(Aup);
-	Py_XDECREF(Amask);
-	Py_XDECREF(Aboxsize);
 	Py_XDECREF(Apos);
 	Py_XDECREF(Alocations);
 	Py_XDECREF(Asmls);
