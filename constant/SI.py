@@ -14,4 +14,6 @@ LYMAN_ALPHA_CROSSSECTION = 4.5e-22 # m^2
 G = 6.67259e-11 # s^-2 m^3 kg^-1
 BOLTZMANN = 1.38065e-23 # m^2 kg s^-2 K^-1
 EV = 1.602e-19 # J
+J = 1
+W = 1
 RYDBERG = 13.6 * EV # J
