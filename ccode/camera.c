@@ -17,7 +17,6 @@ typedef struct _Camera {
 	float dir[3];
 	float up[3];
 	float matrix[4][4];
-	float pix_area;
 	PyObject ** sph;
 	PyObject ** raster;
 	int sph_length;
@@ -133,7 +132,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	c.displaydim[0] = *(npy_intp*)PyArray_GETPTR1(Adim, 0);
 	c.displaydim[1] = *(npy_intp*)PyArray_GETPTR1(Adim, 1);
 	c.aspect = c.displaydim[0] / (1.0 * c.displaydim[1]);
-	c.pix_area = 1.0 / (c.displaydim[0] * c.displaydim[1]);
+
 	c.far = far;
 	c.near = near;
 	c.Fov = Fov;
@@ -197,6 +196,7 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 		{-boxsize[0], -boxsize[1], -boxsize[2]}
 	};
 
+	int i;
 	float side[3];
 	crossproduct(c.dir, c.up, side);
 	normalize(side);
@@ -246,9 +246,14 @@ static PyObject * camera(PyObject * self, PyObject * args, PyObject * kwds) {
 	persp[3][2] = -1;
 	persp[3][3] = 0;
 
+	printf("persp");
+	for(i = 0; i < 16; i++) {
+		printf("%g ", ((float*) persp)[i]);
+	}
+	printf("\n");
+
 	matrixmul(persp, matrix3, c.matrix);
 
-	int i;
 	for(i = 0; i < c.sph_length; i++) {
 		c.sph[i] = PyList_GET_ITEM(Lsph, i);
 		c.raster[i] = PyList_GET_ITEM(Lraster, i);
