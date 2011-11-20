@@ -269,6 +269,11 @@ class GaplotContext(object):
       return linspace(0, length, 1024), Larray
 
   def camera(self, ftype, component, camera, weightcomponent=None):
+#    from gaepsi.tools.simplegl import GLTrans
+#    t = GLTrans()
+#    t.lookat(target=target, pos=pos, up=up)
+#    t.perspective(near=near, far=far, up=up, pos=pos, fov=camera.fov / 360. * 3.1415, aspect=1.0 * raster[0].shape[0] / raster[0].shape[1])
+
     f = self.F[ftype]
     if weightcomponent is None:
       sph = [float32(f[component])]
@@ -371,7 +376,6 @@ class GaplotContext(object):
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
     Y = self.bh['locations'][mask,1]
-    ID = self.bh['id'][mask]
     bhmass = self.bh[component][mask]
     if bhmass.size == 0: return
 
@@ -389,8 +393,9 @@ class GaplotContext(object):
       Nm = Normalize(vmax=vmax, vmin=vmin, clip=True)
     if bhmass.size > 1:
       R = Nm(R)
-    else:
-      R = ones(1)
+
+    if R.min() == R.max():
+      R = ones(R.shape)
 
     if count > 0: 
       ind = (-R).argsort()
@@ -406,8 +411,11 @@ class GaplotContext(object):
       kwargs['edgecolor'] = 'green'
     if not 'facecolor' in kwargs:
       kwargs['facecolor'] = (0, 1, 0, 0.0)
-    ax.scatter(X,Y, s=R*radius, marker='o', **kwargs)
+    if not 'marker' in kwargs:
+      kwargs['marker'] = 'o'
+    ax.scatter(X,Y, s=R*radius, **kwargs)
     if labelfmt: 
+      ID = self.bh['id'][mask]
       for x,y,id in zip(X,Y,ID):
         rat = random.random() * 360
         if rat > 90 and rat <= 180:
@@ -432,6 +440,66 @@ class GaplotContext(object):
 
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
+
+  def bhshow_camera(self, ax, radius=4, logscale=True, vmin=None, vmax=None, count=-1, camera=None, *args, **kwargs):
+    from gaepsi.tools.simplegl import GL
+    GL.lookat(target=camera.target, pos=camera.pos, up=camera.up)
+    GL.perspective(near= camera.near, far=camera.far, fov=camera.fov / 360. * 3.1415, aspect = 1.0 * context.shape[0]/ context.shape[1])
+    GL.viewport(context.shape[0], context.shape[1])
+
+    bhlum = context.bh.cosmology.QSObol(context.bh['bhmdot'], 'blue') 
+
+    good = bhlum > 0
+    if len(bhlum) > 0 and good.sum() > 0:
+      bhlum0 = bhlum[good]
+      bhpos0 = context.bh['locations'][good]
+
+    if context.periodic:
+      bhpos = zeros((27, bhpos0.shape[0], 3))
+      bhlum = zeros((27, bhlum0.shape[0]))
+
+      for im in range(27):
+        i, j, k = im / 9 - 1, (im % 9) / 3 -1, im % 3 -1
+        bhpos[im, :, :] = bhpos0[:, :] + array([i, j, k]) * context.bh.boxsize
+        bhlum[im, :] = bhlum0[:]
+
+      bhpos.shape = -1, 3
+      bhlum.shape = -1
+    else:
+      bhpos = bhpos0
+      bhlum = bhlum0
+
+    bhdist = zeros(bhlum.shape[0])
+    bhpos = GL.transform(bhpos, distance=bhdist)
+
+    bhlum /= 4 * 3.1416 * bhdist ** 2
+    bhlum /= (context.bh.cosmology.units.W / context.bh.cosmology.units.METER ** 2 )
+
+    print 'distance of bhs', bhdist.min(), bhdist.max()
+    print 'lum of bhs', bhlum.min(), bhlum.max()
+
+# apparent maginitute
+    mag = ((-26.74 + 2.5 * log10(1400 / bhlum)))
+# 8 is the naked eye limit 
+    selected = (bhpos[:, 0] > -1.0) & (bhpos[:, 0] < 1.0) 
+    selected &= (bhpos[:, 1] > -1.0) & (bhpos[:, 1] < 1.0) 
+    selected &= (bhpos[:, 2] > -1.0) & (bhpos[:, 2] < 1.0) & (mag  < 10)
+    print 'mag', mag.min(), mag.max()
+    bhpos = bhpos[selected]
+    bhlum = bhlum[selected]
+    bhx = (bhpos[:, 0] + 1.0) * 1600 * 0.5
+    bhy = (bhpos[:, 1] + 1.0) * 900 * 0.5
+    print 'bhs shown', selected.sum()
+    mag = - mag[selected] + 10
+    print bhx
+    print bhy
+    print mag
+    print 'ylim', ax.get_ylim()
+    t = 0.05
+    marker = ((-1, 0), (-t, t), (0, 1), (t, t), (1, 0), (t, -t), (0, -1), (-t, -t)), 0
+    color=(0.8, 1, 1, 0.7)
+    ecolor=(1., 1, 0.8, 0.2)
+    ax.scatter(x=bhx, y=bhy, s=mag * 10**2, marker=marker, edgecolor=ecolor, color=color)
 
   def velshow(self, ax, ftype, relative=False, color='cyan', alpha=0.8):
     X,Y,vel = self.vector(ftype, 'vel', grids=(20,20), quick=False)
