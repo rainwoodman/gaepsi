@@ -12,6 +12,7 @@ from meshmap import Meshmap
 from gaepsi.plot.image import rasterize
 from gaepsi.plot.render import Colormap, color as gacolor, gacmap, pycmap
 from gaepsi.tools.streamplot import streamplot
+from gaepsi.tools.spikes import SpikeCollection
 from gaepsi import ccode
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax, ones
 from numpy import isinf, nan, argsort, isnan, inf
@@ -379,17 +380,25 @@ class GaplotContext(object):
     bhmass = self.bh[component][mask]
     if bhmass.size == 0: return
 
+    R = bhmass
+    if count > 0: 
+      ind = (-R).argsort()
+      X = X[ind[0:count]]
+      Y = Y[ind[0:count]]
+      R = R[ind[0:count]]
+
     if vmax is None:
-      vmax = bhmass.max()
+      vmax = R.max()
     if vmin is None:
-      vmin = ccode.pmin.reduce(bhmass)
+      vmin = ccode.pmin.reduce(R)
 
     print 'bhshow, vmax, vmin =', vmax, vmin
+
+
     if logscale:
-      R = log10(bhmass)
+      R = log10(R)
       Nm = Normalize(vmax=log10(vmax), vmin=log10(vmin), clip=True)
     else:
-      R = bhmass
       Nm = Normalize(vmax=vmax, vmin=vmin, clip=True)
     if bhmass.size > 1:
       R = Nm(R)
@@ -397,24 +406,27 @@ class GaplotContext(object):
     if R.min() == R.max():
       R = ones(R.shape)
 
-    if count > 0: 
-      ind = (-R).argsort()
-      X = X[ind[0:count]]
-      Y = Y[ind[0:count]]
-      R = R[ind[0:count]]
-      ID = ID[ind[0:count]]
-
-    R*=radius**2
+    R*=radius
     print 'R max, R min', R.min(), R.max()
+    print R
 #    R.clip(min=4, max=radius**2)
-    if not 'edgecolor' in kwargs:
-      kwargs['edgecolor'] = 'green'
-    if not 'facecolor' in kwargs:
-      kwargs['facecolor'] = (0, 1, 0, 0.0)
     if not 'marker' in kwargs:
-      kwargs['marker'] = 'o'
-    ax.scatter(X,Y, s=R*radius, **kwargs)
+      use_spike = True
+    else: 
+      use_spike = False
+      if not 'edgecolor' in kwargs:
+        kwargs['edgecolor'] = 'green'
+      if not 'facecolor' in kwargs:
+        kwargs['facecolor'] = (0, 1, 0, 0.0)
+
+    if use_spike:
+      c = SpikeCollection(X, Y, R, **kwargs)
+      ax.add_collection(c)
+    else:
+      ax.scatter(X,Y, s=R**2, **kwargs)
     if labelfmt: 
+      if count > 0:
+        ID = ID[ind[0:count]]
       ID = self.bh['id'][mask]
       for x,y,id in zip(X,Y,ID):
         rat = random.random() * 360
@@ -480,26 +492,38 @@ class GaplotContext(object):
 
 # apparent maginitute
     mag = ((-26.74 + 2.5 * log10(1400 / bhlum)))
+    ind = mag.argsort()
+    if count > -1 and count < len(mag):
+      magcut = mag[ind[count]]
+    else:
+      magcut = 9999
 # 8 is the naked eye limit 
     selected = (bhpos[:, 0] > -1.0) & (bhpos[:, 0] < 1.0) 
     selected &= (bhpos[:, 1] > -1.0) & (bhpos[:, 1] < 1.0) 
-    selected &= (bhpos[:, 2] > -1.0) & (bhpos[:, 2] < 1.0) & (mag  < 10)
+    selected &= (bhpos[:, 2] > -1.0) & (bhpos[:, 2] < 1.0) & (mag  < magcut)
     print 'mag', mag.min(), mag.max()
     bhpos = bhpos[selected]
     bhlum = bhlum[selected]
-    bhx = (bhpos[:, 0] + 1.0) * 1600 * 0.5
-    bhy = (bhpos[:, 1] + 1.0) * 900 * 0.5
+    bhx = (bhpos[:, 0] + 1.0) * self.shape[0] * 0.5
+    bhy = (bhpos[:, 1] + 1.0) * self.shape[1] * 0.5
     print 'bhs shown', selected.sum()
-    mag = - mag[selected] + 10
+    mag = - mag[selected]
+    mag -= mag.min()
+    diff = mag.max()
+    if diff > 0: 
+      mag /= diff
+    else: mag[:] = 1
+     
     print bhx
     print bhy
     print mag
-    print 'ylim', ax.get_ylim()
     t = 0.05
     marker = ((-1, 0), (-t, t), (0, 1), (t, t), (1, 0), (t, -t), (0, -1), (-t, -t)), 0
     color=(0.8, 1, 1, 0.7)
     ecolor=(1., 1, 0.8, 0.2)
-    ax.scatter(x=bhx, y=bhy, s=mag * 10**2, marker=marker, edgecolor=ecolor, color=color)
+    c = SpikeCollection(bhx, bhy, radius=mag * radius, color=color)
+    ax.add_collection(c)
+#    ax.scatter(x=bhx, y=bhy, s=mag * 10**2, marker=marker, edgecolor=ecolor, color=color)
 
   def velshow(self, ax, ftype, relative=False, color='cyan', alpha=0.8):
     X,Y,vel = self.vector(ftype, 'vel', grids=(20,20), quick=False)
@@ -534,9 +558,13 @@ class GaplotContext(object):
       kwargs['alpha'] = 0.5
     ax.plot(X, Y, ', ', *args, **kwargs)
 
-  def reset_view(self, ax):
-    left,right =self.cut['x']
-    bottom, top = self.cut['y']
+  def reset_view(self, ax, camera=False):
+    if camera:
+      left, right = 0, self.shape[0]
+      bottom, top = 0, self.shape[1]
+    else:
+      left,right =self.cut['x']
+      bottom, top = self.cut['y']
     print left, right, bottom, top
     ax.set_xlim(left, right)
     ax.set_ylim(bottom, top)
@@ -587,28 +615,29 @@ class GaplotContext(object):
     vmin=None, vmax=None,
     logscale=True, cmap=pygascmap,
     gamma=1.0, mmin=None, mmax=None, over=None,
-    return_raster=False, levels=None, use_cache=True):
+    return_raster=False, levels=None, logweight=None, weightcomponent='mass', use_cache=True):
 
     if camera is None:
       if mode is None: # extensive, mass->density, sfr->sf density, 
         todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
       else : # intensive, decorate the result aftwards, assuming always mass weighted for now
-        todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent='mass', use_cache=use_cache)
+        todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent=weightcomponent, use_cache=use_cache)
     else:
       if mode is None: # extensive, mass->density, sfr->sf density, 
         todraw, mass = self.camera(ftype=ftype, component=component, camera=camera)
       else : # intensive, decorate the result aftwards, assuming always mass weighted for now
-        todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent='mass', camera=camera)
+        todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent=weightcomponent, camera=camera)
 
     if camera is None:
-      image = self.render(todraw, mass, mode, vmin, vmax, logscale, True, cmap, gamma, mmin, mmax, over)
-
+      if logweight is None: logweight=True
+      image = self.render(todraw=todraw, mass=mass, mode=mode, vmin=vmin, vmax=vmax, logscale=logscale, logweight=logweight, cmap=cmap, gamma=gamma, mmin=mmin, mmax=mmax, over=over)
       ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
          extent=self.extent, vmin=vmin, vmax=vmax, cmap=cmap)
       if levels is not None:
         ax.contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
     else:
-      image = self.render(todraw, mass, mode, vmin, vmax, logscale, False, cmap, gamma, mmin, mmax, over)
+      if logweight is None: logweight=False
+      image = self.render(todraw=todraw, mass=mass, mode=mode, vmin=vmin, vmax=vmax, logscale=logscale, logweight=logweight, cmap=cmap, gamma=gamma, mmin=mmin, mmax=mmax, over=over)
       ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
          extent=(0, self.shape[0], 0, self.shape[1]), vmin=vmin, vmax=vmax, cmap=cmap)
       if levels is not None:
@@ -775,9 +804,9 @@ def bhshow(ax=None, *args, **kwargs):
   draw()
 bhshow.__doc__ = GaplotContext.bhshow.__doc__
 
-def reset_view(ax=None):
+def reset_view(ax=None, camera=False):
   if ax is None: ax = gca()
-  context.reset_view(ax)
+  context.reset_view(ax, camera)
   draw()
 
 def drawscale(ax=None, *args, **kwargs):

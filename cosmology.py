@@ -133,7 +133,7 @@ class Cosmology:
     return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
 
   def QSObol(self, mdot, type):
-    """ Hopkins etal 2006, added UV (13.6ev -> 250.0 ev with index=1.76),
+    """ Hopkins etal 2007, added UV (13.6ev -> 250.0 ev with index=1.76),
         type can be 'blue', 'ir', 'soft', 'hard', or 'uv'. """
     params = {
       'blue': (6.25,-0.37,9.00,-0.012,),

@@ -1,9 +1,7 @@
 from gaepsi.readers import ReaderBase, F77File
 
 header = [
-      ('N', ('u8', 1)),
-      ('Nids', 'u8'),
-      ('unused0', ('u4',2)),
+      ('N', ('u8', 3)),
       ('mass', ('f8', 6)),
       ('time', 'f8'),
       ('redshift', 'f8'),
@@ -28,9 +26,9 @@ header = [
       ('unused', ('i4', 12)),
     ];
 
-class Reader(Base):
+class Reader(ReaderBase):
   def __init__(self) :
-    Base.__init__(self, 
+    ReaderBase.__init__(self, 
     F77File, 
     header = header,
     schemas = [

@@ -21,7 +21,7 @@ header = [
       ('flag_double', 'i4'),
       ('flag_ic_info', 'i4'),
       ('flag_lpt_scalingfactor', 'i4'),
-      ('unused', ('i4', 12)),
+      ('unused', ('f4', 12)),
     ];
 
 class Reader(ReaderBase):
