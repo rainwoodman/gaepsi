@@ -28,15 +28,16 @@ class Snapshot:
               ['Reader'],  -1)
       reader = _temp.Reader()
 
+    self.file = file
     if create:
       self.save_on_delete = True
-      reader.create(self, file = file)
+      reader.create(self)
       for key in kwargs:
         self.header[key] = kwargs[key]
 
     else:
       self.save_on_delete = False
-      reader.open(self, file = file)
+      reader.open(self)
 
   def __del__(self):
     if self.save_on_delete:
@@ -47,6 +48,7 @@ class Snapshot:
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.load(self, bn, ptype)
+    return [self.P[ptype][bn] for bn in blocknames]
 
   def save_all(self):
     self.save_on_delete = False

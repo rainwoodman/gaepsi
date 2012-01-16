@@ -23,6 +23,8 @@ from numpy import random
 import matplotlib.pyplot as pyplot
 import threads
 from Queue import Queue
+from gaepsi.tools.simplegl import Camera
+
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
@@ -36,15 +38,6 @@ starmap = Colormap(levels =[0, 1.0],
 
 pygascmap = pycmap(gasmap)
 pystarcmap = pycmap(starmap)
-
-class Camera(object):
-  def __init__(self, pos, near, far, fov, target, up):
-    self.near = near
-    self.far = far
-    self.fov = fov
-    self.target = target
-    self.up = up
-    self.pos = pos
 
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
@@ -182,23 +175,37 @@ class GaplotContext(object):
 
     threads.work(job, job_q)
 
-  def radial_mean(self, component, bins=100, min=None, max=None, std=False, origin=None):
+  def radial_mean(self, component, weightcomponent='mass', bins=100, min=None, max=None, std=False, origin=None):
     from numpy import histogram
     if origin is None: origin = self.cut.center
     d = self.gas.dist(origin=origin)
     if min is not None and max is not None: range=(min, max)
     else: range= None 
-    m = self.gas['mass']
-    mx = self.gas['mass'] * self.gas[component]
-    mass, bins = histogram(d, range=range, bins=bins, weights=m)
-    value, bins = histogram(d, range=range, bins=bins, weights=mx)
-    value /= mass
-    if std:
-      mxx = mx * self.gas[component]
-      std, bins = histogram(d, range=range, bins=bins, weights=mxx)
-      std = sqrt(abs(std / mass - value ** 2))
-      return bins[:-1], value, std
-    return bins[:-1], value
+    if weightcomponent is not None:
+      m = self.gas[weightcomponent]
+      mx = m * self.gas[component]
+      mass, bins = histogram(d, range=range, bins=bins, weights=m)
+      value, bins = histogram(d, range=range, bins=bins, weights=mx)
+      value /= mass
+      if std:
+        mxx = mx * self.gas[component]
+        std, bins = histogram(d, range=range, bins=bins, weights=mxx)
+        std = sqrt(abs(std / mass - value ** 2))
+        return bins[:-1], value, std
+      return bins[:-1], value
+    else:
+      mx = self.gas[component]
+      value, bins = histogram(d, range=range, bins=bins, weights=mx)
+      value = value.cumsum()
+      r2,r1 = bins[1:], bins[:-1]
+      r = .5 * (r1 + r2)
+      V = 4 / 3.0 * 3.14 * (r ** 3)
+      value /= V
+      if std:
+# possion error
+        std, bins = histogram(d, range=range, bins=bins)
+        return bins[:-1], value, value * sqrt(std) / std
+      return bins[:-1], value
 
   def rotate(self, *args, **kwargs):
     kwargs['origin'] = self.cut.center
@@ -453,13 +460,8 @@ class GaplotContext(object):
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
 
-  def bhshow_camera(self, ax, radius=4, logscale=True, vmin=None, vmax=None, count=-1, camera=None, *args, **kwargs):
-    from gaepsi.tools.simplegl import GL
-    GL.lookat(target=camera.target, pos=camera.pos, up=camera.up)
-    GL.perspective(near= camera.near, far=camera.far, fov=camera.fov / 360. * 3.1415, aspect = 1.0 * context.shape[0]/ context.shape[1])
-    GL.viewport(context.shape[0], context.shape[1])
-
-    bhlum = context.bh.cosmology.QSObol(context.bh['bhmdot'], 'blue') 
+  def bhshow_camera(self, ax, component='bhmdot', radius=4, logscale=True, vmin=None, vmax=None, count=-1, camera=None, *args, **kwargs):
+    bhlum = context.bh.cosmology.QSObol(context.bh[component], 'blue') 
 
     good = bhlum > 0
     if len(bhlum) > 0 and good.sum() > 0:
@@ -481,9 +483,8 @@ class GaplotContext(object):
       bhpos = bhpos0
       bhlum = bhlum0
 
-    bhdist = zeros(bhlum.shape[0])
-    bhpos = GL.transform(bhpos, distance=bhdist)
-
+    bhpos = camera.map(bhpos, context.shape)
+    bhdist = bhpos[:, 2]
     bhlum /= 4 * 3.1416 * bhdist ** 2
     bhlum /= (context.bh.cosmology.units.W / context.bh.cosmology.units.METER ** 2 )
 
@@ -498,14 +499,12 @@ class GaplotContext(object):
     else:
       magcut = 9999
 # 8 is the naked eye limit 
-    selected = (bhpos[:, 0] > -1.0) & (bhpos[:, 0] < 1.0) 
-    selected &= (bhpos[:, 1] > -1.0) & (bhpos[:, 1] < 1.0) 
-    selected &= (bhpos[:, 2] > -1.0) & (bhpos[:, 2] < 1.0) & (mag  < magcut)
+    selected = (bhpos[:, 0] > 0) & (bhpos[:, 0] < self.shape[0]) 
+    selected &= (bhpos[:, 1] > 0) & (bhpos[:, 1] < self.shape[1]) 
+    selected &= (bhpos[:, 2] > 0.0)& (mag  < magcut)
     print 'mag', mag.min(), mag.max()
     bhpos = bhpos[selected]
     bhlum = bhlum[selected]
-    bhx = (bhpos[:, 0] + 1.0) * self.shape[0] * 0.5
-    bhy = (bhpos[:, 1] + 1.0) * self.shape[1] * 0.5
     print 'bhs shown', selected.sum()
     mag = - mag[selected]
     mag -= mag.min()
@@ -514,8 +513,8 @@ class GaplotContext(object):
       mag /= diff
     else: mag[:] = 1
      
-    print bhx
-    print bhy
+    bhx = bhpos[:, 0]
+    bhy = bhpos[:, 1]
     print mag
     t = 0.05
     marker = ((-1, 0), (-t, t), (0, 1), (t, t), (1, 0), (t, -t), (0, -1), (-t, -t)), 0

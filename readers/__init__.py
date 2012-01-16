@@ -38,15 +38,15 @@ class ReaderBase:
     for s in self.schemas:
       self.hash[s['name']] = s
 
-  def open(self, snapshot, file):
-    snapshot.file = self.file_class(file, endian=self.endian, mode='r')
+  def open(self, snapshot):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
     snapshot.reader = self
     self.load(snapshot, name = 'header')
     snapshot.C = Constants(self, snapshot.header)
     self.update_offsets(snapshot)
 
-  def create(self, snapshot, file):
-    snapshot.file = self.file_class(file, endian=self.endian, mode='w+')
+  def create(self, snapshot):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='w+')
     snapshot.reader = self
     buf = zeros(dtype=self.header_dtype, shape=1)
     snapshot.header = buf[0]
@@ -110,27 +110,28 @@ class ReaderBase:
 
 
   def save(self, snapshot, name, ptype='all'):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='r+')
     if name == 'header':
       self.update_offsets(snapshot)
       for s in self.schemas:
         name = s['name']
         if not snapshot.sizes[name] == None:
-          snapshot.file.seek(snapshot.offsets[name])
+          file.seek(snapshot.offsets[name])
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
-          snapshot.file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
-      snapshot.file.seek(0)
+          file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
+      file.seek(0)
       buf = zeros(dtype = self.header_dtype, shape = 1)
       buf[0] = snapshot.header
-      snapshot.file.write_record(buf, 1)
+      file.write_record(buf, 1)
       return
 
     sch = self.hash[name]
-    snapshot.file.seek(snapshot.offsets[name])
+    file.seek(snapshot.offsets[name])
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
     length = snapshot.sizes[name] // sch['dtype'].base.itemsize
     if ptype == 'all':
       if snapshot.sizes[name] != 0 :
-        snapshot.file.write_record(snapshot.P['all'][name])
+        file.write_record(snapshot.P['all'][name])
     else :
       if not ptype in sch['ptypes'] : 
         return
@@ -139,30 +140,32 @@ class ReaderBase:
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
       offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
-      snapshot.file.write_record(snapshot.P[ptype][name], length, offset)
+      file.write_record(snapshot.P[ptype][name], length, offset)
    
   def check(self, snapshot):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
     for sch in self.schemas:
       name = sch['name']
-      snapshot.file.seek(snapshot.offsets[name])
+      file.seek(snapshot.offsets[name])
       length = snapshot.sizes[name] // sch['dtype'].itemsize
-      snapshot.file.skip_record(sch['dtype'], length)
+      file.skip_record(sch['dtype'], length)
    
 
   def load(self, snapshot, name, ptype='all'):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
     if name == 'header':
-      snapshot.file.seek(0)
-      snapshot.header = snapshot.file.read_record(self.header_dtype, 1)[0]
+      file.seek(0)
+      snapshot.header = file.read_record(self.header_dtype, 1)[0]
       return
 
     if snapshot[ptype].has_key(name) : return
 
     sch = self.hash[name]
-    snapshot.file.seek(snapshot.offsets[name])
+    file.seek(snapshot.offsets[name])
     length = snapshot.sizes[name] // sch['dtype'].itemsize
     if ptype == 'all':
       if snapshot.sizes[name] != 0 :
-        snapshot.P['all'][name] = snapshot.file.read_record(sch['dtype'], length)
+        snapshot.P['all'][name] = file.read_record(sch['dtype'], length)
       else :
         snapshot.P['all'][name] = None
     else :
@@ -173,7 +176,7 @@ class ReaderBase:
       for i in range(6):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
-      snapshot.P[ptype][name] = snapshot.file.read_record(sch['dtype'], length, offset, snapshot.C.N[ptype])
+      snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C.N[ptype])
 
 from numpy import fromfile
 from numpy import int32
