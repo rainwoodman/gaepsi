@@ -42,6 +42,7 @@ typedef struct {
 
 typedef struct _NgbT{
 	float dist2;
+	float dist;
 	intptr_t ipar;
 	struct _NgbT * next;
 } NgbT;
@@ -97,6 +98,16 @@ m->min[d], pos[d], cellid[d], m->cellsize[d], fdim(pos[d], m->min[d]));
 		cellindex = cellindex * m->ncellx + cellid[d];
 	}
 	return cellindex;
+}
+static double mass_est(NgbT * ngb_head, MeshT * m, double h0) {
+	double rho_sph = 0;
+	NgbT * p;
+	for(p = ngb_head; p != NULL; p = p->next) {
+		float ma = *((float*)PyArray_GETPTR1(m->mass, p->ipar));
+		rho_sph += ma * k0f(p->dist / h0); /* / (h0 * h0 * h0) is canceled with multiplication*/
+		//printf("h0 = %g, rho_sph = %g, ma = %g, dist=%g\n", h0, rho_sph, ma, p->dist);
+	}
+	return 4 * 3.14 / 3.0 * rho_sph;
 }
 static PyObject * sml(PyObject * self, 
 	PyObject * args, PyObject * kwds) {
@@ -163,6 +174,12 @@ static PyObject * sml(PyObject * self,
 		m.link[i] = head;
 		m.ccount[cellindex]++;
 	}
+
+	double msum = 0.0;
+	for(i = 0; i < m.npar; i++) {
+		msum += *((float*)PyArray_GETPTR1(m.mass, i));
+	}
+	double mmean = msum / m.npar;
 
 	float maxdist = (m.cellsize[0] + m.cellsize[1] + m.cellsize[2]) * m.ncellx;
     #pragma omp parallel private(i) 
@@ -250,29 +267,56 @@ static PyObject * sml(PyObject * self,
 				 &&ngb_head->dist2 < r5 * r5 * m.cellsize[2] * m.cellsize[2]) break;
 			}
 			/* iterate to find a converged density & sml, using rho_j =W(h_j) */
-			double h0 = sqrt(ngb_head->dist2);
-			double h1 = 0;
-			double rho_sph;
 			double mass_sph = 0.0;
 			NgbT * p = NULL;
+			mass_sph = NGB * mmean;
 			for(p = ngb_head; p != NULL; p = p->next) {
-				mass_sph += *((float*)PyArray_GETPTR1(m.mass, p->ipar));
+			//	mass_sph += *((float*)PyArray_GETPTR1(m.mass, p->ipar));
+				p->dist = sqrt(p->dist2);
 			}
-			int icount = 0;
-			while(icount < 128) {
-				rho_sph = 0;
-				for(p = ngb_head; p != NULL; p = p->next) {
-					float ma = *((float*)PyArray_GETPTR1(m.mass, p->ipar));
-					rho_sph += ma * k0f(sqrt(p->dist2) / h0) / (h0 * h0 * h0);
+			double h0 = ngb_head->dist;
+			/* mass_est is monotonic increasing with h0 */
+			double m0 = mass_est(ngb_head, &m, h0);
+			double h1;
+			double m1;
+			double h2;
+			double m2;
+			double fac = 0.1;
+			{
+			retry:
+				/*if the intial guess is too big, reduce next guess */
+				if(m0 > mass_sph) fac = 0.5;
+				/*if the intial guess is too small, reduce next guess */
+				else fac = 2;
+				h2 = h0 * fac;
+				m2 = mass_est(ngb_head, &m, h2);
+				int icount = 0;
+				while((m2 - mass_sph) * (m0 - mass_sph) > 0) {
+					//printf("trying range %g(%g) %g(%g) %g\n", h0, m0, h2, m2, mass_sph);
+					h2 = h2 * fac;
+					m2 = mass_est(ngb_head, &m, h2);
+					icount ++;
+					if(icount > 20) {
+						mass_sph /= pow(fac, 0.2);
+						icount = 0;
+						printf("mass_sph reduced to %g(h=%g %g), m=(%g %g)\n", mass_sph, h0, h2, m0, m2);
+						goto retry;
+					}
 				}
-				h1 = cbrt(mass_sph / ( 4 * 3.14 / 3 * rho_sph));
-				if(fabs(h1 - h0) / h0 < 1e-2) break;
-				h0 = h1;
-				icount++;
-			}
-			if(icount >=128) {
-//				printf("warning a sml failed to converge\n");
-				h1 = 10 *sqrt(ngb_head->dist2);
+			} 
+			/*now the solution is within [h0, h1] */ 
+			h1 = 0.5 * (h0 + h2);
+			m1 = mass_est(ngb_head, &m, h1);
+			while(fabs(h0 - h2) / h1 > 1e-3) {
+				if((m1 - mass_sph) * (m0 - mass_sph) >0) {
+					h0 = h1;
+					m0 = m1;
+				} else {
+					h2 = h1;
+					m2 = m1;
+				}
+				h1 = 0.5 * (h0 + h2);
+				m1 = mass_est(ngb_head, &m, h1);
 			}
 			*((float*)PyArray_GETPTR1(sml, i)) = h1;
 
