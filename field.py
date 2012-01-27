@@ -4,6 +4,7 @@ from numpy import append
 from numpy import asarray
 from remap import remap
 from ccode import sml
+from ccode import peanohilbert
 from numpy import sin,cos, matrix
 from numpy import inner
 from numpy import newaxis
@@ -312,6 +313,7 @@ class Field(object):
     return d2 ** 0.5
 
   def smooth(self, NGB=32):
+    self.peano_reorder()
     self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
 
   def rotate(self, angle, axis, origin):
@@ -366,3 +368,17 @@ class Field(object):
     newpos *= boxsize
     self['locations'] = newpos
     self.boxsize = newboxsize * boxsize
+
+  def peano_reorder(self):
+    xyz = zeros(shape = (self.numpoints, 3), dtype='i4')
+    pos=self['locations'] 
+    min = pos.min(axis=0)
+    max = pos.max(axis=0)
+    dinv = (1<<19) / (max - min)
+    xyz[:,:] = (pos - min[newaxis, :]) * dinv[newaxis, :]
+    print min, max, dinv
+    key = peanohilbert(xyz[:,0], xyz[:, 1], xyz[:,2])
+    arg = key.argsort()
+    for comp in self.dict:
+      self.dict[comp] = self.dict[comp][arg]
+    #return arg, key, xyz

@@ -1,6 +1,7 @@
 #! python
 from numpy import asarray, newaxis
 from numpy import multiply, divide, add
+from numpy import max, min, isscalar
 from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
@@ -379,7 +380,7 @@ class GaplotContext(object):
 
       return integral, weight_int
 
-  def bhshow(self, ax, component='bhmass', radius=4, logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def bhshow(self, ax, component='bhmass', radius=(4, 1), logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
     from matplotlib.collections import CircleCollection
     mask = self.cut.select(self.bh['locations'])
     X = self.bh['locations'][mask,0]
@@ -413,7 +414,13 @@ class GaplotContext(object):
     if R.min() == R.max():
       R = ones(R.shape)
 
-    R*=radius
+    if isscalar(radius):
+      R*=radius
+    else:
+      rmin = min(radius)
+      rmax = max(radius)
+      R *= (rmax - rmin)
+      R += rmin
     print 'R max, R min', R.min(), R.max()
     print R
 #    R.clip(min=4, max=radius**2)

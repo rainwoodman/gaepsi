@@ -27,85 +27,210 @@ unsigned int icbrt64(unsigned long long x) {
   return y;
 }
 
-typedef struct {
-	float min[3];
-	float max[3];
-	float cellsize[3];
-	int ncellx;
-	PyArrayObject * locations;
-	PyArrayObject * mass;
-	int * ccount;
-	intptr_t * link;
-	intptr_t * cell;
-	size_t npar;
-} MeshT;
+#define max(a, b) ((a) > (b)?(a):(b))
+#define min(a, b) ((a) < (b)?(a):(b))
 
-typedef struct _NgbT{
-	float dist2;
-	float dist;
-	intptr_t ipar;
-	struct _NgbT * next;
-} NgbT;
+struct rtree_t {
+	struct rtree_node_t * pool;
+	intptr_t used;
+	size_t size;
+};
 
-NgbT * ngbt_insert_sorted(NgbT * list, NgbT * node) {
-	if(list == NULL) {
-		node->next = NULL;
-		return node;
+struct rtree_node_t {
+/* if type == leaf, first_child = first par, if type == nonleaf first_child = first child node*/
+	int type;  /*0 = leaf, 1= nonleaf, nonlastsibling, 2=lastsibling */
+/* number of children or pars */
+	int length;
+/* bounding box */
+	float bot[3];
+	float top[3];
+	intptr_t parent;
+	intptr_t first_child;
+};
+
+
+static void rtree_build(struct rtree_t * rtree, PyArrayObject * pos, size_t npar) {
+	/* build a rtree, in input, pos is sorted by the key */
+
+	size_t leaves = (npar + 11)/ 12;
+	size_t nonleaves = 0;
+	size_t t;
+	for(t = (leaves + 7)/ 8; t >= 1; t = (t + 7)/ 8) {
+		nonleaves += t;
+		if(t == 1) break;
 	}
-	/* greater than head, then node becomes the new head */
-	if(node->dist2 > list->dist2) {
-		node->next = list;
-		return node;
-	}
-	NgbT * p, * q;
-	for(p = list; p != NULL; p = q) {
-		q = p->next;
-		if(q) {
-			if(q->dist2 < node->dist2) {
-				p->next = node;
-				node->next = q;
-				break;
+
+	rtree->size = leaves + nonleaves;
+	rtree->pool = malloc(sizeof(struct rtree_node_t) * rtree->size);
+	rtree->used = 0;
+	intptr_t i;
+	/* fill the leaves*/
+	for(i = 0; i < leaves; i++) {
+		struct rtree_node_t * node = &rtree->pool[i];
+		node->first_child = i * 12;
+		node->type = 0;
+		node->length = min(npar - i * 12, 12);
+		int d;
+		for(d = 0; d < 3; d++) {
+			node->bot[d] = *(float*)PyArray_GETPTR2(pos, node->first_child, d);
+			node->top[d] = *(float*)PyArray_GETPTR2(pos, node->first_child, d);
+		}
+		intptr_t j;
+		for(j = 0; j < node->length; j++) {
+			for(d = 0; d < 3; d++) {
+				node->bot[d] = fmin(node->bot[d], *(float*)PyArray_GETPTR2(pos, node->first_child + j,d));
+				node->top[d] = fmax(node->top[d], *(float*)PyArray_GETPTR2(pos, node->first_child + j,d));
 			}
-		} else {
-			/* on the tail*/
-			p->next = node;
-			node->next = NULL;
-			/* will terminate anyways*/
-			break;
+		}
+		rtree->used ++;
+	}
+	intptr_t child_cur = 0;
+	intptr_t parent_cur = leaves;
+	for(t = (leaves + 7)/ 8; t >= 1; t = (t + 7)/ 8) {
+		for(i = 0; i < t; i++) {
+			struct rtree_node_t * node = &rtree->pool[parent_cur + i];
+			node->type = 1;
+			node->first_child = child_cur + i * 8;
+			node->length = min(parent_cur - child_cur - i * 8, 8);
+			intptr_t j;
+			int d;
+			struct rtree_node_t * child = &rtree->pool[node->first_child];
+			for(d = 0; d < 3; d++) {
+				node->bot[d] = child[0].bot[d];
+				node->top[d] = child[0].top[d];
+			}
+			for(j = 0; j < node->length; j++) {
+				child[j].parent = parent_cur + i;
+				for(d = 0; d < 3; d++) {
+					node->bot[d] = fmin(node->bot[d], child[j].bot[d]);
+					node->top[d] = fmax(node->top[d], child[j].top[d]);
+				}
+			}
+			child[j-1].type += 2;
+		rtree->used ++;
+		}
+		child_cur = parent_cur;
+		parent_cur += t;
+		if(t == 1) break;
+	}
+}
+
+static int intersect(float top1[], float bot1[], float top2[], float bot2[]) {
+	int d;
+/*
+	printf("%g %g %g - %g %g %g x %g %g %g - %g %g %g",
+		top1[0], top1[1], top1[2],
+		bot1[0], bot1[1], bot1[2],
+		top2[0], top2[1], top2[2],
+		bot2[0], bot2[1], bot2[2]);
+*/
+	for(d = 0 ;d < 3; d++) {
+		if(bot1[d] > top2[d]) {
+/*
+			printf("false\n");
+*/
+			return 0;
+		}
+		if(bot2[d] > top1[d]) {
+/*
+			printf("false\n");
+*/
+			return 0;
 		}
 	}
-	return list;
+//	printf("true\n");
+	return 1;
 }
-intptr_t par2cell(MeshT * m, intptr_t ipar, int * cellid_out) {
-	float pos[3];
+static void add_to_list(intptr_t ipar, PyArrayObject * pos, float p[3], intptr_t neighbours[], float dist[], int n, int * nused) {
 	int d;
-	int cellid_internal[3];
-	int * cellid;
-	if(cellid_out != NULL) {
-		cellid = cellid_out;
-	} else {
-		cellid = cellid_internal;
-	}
-	intptr_t cellindex = 0;
+	float d2 = 0.0;
 	for(d = 0; d < 3; d++) {
-		pos[d] = *((float*)PyArray_GETPTR2(m->locations, ipar, d));
-		cellid[d] = fdim(pos[d], m->min[d])/ m->cellsize[d];
-		if(cellid[d] >= m->ncellx) cellid[d] = m->ncellx - 1;
-		if(cellid[d] < 0) 
-			fprintf(stderr, 
-"cellid < 0 shall never happen, mmin=%g pos=%g cellid[d] = %d m->cellsize[d] = %g diff = %g\n", 
-m->min[d], pos[d], cellid[d], m->cellsize[d], fdim(pos[d], m->min[d]));
-		cellindex = cellindex * m->ncellx + cellid[d];
+		float s = *(float*)PyArray_GETPTR2(pos, ipar, d) - p[d];
+		d2 += s * s;
 	}
-	return cellindex;
+	float dd = sqrt(d2);
+	if(*nused == n && dd > dist[n - 1]) return;
+	int i;
+
+	int ip = 0;
+	while(ip < *nused && dist[ip] < dd) ip++;
+
+	for(i = min(*nused, n - 1); i > ip; i--) {
+		dist[i] = dist[i - 1];
+		neighbours[i] = neighbours[i - 1];
+	}
+	dist[ip] = dd;
+	neighbours[ip] = ipar;
+	if(*nused < n) (*nused)++;
 }
-static double mass_est(NgbT * ngb_head, MeshT * m, double h0) {
+static int rtree_neighbours(struct rtree_t * rtree, float p[3], PyArrayObject * pos, size_t npar,
+		intptr_t neighbours[], float dist[], int n, int *nused, float * hhint) {
+	float hh = 1.0;
+	if(hhint == NULL) { hhint = &hh; }
+	if(n > npar) n = npar;
+	float bot[3];
+	float top[3];
+	int d;
+	struct rtree_node_t * N = rtree->pool;
+	int rt = 0;
+	do {
+		for(d = 0; d < 3; d++) {
+			bot[d] = p[d] - *hhint;
+			top[d] = p[d] + *hhint;
+		}
+		intptr_t cur = rtree->used - 1;
+		*nused = 0;
+		rt = 0;
+		while(1) {
+			if(intersect(N[cur].top, N[cur].bot, top, bot)) {
+			rt ++;
+				if(N[cur].type == 1 || N[cur].type == 3) {
+					cur = N[cur].first_child;
+					continue;
+				}
+				if(N[cur].type == 0 || N[cur].type == 2) {
+					int j;
+					for(j = 0; j < N[cur].length; j++) {
+						add_to_list(N[cur].first_child + j, pos, p, neighbours, dist, n, nused);
+					}
+				}
+			}
+			if(cur == rtree->used - 1) break;
+			if(N[cur].type == 0 || N[cur].type == 1) {
+				cur++;
+				continue;
+			}
+			while((N[cur].type == 2 || N[cur].type == 3)) {
+				cur = N[cur].parent;
+				if(cur == rtree->used - 1) break;
+			}
+			if(cur == rtree->used - 1) break;
+			cur++;
+		}
+		(*hhint) *= 2.0;
+	} while(*nused < n);
+	return rt;
+}
+
+typedef struct  {
+	PyArrayObject * locations;
+	PyArrayObject * mass;
+	npy_intp npar;
+} PrivateData;
+
+static double mass_est(float * dist, float * mass, int n, double h0) {
 	double rho_sph = 0;
-	NgbT * p;
-	for(p = ngb_head; p != NULL; p = p->next) {
-		float ma = *((float*)PyArray_GETPTR1(m->mass, p->ipar));
-		rho_sph += ma * k0f(p->dist / h0); /* / (h0 * h0 * h0) is canceled with multiplication*/
-		//printf("h0 = %g, rho_sph = %g, ma = %g, dist=%g\n", h0, rho_sph, ma, p->dist);
+	npy_intp j;
+	for(j = 0; j < n; j++) {
+		float ma = mass[j];
+		if(h0 == 0.0) {
+			if(dist[j] == 0.0) {
+				rho_sph += ma * k0f(0.0); /* / (h0 * h0 * h0) is canceled with multiplication*/
+			} else continue;
+		} else {
+			rho_sph += ma * k0f(dist[j] / h0); /* / (h0 * h0 * h0) is canceled with multiplication*/
+		}
+//		printf("h0 = %g, rho_sph = %g, ma = %g, dist=%g\n", h0, rho_sph, ma, p->dist);
 	}
 	return 4 * 3.14 / 3.0 * rho_sph;
 }
@@ -118,197 +243,73 @@ static PyObject * sml(PyObject * self,
 	int NGB = 32;
 	PyArrayObject * locations = NULL;
 	PyArrayObject * mass = NULL;
-	MeshT m;
-	memset(&m, 0, sizeof(m));
+	PrivateData m;
 	if(! PyArg_ParseTupleAndKeywords(args, kwds, "O!O!i", kwlist,
 		&PyArray_Type, &locations, 
 		&PyArray_Type, &mass, 
 		&NGB)) return NULL;
+
+	struct rtree_t t = {0};
+
 	m.locations = (PyArrayObject*) PyArray_Cast(locations, NPY_FLOAT);
 	m.mass = (PyArrayObject*) PyArray_Cast(mass, NPY_FLOAT);
 	m.npar = PyArray_DIM(locations, 0);
-	m.ncellx = icbrt64(m.npar/8); /* 8 particles per cell*/
-	if(m.ncellx < 1) m.ncellx = 1;
 	npy_intp dims[] = {m.npar};
 	PyArrayObject * sml = (PyArrayObject *) PyArray_SimpleNew(1, dims, NPY_FLOAT);
-	m.link = PyMem_New(intptr_t, m.npar);
-	m.cell = PyMem_New(intptr_t, m.ncellx * m.ncellx * m.ncellx);
-	m.ccount = PyMem_New(int, m.ncellx * m.ncellx * m.ncellx);
-
-	memset(m.cell, -1, sizeof(intptr_t) * m.ncellx * m.ncellx * m.ncellx);
-	memset(m.ccount, 0, sizeof(int) * m.ncellx * m.ncellx * m.ncellx);
-	memset(m.link, -1, sizeof(intptr_t) * m.npar);
-
-	intptr_t i;
-	/* calculate the cell size */
-	for(i = 0; i < m.npar; i++) {
-		int d;
-		float pos[3];
-		for(d = 0; d < 3; d++) {
-			pos[d] = *((float*)PyArray_GETPTR2(m.locations, i, d));
-		}
-		if(i == 0) {
-			for(d = 0; d < 3; d++) {
-				m.min[d] = pos[d];
-				m.max[d] = pos[d];
-			}
-			continue;
-		}
-		for(d = 0; d < 3; d++) {
-			if(m.min[d] > pos[d]) m.min[d] = pos[d];
-			if(m.max[d] < pos[d]) m.max[d] = pos[d];
-		}
-	}
-	int d;
-	for(d = 0; d < 3; d++) {
-		m.cellsize[d] = (m.max[d] - m.min[d]) / m.ncellx;
-		if(m.cellsize[d] <= 0 ) m.cellsize[d] = 1.0;
-		printf("%g %g %g %d\n", m.cellsize[d], m.max[d], m.min[d], m.ncellx);
-	}
-	/* populate the cells */
-	for(i = 0; i < m.npar; i++) {
-		intptr_t cellindex = par2cell(&m, i, NULL);
-		/* insert the particle to the link list of the cell*/
-		intptr_t head = m.cell[cellindex];
-		m.cell[cellindex] = i;
-		m.link[i] = head;
-		m.ccount[cellindex]++;
-	}
 
 	double msum = 0.0;
+	npy_intp i;
 	for(i = 0; i < m.npar; i++) {
 		msum += *((float*)PyArray_GETPTR1(m.mass, i));
 	}
 	double mmean = msum / m.npar;
+	rtree_build(&t, m.locations, m.npar);
+    #pragma omp parallel for private(i) schedule(dynamic, 1000)
+	for(i = 0; i < m.npar; i++) {
+		int d;
+		int n;
+		float pos[3];
+		int center[3];
+		for(d = 0; d < 3; d++) {
+			pos[d] = *((float*)PyArray_GETPTR2(m.locations, i, d));
+		}
+		float dist[256];
+		intptr_t nei[256];
+		float mass[256];
+		float max_dist = 0;
+		float min_dist = 0;
+		int nused = 0;
+		int j;
+		float hhint = 1.0;
+		int r = rtree_neighbours(&t, pos, m.locations, m.npar, nei, dist, 256, &nused, &hhint);
+		for(j = 0; j < nused; j++) {
+			mass[j] = *((float*)PyArray_GETPTR1(m.mass, nei[j]));
+		}
+		min_dist = dist[0];
+		max_dist = dist[nused - 1];
 
-	float maxdist = (m.cellsize[0] + m.cellsize[1] + m.cellsize[2]) * m.ncellx;
-    #pragma omp parallel private(i) 
-    {
-		/* calculate the sml */
-		NgbT * ngb_pool = malloc(sizeof(NgbT) * NGB);
-		#pragma omp for schedule(dynamic, 1000)
-		for(i = 0; i < m.npar; i++) {
-			int d;
-			int n;
-			float pos[3];
-			int center[3];
-			for(d = 0; d < 3; d++) {
-				pos[d] = *((float*)PyArray_GETPTR2(m.locations, i, d));
-			}
-			par2cell(&m, i, center);
-			size_t count = 0; /* total number of particles looked */
-			int r;
-			NgbT * ngb_head = NULL;
-			ngb_head = NULL;
-			/* reset the ngb array */
-			int ngb_pool_used = 0;
-			for(n = 0; n < NGB; n++) {
-				ngb_pool[n].dist2 = maxdist * maxdist;
-				ngb_pool[n].next = NULL;
-			}
-			for(r = 0; r <= m.ncellx; r++) {
-				int c[3];
-				int bot[3];
-				int top[3];
-				for(d = 0; d < 3; d++) {
-					bot[d] = center[d] - r;
-					if(bot[d] < 0) bot[d] += m.ncellx;
-					top[d] = center[d] + r;
-					if(top[d] >= m.ncellx) top[d] -= m.ncellx ;
-				}
-				int c0[] = { bot[0], top[0]};
-				int c1[] = { bot[1], top[1]};
-				int c2[] = { bot[2], top[2]};
-				int i0, i1, i2;
-				count = 0;
-				int added = 0;
-				for(i0 = 0; i0 < 2; i0+=r?1:2)
-				for(i1 = 0; i1 < 2; i1+=r?1:2)
-				for(i2 = 0; i2 < 2; i2+=r?1:2) {
-					c[0] = c0[i0];
-					c[1] = c1[i1];
-					c[2] = c2[i2];
-					intptr_t cellindex = 0;
-					for(d = 0; d < 3; d++) {
-						cellindex = cellindex * m.ncellx + c[d];
-					}
-					count += m.ccount[cellindex];
-					intptr_t next = m.cell[cellindex];
-					while(next != (intptr_t)-1) {
-						float dist2 = 0.0;
-						for(d = 0; d < 3; d++) {
-							float s = pos[d] - *((float*)PyArray_GETPTR2(m.locations, next, d));
-							dist2 += s * s;
-						}
-						if(ngb_pool_used < NGB) {
-							/* if havn't got enough neighbours */
-							ngb_pool[ngb_pool_used].dist2 = dist2;
-							ngb_pool[ngb_pool_used].ipar = next;
-							/* so that ngb_head is the furthest */
-							ngb_head = ngbt_insert_sorted(ngb_head, &ngb_pool[ngb_pool_used]);
-							ngb_pool_used ++;
-							added = 1;
-						} else {
-							/* if nearer than the head */
-							if(dist2 < ngb_head->dist2) {
-								/* pop out the head and reinsert */
-								ngb_head->dist2 = dist2;
-								ngb_head->ipar = next;
-								ngb_head = ngbt_insert_sorted(ngb_head->next, ngb_head);
-								added = 1;
-							}
-						}
-						next = m.link[next];
-					}
-				}
-				float r5 = r > 0?r-1:r;
-				if(ngb_head->dist2 < r5 * r5 * m.cellsize[0] * m.cellsize[0]
-				 &&ngb_head->dist2 < r5 * r5 * m.cellsize[1] * m.cellsize[1]
-				 &&ngb_head->dist2 < r5 * r5 * m.cellsize[2] * m.cellsize[2]) break;
-			}
-			/* iterate to find a converged density & sml, using rho_j =W(h_j) */
-			double mass_sph = 0.0;
-			NgbT * p = NULL;
-			mass_sph = NGB * mmean;
-			for(p = ngb_head; p != NULL; p = p->next) {
-			//	mass_sph += *((float*)PyArray_GETPTR1(m.mass, p->ipar));
-				p->dist = sqrt(p->dist2);
-			}
-			double h0 = ngb_head->dist;
-			/* mass_est is monotonic increasing with h0 */
-			double m0 = mass_est(ngb_head, &m, h0);
-			double h1;
-			double m1;
-			double h2;
-			double m2;
-			double fac = 0.1;
-			{
-			retry:
-				/*if the intial guess is too big, reduce next guess */
-				if(m0 > mass_sph) fac = 0.5;
-				/*if the intial guess is too small, reduce next guess */
-				else fac = 2;
-				h2 = h0 * fac;
-				m2 = mass_est(ngb_head, &m, h2);
-				int icount = 0;
-				while((m2 - mass_sph) * (m0 - mass_sph) > 0) {
-					//printf("trying range %g(%g) %g(%g) %g\n", h0, m0, h2, m2, mass_sph);
-					h2 = h2 * fac;
-					m2 = mass_est(ngb_head, &m, h2);
-					icount ++;
-					if(icount > 20) {
-						mass_sph /= pow(fac, 0.2);
-						icount = 0;
-						printf("mass_sph reduced to %g(h=%g %g), m=(%g %g)\n", mass_sph, h0, h2, m0, m2);
-						goto retry;
-					}
-				}
-			} 
+		/* iterate to find a converged density & sml, using rho_j =W(h_j) */
+		double m_expt = NGB * mmean;
+
+		/* mass_est is monotonic increasing with h0 */
+		/* m0 = mass_est(0), m2 = mass_est(inf) */
+		double h0 = 0;
+		double h2 = 10 * max_dist;
+		double m2 = mass_est(dist, mass, nused, h2);
+		double m0 = mass_est(dist, mass, nused, h0);
+		double h1;
+		double m1;
+		if(m0 > m_expt) {
+			h1 = h0; 
+		} else if(m2 < m_expt) {
+			h1 = h2;
+		} else {
 			/*now the solution is within [h0, h1] */ 
 			h1 = 0.5 * (h0 + h2);
-			m1 = mass_est(ngb_head, &m, h1);
+			m1 = mass_est(dist, mass, nused, h1);
+			//printf("m = %g %g %g %g, h= %g %g %g\n", m0, m1, m2, m_expt, h0, h1, h2);
 			while(fabs(h0 - h2) / h1 > 1e-3) {
-				if((m1 - mass_sph) * (m0 - mass_sph) >0) {
+				if((m1 - m_expt) * (m0 - m_expt) >0) {
 					h0 = h1;
 					m0 = m1;
 				} else {
@@ -316,26 +317,16 @@ static PyObject * sml(PyObject * self,
 					m2 = m1;
 				}
 				h1 = 0.5 * (h0 + h2);
-				m1 = mass_est(ngb_head, &m, h1);
+				m1 = mass_est(dist, mass, nused, h1);
+				//printf("m = %g %g %g %g, h= %g %g %g\n", m0, m1, m2, m_expt, h0, h1, h2);
 			}
-			*((float*)PyArray_GETPTR1(sml, i)) = h1;
-
-	/*
-			printf("mass=%g, icount = %d, h1 =%f h0 = %f head = %f, rho = %g\n",
-			*(float*)(PyArray_GETPTR1(m.mass, i)),
-			icount, h1, h0, sqrt(ngb_head->dist2), rho_sph
-			);
-			printf("%f %f %f %d %d ", pos[0], pos[1], pos[2], count, r);
-			for(ngb_head; ngb_head != NULL; ngb_head = ngb_head->next) {
-				printf("%f ", sqrt(ngb_head->dist2));
-			}
-			printf("\n");
-	*/
 		}
-		free(ngb_pool);
+		h1 = fmax(h1, min_dist);
+		/* use a max smoothing length of the nearest 32th neighbour distance */
+		h1 = fmin(h1, max_dist);
+		//printf("%ld %g %g %d\n", i, h1, hhint, r);
+		*((float*)PyArray_GETPTR1(sml, i)) = h1;
 	}
-	PyMem_Del(m.link);
-	PyMem_Del(m.cell);
 	Py_DECREF(m.locations);
 	Py_DECREF(m.mass);
 	return (PyObject*)sml;

@@ -41,7 +41,7 @@ class Snapshot:
 
   def __del__(self):
     if self.save_on_delete:
-      print 'saving snapshot %s at destruction' % self.file.name
+      print 'saving snapshot %s at destruction' % self.file
       self.save_all()
 
   def load(self, blocknames, ptype='all') :
@@ -59,7 +59,8 @@ class Snapshot:
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
-    self.file.flush()
+# no need to flush as the file is supposingly closed.
+#    self.file.flush()
 
   def save(self, blocknames, ptype='all') :
     self.save_on_delete = False

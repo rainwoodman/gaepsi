@@ -145,7 +145,7 @@ static char koverlap_signatures[] = {
 
 static void PyUFunc_ffff_f(char **args, npy_intp *dimensions, npy_intp *steps, void *func) {
 	typedef float (ftype )(float , float, float, float);
-	ftype * f = (ftype*) f;
+	ftype * f = (ftype*) func;
 	char * ip1 = args[0], *ip2 = args[1], *ip3 = args[2], *ip4 = args[3],
 		*op1 = args[4];
 	npy_intp is1 = steps[0], is2 = steps[1], is3 = steps[2], is4 = steps[3], 
@@ -162,7 +162,7 @@ static void PyUFunc_ffff_f(char **args, npy_intp *dimensions, npy_intp *steps, v
 }
 static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, void *func) {
 	typedef double (ftype )(double , double, double, double);
-	ftype * f = (ftype*) f;
+	ftype * f = (ftype*) func;
 	char * ip1 = args[0], *ip2 = args[1], *ip3 = args[2], *ip4 = args[3],
 		*op1 = args[4];
 	npy_intp is1 = steps[0], is2 = steps[1], is3 = steps[2], is4 = steps[3], 
