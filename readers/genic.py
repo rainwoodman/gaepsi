@@ -30,7 +30,9 @@ class Reader(ReaderBase):
     F77File, 
     header = header,
     schemas = [
-      ('pos', ('f4', 3), [1], []),
+      ('pos', ('f4', 3), [0,1,4,5], []),
+      ('vel', ('f4', 3), [0,1,4,5], []),
+      ('id', 'u8', [0,1,4,5], []),
     ],
     defaults = {
       'flag_sfr': 0,

@@ -1,4 +1,4 @@
-def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n'):
+def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n', preamble=None, comment_character='#', header=None):
     """
     Save an array to a text file.
 
@@ -20,6 +20,21 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n'):
         .. versionadded:: 1.5.0
 
         Character separating lines.
+    preamble : str or sequence of strs, optional
+        If specified, the content of the strings will be added at the top
+        of the file. Each line will be preceded by the `comment_character` string
+        and terminated by `newline`. In default configuration, numpy.loadtxt
+        recognizes the preamble as a comment and, thus, ignores it.
+    comment_character : str, optional
+        The string which is intended to introduce the lines of the `preamble`
+        (default is '#'). Please note that numpy.loadtxt uses the `comments`
+        keyword to refer to this string.
+    header : bool or sequence of strs, optional
+        The column names; will be added after the `preamble` (if specified),
+        but before the data. If header is 'True', the names will either
+        be inferred from `X`.dtype.names or default names (f1, f2..fn)
+        will be used. If a sequence of strs is given, these
+        will be used as names.
 
 
     See Also
@@ -72,6 +87,21 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n'):
 
     This explanation of ``fmt`` is not complete, for an exhaustive
     specification see [1]_.
+    
+    Explanation of `preamble` and `header`:
+        Both preamble and header are used to add information on the
+        data at the top of the file.
+        In default configuration, the
+        preamble preserves compatibility of the
+        output file with numpy.loadtxt, while the header not necessarily
+        does.
+        The header is a single line containing, for example, the name of each
+        column. While this is very desirable, it may become a problem when
+        the data is recovered with numpy.loadtxt, which
+        (in default configuration) does not recognize the header and probably
+        fails, because it cannot convert the header entries to the target type.
+        Additionally, a preamble can be used to put an introductory text
+        at the top of the file.
 
     References
     ----------
@@ -85,7 +115,10 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n'):
     >>> np.savetxt('test.out', x, delimiter=',')   # X is an array
     >>> np.savetxt('test.out', (x,y,z))   # x,y,z equal sized 1D arrays
     >>> np.savetxt('test.out', x, fmt='%1.4e')   # use exponential notation
-
+    >>> recar = np.zeros(3, dtype={'names':['col1', 'col2'], 'formats':['i4','f4']})
+    >>> np.savetxt('test.out', recar, header=True)
+    >>> np.savetxt('test.out', recar, preamble=['This is the most','important result.'])
+    >>> np.savetxt('test.out', recar, header=['Apples', 'Oranges'])
     """
     import sys
     import numpy as np
@@ -151,14 +184,56 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n'):
             else:
                 format = fmt
 
+        if preamble is not None:
+            # A comment object was specified.
+            # Check whether the comment_character is valid.
+            if not _is_string_like(comment_character):
+                raise ValueError("'comment_character' has to be a string.")
+            # If the comment is a plane string, make it an element of a list
+            # to be iterated over below.
+            if _is_string_like(preamble):
+                preamble = [preamble]
+            # Iterate over comment argument if possible.
+            if hasattr(preamble, '__iter__'):
+                for co in preamble:
+                    # Check whether individual elements are string-like
+                    if _is_string_like(co):
+                        # Remove trailing newline character and split string
+                        # at occurrence of newline character to avoid new
+                        # preamble lines without introducing comment character.
+                        co = co.rstrip(newline)
+                        cosplit = co.split(newline)
+                        for c in cosplit:
+                            fh.write(asbytes(''.join((comment_character,c,newline))))
+   
+        if header is not None:
+          # Check whether column names are given as strings, or names
+          # must be infered from dtype.
+          if isinstance(header, bool):
+              if header:
+                  # If possible, infer column names from dtype and use default
+                  # (f1, f2 .. fn) otherwise.
+                  if X.dtype.names is not None:
+                    column_names = X.dtype.names
+                  else:
+                    column_names = []
+                    for i in range(ncol):
+                      column_names.append(''.join(('f',str(i+1))))
+          # Check whether column names are given as a list/tuple and check number.
+          elif isinstance(header, list) or isinstance(header, tuple):
+            if len(header) != ncol:
+              raise ValueError(''.join(("Table has %i column(s) but header has %i entrie(s)" % (ncol,len(header)))))
+            column_names = header
+          # Write column names (seperated by delimiter).
+          headerline = ''
+          for colname in column_names:
+              headerline = ''.join((headerline, colname, delimiter))
+          headerline = headerline.rstrip(delimiter)
+          fh.write(asbytes(''.join((headerline,newline))))
+ 
+
         for row in X:
-            t = ()
-            for desc in X.dtype.descr:
-                if len(desc) == 3:
-                    t = t + tuple(row[desc[0]])
-                else:
-                    t = t + (row[desc[0]],)
-            fh.write(asbytes(format % t + newline))
+            fh.write(asbytes(format % tuple(row) + newline))
     finally:
         if own_fh:
             fh.close()

@@ -1,6 +1,6 @@
 #! python
 from numpy import asarray, newaxis
-from numpy import multiply, divide, add
+from numpy import multiply, divide, add, array
 from numpy import max, min, isscalar
 from matplotlib.pyplot import *
 from gaepsi.constant import GADGET
@@ -35,7 +35,7 @@ starmap = Colormap(levels =[0, 1.0],
                       r = [1, 1.0],
                       g = [1, 1.0],
                       b = [1, 1.0],
-                      a = [1, 1.0])
+                      a = [0, 1.0])
 
 pygascmap = pycmap(gasmap)
 pystarcmap = pycmap(starmap)
@@ -180,6 +180,7 @@ class GaplotContext(object):
     from numpy import histogram
     if origin is None: origin = self.cut.center
     d = self.gas.dist(origin=origin)
+    print 'radial_mean', origin
     if min is not None and max is not None: range=(min, max)
     else: range= None 
     if weightcomponent is not None:
@@ -380,12 +381,16 @@ class GaplotContext(object):
 
       return integral, weight_int
 
-  def bhshow(self, ax, component='bhmass', radius=(4, 1), logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
+  def pointshow(self, ax, ftype, component='bhmass', radius=(4, 1), logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
+
+    if 'camera' in kwargs:
+      return self.bhshow_camera(ax=ax, component=component, radius=radius, logscale=logscale, vmin=vmin, vmax=vmax, count=count, *args, **kwargs)
+
     from matplotlib.collections import CircleCollection
-    mask = self.cut.select(self.bh['locations'])
-    X = self.bh['locations'][mask,0]
-    Y = self.bh['locations'][mask,1]
-    bhmass = self.bh[component][mask]
+    mask = self.cut.select(self.F[ftype]['locations'])
+    X = self.F[ftype]['locations'][mask,0]
+    Y = self.F[ftype]['locations'][mask,1]
+    bhmass = self.F[ftype][component][mask]
     if bhmass.size == 0: return
 
     R = bhmass
@@ -441,7 +446,7 @@ class GaplotContext(object):
     if labelfmt: 
       if count > 0:
         ID = ID[ind[0:count]]
-      ID = self.bh['id'][mask]
+      ID = self.F[type]['id'][mask]
       for x,y,id in zip(X,Y,ID):
         rat = random.random() * 360
         if rat > 90 and rat <= 180:
@@ -463,6 +468,9 @@ class GaplotContext(object):
           dashrotation=rat,
           color=labelcolor
           )
+
+  def bhshow(self, ax, component='bhmass', radius=(4, 1), logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
+    return fieldshow(self, ax, 'bh', component, radius, logscale, labelfmt, labelcolor, vmin, vmax, count, *args, **kwargs)
 
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
@@ -527,7 +535,15 @@ class GaplotContext(object):
     marker = ((-1, 0), (-t, t), (0, 1), (t, t), (1, 0), (t, -t), (0, -1), (-t, -t)), 0
     color=(0.8, 1, 1, 0.7)
     ecolor=(1., 1, 0.8, 0.2)
-    c = SpikeCollection(bhx, bhy, radius=mag * radius, color=color)
+
+    if isscalar(radius):
+      mag*=radius
+    else:
+      rmin = min(radius)
+      rmax = max(radius)
+      mag *= (rmax - rmin)
+      mag += rmin
+    c = SpikeCollection(bhx, bhy, radius=mag, color=color)
     ax.add_collection(c)
 #    ax.scatter(x=bhx, y=bhy, s=mag * 10**2, marker=marker, edgecolor=ecolor, color=color)
 
@@ -621,17 +637,17 @@ class GaplotContext(object):
     vmin=None, vmax=None,
     logscale=True, cmap=pygascmap,
     gamma=1.0, mmin=None, mmax=None, over=None,
-    return_raster=False, levels=None, logweight=None, weightcomponent='mass', use_cache=True):
+    return_raster=False, logweight=None, weightcomponent='mass', use_cache=True):
 
     if camera is None:
       if mode is None: # extensive, mass->density, sfr->sf density, 
         todraw, mass = self.projfield(ftype=ftype, component=component, use_cache=use_cache)
-      else : # intensive, decorate the result aftwards, assuming always mass weighted for now
+      else : # intensive, decorate the result aftwards
         todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent=weightcomponent, use_cache=use_cache)
     else:
       if mode is None: # extensive, mass->density, sfr->sf density, 
         todraw, mass = self.camera(ftype=ftype, component=component, camera=camera)
-      else : # intensive, decorate the result aftwards, assuming always mass weighted for now
+      else : # intensive, decorate the result aftwards
         todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent=weightcomponent, camera=camera)
 
     if camera is None:
@@ -639,15 +655,27 @@ class GaplotContext(object):
       image = self.render(todraw=todraw, mass=mass, mode=mode, vmin=vmin, vmax=vmax, logscale=logscale, logweight=logweight, cmap=cmap, gamma=gamma, mmin=mmin, mmax=mmax, over=over)
       ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
          extent=self.extent, vmin=vmin, vmax=vmax, cmap=cmap)
-      if levels is not None:
-        ax.contour(todraw.T, extent=self.extent, colors='k', linewidth=2, levels=levels)
     else:
       if logweight is None: logweight=False
       image = self.render(todraw=todraw, mass=mass, mode=mode, vmin=vmin, vmax=vmax, logscale=logscale, logweight=logweight, cmap=cmap, gamma=gamma, mmin=mmin, mmax=mmax, over=over)
       ret = ax.imshow(image.transpose((1,0,2)), origin='lower',
          extent=(0, self.shape[0], 0, self.shape[1]), vmin=vmin, vmax=vmax, cmap=cmap)
-      if levels is not None:
-        ax.contour(todraw.T, extent=(0, self.shape[0], 0, self.shape[1]), colors='k', linewidth=2, levels=levels)
+    return ret
+
+  def fieldcontour(self, ax, ftype, component, camera=None,
+    levels=None, logweight=None, weightcomponent='mass', use_cache=True, colors='k', linewidth=2, linestyle=['solid']):
+
+    if camera is None:
+      todraw, mass = self.projfield(ftype=ftype, component=component, weightcomponent=weightcomponent, use_cache=use_cache)
+    else:
+      todraw, mass = self.camera(ftype=ftype, component=component, weightcomponent=weightcomponent, camera=camera)
+
+    if camera is None:
+      if logweight is None: logweight=True
+      ret = ax.contourf((todraw/mass).T, extent=self.extent, colors=colors, linewidth=linewidth, levels=levels, linestyle=linestyle)
+    else:
+      if logweight is None: logweight=False
+      ret = ax.contourf((todraw/mass).T, extent=(0, self.shape[0], 0, self.shape[1]), colors=colors, linewidth=linewidth, levels=levels, linestyle=linestyle)
   
     return ret
      
@@ -710,9 +738,10 @@ class GaplotContext(object):
       weight -= mmin
       weight /= (mmax - mmin)
       weight.clip(0, 1, weight)
-      weight **= gamma
     else:
       weight = image[:, :, 3] / 255.0
+
+    weight **= gamma
 
     if composite is not None:
       alpha = composite[:, :, 3] / 255.0
@@ -722,15 +751,14 @@ class GaplotContext(object):
       add(image[:, :, 0:3], composite[:, :, 0:3], image[:, :, 0:3])
       image[:, :, 3] = (alpha[:, :] + weight[:, :]) * 255
     else:
-      multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
-      image[:, :, 3] = 255
-       
-#      weight **= 0.33333333333
-#      multiply(255.9999, weight[:, :], image[:,:,3])
+      #multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
+      #image[:, :, 3] = 255
+      #weight **= 0.33333333333
+      multiply(255.9999, weight[:, :], image[:,:,3])
 #      print 'alpha', image[:, :, 3].ravel().min(), image[:,:,3].ravel().max()
     return image
 
-  def decorate(self, ax, frameon=True, titletext=None, bgcolor='k'):
+  def decorate(self, ax, frameon=True, title=None, bgcolor='k', color='w', fontsize='small'):
     cut = self.cut
     ax.set_axis_bgcolor(bgcolor)
     if frameon :
@@ -738,14 +766,16 @@ class GaplotContext(object):
       ax.ticklabel_format(axis='y', useOffset=cut.center[1])
       ax.set_xticks(linspace(cut['x'][0], cut['x'][1], 5))
       ax.set_yticks(linspace(cut['y'][0], cut['y'][1], 5))
-      ax.set_title(titletext)
+      #ax.set_title(title)
+      if(title is not None):
+        ax.set_title(title, position=(0.1, 0.9), fontsize=fontsize, color=color, transform=ax.transAxes)
     else :
       ax.axison = False
-      if(titletext !=None):
-        ax.text(0.1, 0.9, titletext, fontsize='small', color='white', transform=ax.transAxes)
+      if(title is not None):
+        ax.set_title(title, position=(0.1, 0.9), fontsize=fontsize, color=color, transform=ax.transAxes)
       ax.figure.set_facecolor(bgcolor)
 
-  def drawscale(self, ax, color='white'):
+  def drawscale(self, ax, color='white', fontsize=None):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     l = (self.cut.size[0]) * 0.2
     l = l // 10 ** int(log10(l)) * 10 ** int(log10(l))
@@ -757,12 +787,16 @@ class GaplotContext(object):
     else:
       text = r"%g Kpc/h" %l
    
+    print text
     b = AnchoredSizeBar(ax.transData, l, text, loc = 8, 
         pad=0.1, borderpad=0.5, sep=5, frameon=False)
     for r in b.size_bar.findobj(Rectangle):
       r.set_edgecolor(color)
     for t in b.txt_label.findobj(Text):
       t.set_color(color)
+      if fontsize is not None:
+        t.set_fontsize(fontsize)
+
     ax.add_artist(b)
 
   def circle(self, ax, *args, **kwargs):
@@ -820,30 +854,28 @@ def drawscale(ax=None, *args, **kwargs):
   context.drawscale(ax, *args, **kwargs)
   draw()
 
-def gasshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
+def gasshow(component='mass', ax=None, *args, **kwargs):
   "see fieldshow for docs"
   kwargs['component'] = component
-  if use_figimage:
-    if ax is None: ax = gcf()
-    ret = context.fieldshow(ax, 'gas', *args, **kwargs)
-    ax.gca()._sci(ret)
-  else:
-    if ax is None: ax = gca()
-    ret = context.fieldshow(ax, 'gas', *args, **kwargs)
-    ax._sci(ret)
+  if ax is None: ax = gca()
+  ret = context.fieldshow(ax, 'gas', *args, **kwargs)
+  ax._sci(ret)
   draw()
 
-def starshow(component='mass', use_figimage=False, ax=None, *args, **kwargs):
+def fieldcontour(ftype='gas', component='mass', use_figimage=False, ax=None, *args, **kwargs):
   "see fieldshow for docs"
   kwargs['component'] = component
-  if use_figimage:
-    if ax is None: ax = gcf()
-    ret = context.fieldshow(ax.gca(), 'star', *args, **kwargs)
-    ax.gca()._sci(ret)
-  else:
-    if ax is None: ax = gca()
-    ret = context.fieldshow(ax, 'star', *args, **kwargs)
-    ax._sci(ret)
+  if ax is None: ax = gca()
+  ret = context.fieldcontour(ax, ftype, *args, **kwargs)
+  ax._sci(ret)
+  draw()
+
+def starshow(component='mass', ax=None, *args, **kwargs):
+  "see fieldshow for docs"
+  kwargs['component'] = component
+  if ax is None: ax = gca()
+  ret = context.fieldshow(ax, 'star', *args, **kwargs)
+  ax._sci(ret)
   draw()
 
 def starshow_poor(ax=None, *args, **kwargs):

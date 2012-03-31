@@ -279,7 +279,11 @@ class Field(object):
   def __str__(self) :
     return str(self.dict)
   def __getitem__(self, index):
-    return self.dict[index]
+    if type(index) is str:
+      return self.dict[index]
+    else:
+      from numpy import repeat, array
+      return repeat(array([index]), self.numpoints)
 
   def __setitem__(self, index, value):
     if isscalar(value):
