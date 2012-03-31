@@ -1,6 +1,7 @@
 #include <Python.h>
 #include <numpy/arrayobject.h>
 #include <numpy/ufuncobject.h>
+#define intp npy_intp
 #include "defines.h"
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))  
