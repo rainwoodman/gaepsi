@@ -17,7 +17,13 @@ class Session:
     self.descr = descr
     self.start_time = 0
     self.checkpoint_time = 0
+  def __enter__(self):
+    self.start()
+  def __exit__(self):
+    self.end()
+
   def start(self):
+    if self.start_time != 0: return # already started.
     if mpicomm!=None:
       mpicomm.Barrier()
     self.start_time = default_timer()
@@ -39,6 +45,7 @@ class Session:
     newtimer = default_timer()
     if mpicomm == None or mpicomm.rank == 0:
       print self.descr, 'ended at', newtimer - programstart, 'time used', newtimer - self.start_time
+    self.start_time = 0
 
 def session(descr):
   s = Session(descr)
