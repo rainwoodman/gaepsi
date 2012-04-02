@@ -1,14 +1,14 @@
 mpicomm = None
-try:
-  import _MPI as MPI
+#try:
+#  import _MPI as MPI
 
-  def mpi_timer():
-    return MPI.Wtime()
-  default_timer = mpi_timer
-  mpicomm = MPI.COMM_WORLD
-  if mpicomm.rank == 0: print 'using MPI timer', 'precision',  MPI.Wtick()
-except ImportError:
-  from time import time as default_timer
+#  def mpi_timer():
+#    return MPI.Wtime()
+#  default_timer = mpi_timer
+#  mpicomm = MPI.COMM_WORLD
+#  if mpicomm.rank == 0: print 'using MPI timer', 'precision',  MPI.Wtick()
+#except ImportError:
+from time import time as default_timer
 
 programstart = default_timer()
 
