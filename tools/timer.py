@@ -19,7 +19,7 @@ class Session:
     self.checkpoint_time = 0
   def __enter__(self):
     self.start()
-  def __exit__(self):
+  def __exit__(self, type, value, traceback):
     self.end()
 
   def start(self):
