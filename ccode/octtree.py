@@ -1,10 +1,10 @@
-from ccode import OctTree as _OctTree
+import gaepsi._gaepsiccode as _ccode
 from numpy import asarray, arange
 import weakref
 class OctTree:
   def __init__(self, field):
     self.field = weakref.proxy(field)
-    self._tree = _OctTree(locations = field['locations'], sml=field['sml'], boxsize=field.cut.size, origin=field.cut.origin)
+    self._tree = _ccode.OctTree(locations = field['locations'], sml=field['sml'], boxsize=field.cut.size, origin=field.cut.origin)
   def __repr__(self):
     return "OctTree: occupied %d/%d" %(self._tree.pool_length, self._tree.pool_size)
 

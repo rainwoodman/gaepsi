@@ -4,12 +4,12 @@ from numpy import max
 from numpy import array
 from numpy import sqrt
 
-import ccode
-k0 = ccode.k0
-kline = ccode.kline
-koverlap = ccode.koverlap
-akline = ccode.akline
-akoverlap = ccode.akoverlap
+import gaepsi._gaepsiccode as _ccode
+k0 = _ccode.k0
+kline = _ccode.kline
+koverlap = _ccode.koverlap
+akline = _ccode.akline
+akoverlap = _ccode.akoverlap
 def kernel(eta) :
   """ dimensionless sph kernel
       eta = r / smoothinglength

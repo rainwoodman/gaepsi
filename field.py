@@ -2,7 +2,6 @@ from numpy import isscalar
 from numpy import ones,zeros
 from numpy import append
 from numpy import asarray
-from remap import remap
 from ccode import sml
 from ccode import peanohilbert
 from numpy import sin,cos, matrix
@@ -10,10 +9,6 @@ from numpy import inner
 from numpy import newaxis
 
 from cosmology import Cosmology
-
-from tools import threads
-from Queue import Queue
-from octtree import OctTree
 
 def is_string_like(v):
   try: v + ''
@@ -111,6 +106,7 @@ class Field(object):
   @property
   def tree(self):
     if self.__tree__ is None:
+      from tools.octtree import OctTree
       self.__tree__ = OctTree(self)
     return self.__tree__
 
@@ -176,6 +172,9 @@ class Field(object):
       print 'warning: blocks not supported in snapshot', skipped_comps
 
   def take_snapshots(self, snapshots, ptype, Nthreads=8):
+    from tools import threads
+    from Queue import Queue
+
     job1_q = Queue()
     job2_q = Queue()
 
@@ -361,6 +360,7 @@ class Field(object):
         vectors. abs(det(M)) = 1
         the field has to be in a cubic box located from (0,0,0)
     """
+    from tools.remap import remap
     boxsize = self.boxsize[0]
     for b in self.boxsize:
       if b != boxsize:

@@ -90,7 +90,7 @@ class Cosmology:
     dd = diff(distance)
     z[0] = z0
     for i in range(z.size - 1):
-      z[i+1] = z[i] - self.H(1.0 / (z[i] + 1)) / C * dd[i]
+      z[i+1] = z[i] - self.H(1.0 / (z[i] + 1)) / self.units.C * dd[i]
     return z
 
   def Rvir(self, M, z, Deltac=200):

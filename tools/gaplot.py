@@ -10,11 +10,11 @@ from gaepsi.tools.keyframes import KeyFrames
 
 from meshmap import Meshmap
 
-from gaepsi.plot.image import rasterize
-from gaepsi.plot.render import Colormap, color as gacolor, gacmap, pycmap
 from gaepsi.tools.streamplot import streamplot
 from gaepsi.tools.spikes import SpikeCollection
+
 from gaepsi import ccode
+
 from numpy import zeros, linspace, meshgrid, log10, average, vstack,absolute,fmin,fmax, ones
 from numpy import isinf, nan, argsort, isnan, inf
 from numpy import float32
@@ -26,6 +26,76 @@ import threads
 from Queue import Queue
 from gaepsi.tools.simplegl import Camera
 
+def icmap(levels, cmap, bins):
+  cmap = array(cmap)
+  detail = zeros(bins)
+  for i in range(len(cmap) -1):
+    start = int(levels[i] * (bins - 1))
+    end = int(levels[i + 1] * (bins -1))
+    detail[start:end] = linspace(cmap[i], cmap[i+1], end - start, endpoint=False)
+  detail[-1] = cmap[-1]
+  return detail
+
+class Valuemap:
+  def __init__(self, levels, bins = 1024 * 16, **kwargs):
+    self.levels = levels
+    self.bins = bins
+    self.values = {}
+    self.table = {}
+    for key in kwargs:
+      if not len(kwargs[key]) == len(levels): raise ValueError("length of a component %s differ from levels %d" % (key, len(levels)))
+      self.add(key, kwargs[key])
+  def add(self, component, values):
+    self.values[component] = values
+    self.table[component] = icmap(self.levels, values, self.bins)
+class Colormap(Valuemap):
+  def __init__(self, levels, bins=1024*16, **kwargs):
+    Valuemap.__init__(self, levels, bins, **kwargs)
+    if 'h' in kwargs:
+      self.hsv2rgb()
+    if not 'a' in kwargs:
+      self.add('a', ones(len(self.levels), dtype='f4'))
+
+  def hsv2rgb(self):
+    hi = self.table['h']
+    si = self.table['s']
+    vi = self.table['v']
+    f = hi % 60
+    l = uint8(hi / 60)
+    l = l % 6
+    p = vi * (1 - si)
+    q = vi * (1 - si * f / 60)
+    t = vi * (1 - si * (60 - f) / 60)
+    ri = zeros(len(vi))
+    gi = zeros(len(vi))
+    bi = zeros(len(vi))
+
+    ri[l==0] = vi[l==0]
+    gi[l==0] = t[l==0]
+    bi[l==0] = p[l==0]
+
+    ri[l==1] = q[l==1]
+    gi[l==1] = vi[l==1]
+    bi[l==1] = p[l==1]
+
+    ri[l==2] = p[l==2]
+    gi[l==2] = vi[l==2]
+    bi[l==2] = t[l==2]
+  
+    ri[l==3] = p[l==3]
+    gi[l==3] = q[l==3]
+    bi[l==3] = vi[l==3]
+
+    ri[l==4] = t[l==4]
+    gi[l==4] = p[l==4]
+    bi[l==4] = vi[l==4]
+
+    ri[l==5] = vi[l==5]
+    gi[l==5] = p[l==5]
+    bi[l==5] = q[l==5]
+    self.table['r'] = ri
+    self.table['g'] = gi
+    self.table['b'] = bi
 gasmap = Colormap(levels =[0, 0.05, 0.2, 0.5, 0.6, 0.9, 1.0],
                       r = [0, 0.1 ,0.5, 1.0, 0.2, 0.0, 0.0],
                       g = [0, 0  , 0.2, 1.0, 0.2, 0.0, 0.0],
@@ -36,6 +106,24 @@ starmap = Colormap(levels =[0, 1.0],
                       g = [1, 1.0],
                       b = [1, 1.0],
                       a = [0, 1.0])
+
+def gacmap(pycmap):
+  values = linspace(0, 1, 1024)
+  colors = pycmap(values)
+  return Colormap(levels = values, r = colors[:,0], g = colors[:, 1], b = colors[:,2], a = colors[:,3])
+
+def pycmap(gacmap):
+  from matplotlib.colors import ListedColormap
+  from numpy import vstack
+  r = gacmap.table['r']
+  g = gacmap.table['g']
+  b = gacmap.table['b']
+  rt = ListedColormap(vstack((r, g, b)).T)
+  rt.set_over((r[-1], g[-1], b[-1]))
+  rt.set_under((r[0], g[0], b[0]))
+  rt.set_bad(color='k', alpha=0)
+  return rt
+
 
 pygascmap = pycmap(gasmap)
 pystarcmap = pycmap(starmap)
@@ -234,7 +322,7 @@ class GaplotContext(object):
     """ ftype is amongst 'gas', 'star', those with has an sml  """
     field = self.F[ftype]
     result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-    rasterize(field, result, component, xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
+    ccode.rasterize(field, result, component, xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
     return result
 
   def wraster(self, ftype, component, weightcomponent, quick=True):
@@ -250,7 +338,7 @@ class GaplotContext(object):
     
       result = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
       mass = zeros(dtype='f4', shape = (self.shape[0], self.shape[1]))
-      rasterize(field, [mass, result], [weightcomponent, component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
+      ccode.rasterize(field, [mass, result], [weightcomponent, component], xrange=self.cut[0], yrange=self.cut[1], zrange=self.cut[2], quick=quick)
       return result, mass
     except Exception as e:
       raise e
@@ -716,7 +804,7 @@ class GaplotContext(object):
     if not hasattr(cmap, 'table'):
       cmap = gacmap(cmap)
 
-    gacolor(image, todraw, max = vmax, min = vmin, logscale=False, colormap = cmap)
+    ccode.color(image, todraw, max = vmax, min = vmin, logscale=False, colormap = cmap)
     del todraw
     if mode == 'intensity':
       weight = mass

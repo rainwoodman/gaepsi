@@ -1,5 +1,4 @@
-from gaepsi import ccode
-
+import gaepsi._gaepsiccode as _ccode
 from numpy import zeros
 def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
   """rasterize the field listed in field to raster pixel arrays listed in targets. 
@@ -30,26 +29,8 @@ def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
     else:
       expandedV += [V]
       expandedT += [T]
-  return ccode.image(targets = expandedT, locations = field['locations'],
+  return _ccode.image(targets = expandedT, locations = field['locations'],
           sml = field['sml'], values = expandedV,
           xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
           zmin = zrange[0], zmax = zrange[1], mask = field.mask, quick = quick, boxsize=field.boxsize)
 
-unusedcode= """
-def sparse(field, xrange, yrange, zrange, scale):
-  pos = field['locations'].copy()
-  pos[:, 0] -= xrange[0]
-  pos[:, 1] -= yrange[0]
-  pos[:, 0] *= float(npixels[0]) / field.boxsize[0]
-  pos[:, 1] *= float(npixels[1]) / field.boxsize[1]
-  mask = (pos[:, 0] >= - scale)
-  mask &= (pos[:, 0] <= (npixels[0]+scale))
-  mask &= (pos[:, 1] >= (-scale))
-  mask &= (pos[:, 1] <= (npixels[1]+scale))
-
-  target = zeros(dtype = [('X', 'f4'), ('Y', 'f4'), ('V', 'f4')], shape = sum(mask))
-  target['X'] = pos[mask, 0]
-  target['Y'] = pos[mask, 1]
-  target['V'] = field['default'][mask]
-  return target
-""" 

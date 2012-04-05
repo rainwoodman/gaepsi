@@ -4,7 +4,7 @@
 extern HIDDEN void gadget_initOctTree(PyObject * m);
 extern HIDDEN void gadget_initimage(PyObject * m);
 extern HIDDEN void gadget_initscanline(PyObject * m);
-extern HIDDEN void gadget_initremap(PyObject * m);
+extern HIDDEN void gadget_initwarp(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
 extern HIDDEN void gadget_initrender(PyObject * m);
 extern HIDDEN void gadget_initpmin(PyObject * m);
@@ -25,7 +25,7 @@ void init_gaepsiccode (void) {
 	gadget_initimage(m);
 	gadget_initcamera(m);
 	gadget_initscanline(m);
-	gadget_initremap(m);
+	gadget_initwarp(m);
 	gadget_initkernel(m);
 	gadget_initrender(m);
 	gadget_initpmin(m);

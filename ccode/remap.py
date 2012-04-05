@@ -1,6 +1,6 @@
+import gaepsi._gaepsiccode as _ccode
 from numpy.linalg import qr
 from numpy import matrix, array, ones_like
-from numpy import mgrid
 from numpy import diag
 from numpy import sign
 from numpy import dot,inner
@@ -32,19 +32,6 @@ def AABB(E, O = None):
     min += O
     max += O
   return min,max
-
-def cutmask(TXY, BOX): 
-  "returns a mask of points that is not in the bounding BOX"
-  D = TXY.shape[1]
-  # Be tolerent of numerical errors
-  # enlarge the target bounding box by e
-  e = ones(D) * 1e-6
-  LMASK = TXY < -e
-  RMASK = TXY > (BOX + e)
-  LMASK = bitwise_or.reduce(LMASK, 1)
-  RMASK = bitwise_or.reduce(RMASK, 1)
-  MASK = LMASK | RMASK
-  return MASK
 
 def remap(M, XY=None) :
   """ cubic remapping: (ref to arxiv1003.3178v1),
@@ -97,10 +84,11 @@ def remap(M, XY=None) :
   IMAX = int32(ceil(max))
   IMIN = int32(floor(min))
 
-  ccode.remap_shift(POS=TXY, ROWVECTORS = float32(QT.T), BOX=float32(BOX), MIN=int32(IMIN), MAX=int32(IMAX));
+  _ccode.warp(POS=TXY, ROWVECTORS = float32(QT.T), BOX=float32(BOX), MIN=int32(IMIN), MAX=int32(IMAX));
   return TXY,BOX
 
 """
+from numpy import mgrid
 N = 100
 XY = float64(mgrid[0:N,0:N,0:N])/N
 XY.shape=(3, -1)

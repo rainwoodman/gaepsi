@@ -3,7 +3,7 @@ from numpy import get_include
 setup(name="gaepsi", version="1.0",
       package_dir = {'gaepsi': '.'},
       packages = [
-        'gaepsi', 'gaepsi.constant', 'gaepsi.plot', 'gaepsi.readers', 'gaepsi.tools'
+        'gaepsi', 'gaepsi.constant', 'gaepsi.ccode', 'gaepsi.readers', 'gaepsi.tools'
       ],
       scripts = [ 'scripts/gadget-render.py', 
                   'scripts/gadget-mklayers.py', 
@@ -21,7 +21,7 @@ setup(name="gaepsi", version="1.0",
               "ccode/image.c", 
               "ccode/scanline.c", 
               "ccode/octtree.c",
-              "ccode/remap.c",
+              "ccode/warp.c",
               "ccode/kernel.c",
               "ccode/peano.c",
               "ccode/render.c",

@@ -114,13 +114,10 @@ static PyObject * shift(PyObject * self,
 }
 
 static PyMethodDef module_methods[] = {
-	{"remap_shift", (PyCFunction)shift, METH_KEYWORDS, doc_string },
+	{"warp", (PyCFunction)shift, METH_KEYWORDS, doc_string },
 	{NULL}
 };
-void HIDDEN gadget_initremap(PyObject * m) {
-//	PyObject * thism = Py_InitModule3("remap", module_methods, "remap module");
-//	Py_INCREF(thism);
-//	PyModule_AddObject(m, "remap", thism);
-	PyObject * remap_f = PyCFunction_New(module_methods, NULL);
-	PyModule_AddObject(m, "remap_shift", remap_f);
+void HIDDEN gadget_initwarp(PyObject * m) {
+	PyObject * warp_f = PyCFunction_New(module_methods, NULL);
+	PyModule_AddObject(m, "warp", warp_f);
 }
