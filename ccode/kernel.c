@@ -1,10 +1,5 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <numpy/ufuncobject.h>
-#define intp npy_intp
 #include "defines.h"
 
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
 #define k0_doc_string \
 "return the spline kernel given the input between 0-1.0"
 #define kline_doc_string \
@@ -179,8 +174,6 @@ static void PyUFunc_dddd_d(char **args, npy_intp *dimensions, npy_intp *steps, v
 	}
 }
 void HIDDEN gadget_initkernel(PyObject * m) {
-	import_array();
-	import_ufunc();
 	fill_koverlap();
 	npy_intp kline_dims[] = {KLINE_BINS};
 	PyArrayObject * kline_a = (PyArrayObject *)PyArray_SimpleNewFromData(1, kline_dims, NPY_FLOAT, kline);

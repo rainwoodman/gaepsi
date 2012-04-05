@@ -1,8 +1,4 @@
-#include <Python.h>
-#include <structmember.h>
-#include <numpy/arrayobject.h>
-
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
+#define "defines.h"
 
 #define INDEX_T int
 #define DEFAULT_THRESHOLD 32
@@ -440,7 +436,6 @@ static PyMethodDef NDTree_methods[] = {
 
 void HIDDEN gadget_initNDTree (PyObject * m) {
 
-	import_array();
 	NDTreeType.tp_dealloc = (destructor) NDTree_dealloc;
 	NDTreeType.tp_new = NDTree_new;
 	NDTreeType.tp_init = (initproc) NDTree_init;

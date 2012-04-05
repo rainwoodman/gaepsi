@@ -1,9 +1,6 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <time.h>
+#define NO_IMPORT_ARRAY
 #include "defines.h"
-
-#define HIDDEN __attribute__ ((visibility ("hidden")))
+#include <time.h>
 
 typedef struct _Camera {
 	npy_intp displaydim[2];  /* pixels*/
@@ -449,7 +446,6 @@ static PyMethodDef module_methods[] = {
 	{NULL}
 };
 void HIDDEN gadget_initcamera(PyObject * m) {
-	import_array();
 	PyObject * camera_func= PyCFunction_New(module_methods, NULL);
 	PyModule_AddObject(m, "camera", camera_func);
 }

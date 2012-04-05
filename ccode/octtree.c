@@ -1,8 +1,4 @@
-#include <Python.h>
-#include <structmember.h>
-#include <numpy/arrayobject.h>
-
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
+#include "defines.h"
 
 typedef struct _Cell {
 	intptr_t head_par;
@@ -238,7 +234,6 @@ static PyMethodDef OctTree_methods[] = {
 
 void HIDDEN gadget_initOctTree (PyObject * m) {
 
-	import_array();
 	OctTreeType.tp_dealloc = (destructor) OctTree_dealloc;
 	OctTreeType.tp_new = OctTree_new;
 	OctTreeType.tp_init = (initproc) OctTree_init;

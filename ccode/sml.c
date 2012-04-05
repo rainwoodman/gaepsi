@@ -1,9 +1,4 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <time.h>
-#include <math.h>
 #include "defines.h"
-#define HIDDEN __attribute__ ((visibility ("hidden")))
 
 #define sml_doc_string \
 "keywords: locations, N=32, returns the smls"
@@ -337,7 +332,6 @@ static PyMethodDef module_methods[] = {
 	{NULL}
 };
 void HIDDEN gadget_initsml(PyObject * m) {
-	import_array();
 	PyObject * sml_f = PyCFunction_New(module_methods, NULL);
 	PyModule_AddObject(m, "sml", sml_f);
 }

@@ -1,7 +1,6 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
+#define GAEPSI_MODULE_MAIN
 
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
+#include "defines.h"
 extern HIDDEN void gadget_initOctTree(PyObject * m);
 extern HIDDEN void gadget_initimage(PyObject * m);
 extern HIDDEN void gadget_initscanline(PyObject * m);
@@ -20,6 +19,7 @@ static PyMethodDef module_methods[] = {
 static PyObject * m = NULL;
 void init_gaepsiccode (void) {
 	import_array();
+	import_ufunc();
 	m = Py_InitModule3("_gaepsiccode", module_methods, "gaepsi internal ccode module");
 	gadget_initOctTree(m);
 	gadget_initimage(m);

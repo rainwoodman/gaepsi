@@ -1,7 +1,4 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
-
+#include "defines.h"
 #define doc_string \
 "keywords: POS, ROWVECTORS, BOX, MIN, MAX"\
 "modifies the POS in place such that each point is shifted into the BOX by integer times of ROWVECTORS."
@@ -121,7 +118,6 @@ static PyMethodDef module_methods[] = {
 	{NULL}
 };
 void HIDDEN gadget_initremap(PyObject * m) {
-	import_array();
 //	PyObject * thism = Py_InitModule3("remap", module_methods, "remap module");
 //	Py_INCREF(thism);
 //	PyModule_AddObject(m, "remap", thism);

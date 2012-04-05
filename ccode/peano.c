@@ -1,10 +1,4 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <numpy/ufuncobject.h>
-#include <time.h>
 #include "defines.h"
-
-#define HIDDEN __attribute__ ((visibility ("hidden")))
 
 static npy_int64 peano_hilbert_key(npy_int x, npy_int y, npy_int z);
 
@@ -102,9 +96,6 @@ static void* generic_data[] = {
 };
 
 void HIDDEN gadget_initpeano(PyObject * m) {
-	import_array();
-	import_ufunc();
-
 	PyObject * peanokey_ufunc = PyUFunc_FromFuncAndData(generic_functions, 
 					generic_data, generic_signatures, 
 					4, 3, 1, 

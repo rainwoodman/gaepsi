@@ -1,9 +1,5 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <time.h>
 #include "defines.h"
 
-#define HIDDEN __attribute__ ((visibility ("hidden")))
 #define scanline_doc_string \
 "keywords: targets, locations, sml, values, src, dir, L"\
 " rasterizes into an raster image the sums are calculated but no averaging is done." \
@@ -134,7 +130,6 @@ static PyMethodDef module_methods[] = {
 	{NULL}
 };
 void HIDDEN gadget_initscanline(PyObject * m) {
-	import_array();
 //	PyObject * thism = Py_InitModule3("image", module_methods, "image module");
 //	Py_INCREF(thism);
 	PyObject * scanline_f = PyCFunction_New(module_methods, NULL);

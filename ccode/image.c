@@ -1,7 +1,5 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#include <time.h>
 #include "defines.h"
+#include <time.h>
 
 #define HIDDEN __attribute__ ((visibility ("hidden")))
 
@@ -382,10 +380,6 @@ static PyMethodDef module_methods[] = {
 	{NULL}
 };
 void HIDDEN gadget_initimage(PyObject * m) {
-	import_array();
-//	PyObject * thism = Py_InitModule3("image", module_methods, "image module");
-//	Py_INCREF(thism);
 	PyObject * image_f = PyCFunction_New(module_methods, NULL);
-//	PyModule_AddObject(m, "image", thism);
 	PyModule_AddObject(m, "image", image_f);
 }

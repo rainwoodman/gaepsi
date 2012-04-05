@@ -1,6 +1,4 @@
-#include <Python.h>
-#include <numpy/arrayobject.h>
-#define HIDDEN __attribute__ ((visibility ("hidden")))  
+#include "defines.h"
 
 #define color_doc_string \
 "color(target, raster, min, max, logscale, cmapr,cmapg, cmapb)\n" \
@@ -326,7 +324,6 @@ static PyMethodDef circle_method =
 static PyMethodDef color_method = 
 	{"color", (PyCFunction) color, METH_KEYWORDS, color_doc_string };
 void HIDDEN gadget_initrender(PyObject * m) {
-	import_array();
 	PyObject * circle_f = PyCFunction_New(&circle_method, NULL);
 	PyObject * color_f = PyCFunction_New(&color_method, NULL);
 	PyObject * line_f = PyCFunction_New(&line_method, NULL);
