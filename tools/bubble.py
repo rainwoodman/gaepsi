@@ -1,3 +1,7 @@
+"""
+Detecting bubble edge(Rs) mostly for stromgren sphere growth
+"""
+
 import healpy as hy
 from numpy import zeros, zeros_like, arange, linspace, digitize, newaxis, bincount
 from numpy import arange, argmax, argmin, where
