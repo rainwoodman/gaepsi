@@ -98,6 +98,7 @@ class Field(object):
     self.__tree__ = None
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
+    self.redshift = 0
     if components is not None:
       for comp in components:
         self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
@@ -111,6 +112,13 @@ class Field(object):
     return self.__tree__
 
   @property
+  def a(self):
+    return 1. / (1. + self.redshift)
+  @a.setter
+  def a(self, value):
+    self.redshift = 1. / a - 1.
+
+  @property
   def boxsize(self):
     return self.cut.size
   @boxsize.setter
@@ -120,7 +128,7 @@ class Field(object):
     self.cut.size = zeros(3)
     for axis in range(3):
       self.cut[axis] = (0, value[axis])
-  
+
   def set_mask(self, mask):
     if mask != None:
       assert(self.numpoints == mask.size)
@@ -131,7 +139,8 @@ class Field(object):
       self.boxsize = snapshot.C['boxsize']
     else: self.cut.take(cut)
 
-    self.cosmology = Cosmology(0, snapshot.C['OmegaM'], snapshot.C['OmegaL'], snapshot.C['h'])
+    self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
+    self.redshift = snapshot.C['redshift']
 
   def comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
@@ -152,6 +161,7 @@ class Field(object):
       snapshot.C['OmegaL'] = self.cosmology.Omega['L']
       snapshot.C['h'] = self.cosmology.h
       snapshot.C['boxsize'] = self.boxsize[0]
+      snapshot.C['redshift'] = self.redshift
     skipped_comps = set([])
 
     for i in range(Nfile):
@@ -343,11 +353,11 @@ class Field(object):
         if len(self[comp].shape) > 1:
           self[comp] = inner(self[comp], M)
 
-  def redshift_distort(self, dir, redshift, vel=None):
+  def redshift_distort(self, dir, vel=None):
     """ perform redshift distortion along direction dir, needs 'vel' and 'pos'
         if vel is None, field['vel'] is converted to peculiar velocity via multiplying by sqrt(1 / ( 1 + redshift)). A constant H calculated from redshift is used. The position are still given in comoving distance units, NOT the velocity unit. 
     """
-    a = 1 / (1. + redshift)
+    a = self.a
     if vel is None: vel = sqrt(a) * self['vel']
     H = self.cosmology.H(a = a)
     v = inner(vel, dir) / H
