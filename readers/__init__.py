@@ -1,6 +1,19 @@
 from numpy import dtype
 from numpy import zeros
 from numpy import uint64
+
+def is_string_like(v):
+  try: v + ''
+  except: return False
+  return True
+
+def get_reader(reader):
+  if is_string_like(reader) :
+    _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
+            ['Reader'],  -1)
+    reader = _temp.Reader()
+  return reader
+
 class Constants:
   def __init__(self, reader, header):
     self.header = header
@@ -59,8 +72,10 @@ class ReaderBase:
     if index == 'Ntot':
       return header['Nparticle_total_low'][:] +(uint64(header['Nparticle_total_high']) << 32)
     entry = self.constants[index]
-    if hasattr(entry, 'isalnum'):
+    if isinstance(entry, basestring):
       return header[entry]
+    if isinstance(entry, (list, tuple)):
+      return array([header[item] for item in entry])
     return entry
 
   def set_constant(self, header, index, value):
@@ -188,6 +203,10 @@ class CFile(file):
     return size
   get_size = staticmethod(get_size)
   def __init__(self, *args, **kwargs) :
+    self.endian = kwargs.pop('endian', 'N')
+    self.bsdtype = dtype('i4').newbyteorder(self.endian)
+    self.little_endian = ( self.bsdtype.byteorder == '<' or (
+                     self.bsdtype.byteorder == '=' and little_endian))
     file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=0, nread=None) :
@@ -217,11 +236,7 @@ class F77File(file):
   get_size = staticmethod(get_size)
 
   def __init__(self, *args, **kwargs) :
-    try:
-      self.endian = kwargs['endian']
-      del kwargs['endian']
-    except KeyError:
-      self.endian = 'N'
+    self.endian = kwargs.pop('endian', 'N')
     
     self.bsdtype = dtype('i4').newbyteorder(self.endian)
     self.little_endian = ( self.bsdtype.byteorder == '<' or (

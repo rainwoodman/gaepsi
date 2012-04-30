@@ -1,8 +1,5 @@
+from gaepsi.readers import get_reader
 
-def is_string_like(v):
-  try: v + ''
-  except: return False
-  return True
 class Snapshot:
   def __init__(self, file=None, reader=None, create=False, **kwargs):
     """ creats a snapshot
@@ -23,10 +20,7 @@ class Snapshot:
 
     if reader == None: return
 
-    if is_string_like(reader) :
-      _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
-              ['Reader'],  -1)
-      reader = _temp.Reader()
+    reader = get_reader(reader)
 
     self.file = file
     if create:
