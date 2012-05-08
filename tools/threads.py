@@ -1,10 +1,11 @@
+raise Exception("The module threads is deprecated")
 import threading
 from Queue import Queue, Empty
 import sys
 
 def work(jobfunc, jobs, num_workers=8):
   err_q = Queue()
-  if type(jobs) is not Queue:
+  if not isinstance(jobs, Queue):
     job_q = Queue()
     for job in jobs:
       job_q.put(job)

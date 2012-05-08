@@ -1,6 +1,9 @@
+from numpy import ndarray
 from numpy import trapz
 from numpy import sqrt
 from numpy import zeros_like
+from numpy import empty_like
+from numpy import empty
 from numpy import diff
 from numpy import pi
 from numpy import log10
@@ -13,6 +16,10 @@ from numpy import interp
 from numpy import cumsum, zeros
 from numpy import arccos
 from numpy import clip
+from numpy import subtract
+from numpy import multiply
+from numpy import add
+from numpy import broadcast
 
 from constant import SI
 
@@ -127,9 +134,51 @@ class Cosmology:
   def t2z(self, t):
     return 1 / self.t2a(t) - 1
 
-  def Dc(self, z1, z2=None, t=None):
+  def fomega(self, a=None, z=None):
+    """!===============================================================================
+       !  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for
+       !  lambda+matter-dominated cosmology.
+       !  Omega0 := Omega today (a=1) in matter only.  Omega_lambda = 1 - Omega0.
+       !===============================================================================
+    """
+    if a is None: a = 1 / (1.+z)
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    return (2.5 / self.dplus(a) - 1.5 * self.M / a + 1 - self.M - self.L) * eta **-2
+
+  def dplus(self, a=None, z=None):
+    """!===============================================================================
+    !  Evaluate D+(a) (linear growth factor) for FLRW cosmology.
+    !  Omegam := Omega today (a=1) in matter.
+    !  Omegav := Omega today (a=1) in vacuum energy.
+    !===============================================================================
+    """
+    if a is None: a = 1 / (1.+z)
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    agrid = linspace(1e-8, a, 100000)
+    data = self.ddplus(agrid)
+    return eta / a * trapz(y=data, x=agrid)
+
+  def ddplus(self, a):
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    return 2.5 / eta ** 3
+
+  def dladt(self, a):
+    """===============================================================================
+    !  Evaluate dln(a)/dtau for FLRW cosmology.
+    !===============================================================================
+    """
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    return a * eta
+
+  def Dc(self, z1, z2=None, t=None, out=None):
     """ returns the comoing distance between z1 and z2 
-        along two light of sights of angle t"""
+        along two light of sights of angle t. 
+        out cannot be an alias of t. """
+
+    shape = broadcast(z1, z2, t).shape
+    if out is None:
+      out = empty(shape=shape, dtype='f4')
+
     DH = self.DH
     if z2 is None: 
       z2 = z1
@@ -137,7 +186,9 @@ class Cosmology:
     D1 = interp(z1, self._z_table, self._intEzinv_table)
     D2 = interp(z2, self._z_table, self._intEzinv_table)
     if t is None:
-      return (D2 - D1) * DH
+      subtract(D2, D1, out)
+      multiply(out, DH, out)
+      return out
     else:
 #
 #     z1-..-.-.+ |D|
@@ -145,25 +196,107 @@ class Cosmology:
 #   /t  )        \
 #  o----z1'--D21--z2
 #   
-      DM1 = 2 * sin(t * 0.5) * D1
-      D21 = D2 - D1
-      D = sqrt(DM1 **2 + D21 **2 - 2 * cos(0.5 * (pi + t)) * DM1 * D21)
-      return D * DH
+
+      D21 = empty(shape=broadcast(D2, D1).shape, dtype='f4')
+      subtract(D2, D1, D21)
+
+#     DM1 = 2 * sin(t * 0.5) * D1
+      
+      del D2
+
+      tmp = empty_like(t, dtype='f4')
+      multiply(t , 0.5, tmp)
+      sin(tmp, tmp)
+      DM1 = empty(shape=broadcast(D1, t).shape, dtype='f4')
+      multiply(D1, tmp, DM1)
+      multiply(DM1, 2, DM1)
+
+      del D1
+#      D = sqrt(DM1 **2 + D21 **2 - 2 * cos(0.5 * (pi + t)) * DM1 * D21)
+      # cross term first
+      add(t, pi, tmp)
+      multiply(tmp, 0.5, tmp)
+      cos(tmp, tmp)
+      multiply(tmp, 2, tmp)
+      multiply(tmp, DM1, out)
+      multiply(out, D21, out)
+
+      multiply(DM1, DM1, DM1)
+      multiply(D21, D21, D21)
+
+      subtract(DM1, out, out)
+      add(out, D21, out)
+      sqrt(out, out)
+      multiply(out, DH, out)
+      return out
+
   def D2z(self, z0, d):
-    """returns the z satisfying Dc(z0, z) = d"""
+    """returns the z satisfying Dc(z0, z) = d, and z > z0"""
     d0 = interp(z0, self._z_table, self._intEzinv_table)
     z = interp((d / self.DH + d0), self._intEzinv_table, self._z_table)
     return z
 
-  def sphdist(self, ra1, dec1, ra2, dec2):
-    cd = cos(dec1) * cos(dec2)
-    cr = cos(ra1) * cos(ra2)
-    sr = sin(ra1) * sin(ra2)
-    sd = sin(dec1) * sin(dec2)
-    sd += cd * (sr + cr)
-    inner = sd
-    inner = clip(inner, a_min=-1, a_max=1)
-    return arccos(inner)
+  def radec2pos(self, ra, dec, z, out=None):
+    """ only for flat cosmology, comoving coordinate is returned as (-1, 3) 
+        ra cannot be an alias of out[:, 0], out[:, 2]
+        dec cannot be an alias of out[:, 0]
+        
+    """
+    shape = broadcast(dec, ra, z).shape
+    if out is None:
+      out = empty(shape=shape, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+    else:
+      out = out.view(dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+      
+    
+#    out[:, 0] = r * cos(dec) * cos(ra)
+#    out[:, 1] = r * cos(dec) * sin(ra)
+#    out[:, 2] = r * sin(dec)
+
+    tmp = self.Dc(z)
+    cos(dec, out['x'])
+    sin(dec, out['z'])
+    multiply(out['x'], tmp, out['x'])
+    multiply(out['z'], tmp, out['z'])
+    del tmp
+    tmp = cos(ra)
+    multiply(out['x'], sin(ra), out['y'])
+    multiply(out['x'], tmp, out['x'])
+
+    return out.view(dtype=('f4', 3))
+
+  def sphdist(self, ra1, dec1, ra2, dec2, out=None):
+    """ all in rad 
+       out cannot be alias of dec1, dec2 """
+    shape = broadcast(ra1, dec1, ra2, dec2).shape
+    if out is None:
+      out = empty(shape=shape, dtype='f4')
+
+    #cr = cos(ra1) * cos(ra2)
+    multiply(cos(ra1), cos(ra2), out)
+
+    t1 = empty(shape=broadcast(ra1, ra2).shape, dtype='f4')
+    #sr = sin(ra1) * sin(ra2)
+    multiply(sin(ra1), sin(ra2), t1)
+
+    # (cr + sr)
+    add(out, t1, out)
+    del t1
+    #cd = cos(dec1) * cos(dec2)
+    t1 = empty(shape=broadcast(dec1, dec2).shape, dtype='f4')
+    multiply(cos(dec1), cos(dec2), t1)
+    
+    # cd * (sr + cr)
+    multiply(t1, out, out)
+
+    # sd = sin(dec1) * sin(dec2)
+    multiply(sin(dec1), sin(dec2), t1)
+
+    # sd += cd * (sr + cr)
+    add(t1, out, out)
+   
+    clip(out, a_min=-1, a_max=1, out=out)
+    return arccos(out, out)
 
   def H(self, a):
     """ return the hubble constant at the given z or a, 

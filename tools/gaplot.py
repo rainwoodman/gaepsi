@@ -22,9 +22,9 @@ from numpy import tile, unique, sqrt, nonzero
 from numpy import ceil
 from numpy import random
 import matplotlib.pyplot as pyplot
-import threads
 from Queue import Queue
 from gaepsi.tools.simplegl import Camera
+from gaepsi.tools import sharedmem
 
 def icmap(levels, cmap, bins):
   cmap = array(cmap)
@@ -227,19 +227,19 @@ class GaplotContext(object):
   def star(self):
     return self.F['star']
 
-  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, numthreads=8):
-    if fids != None:
+  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, numthreads=None):
+    if fids is not None:
       snapnames = [self.snapname % i for i in fids]
     else:
       snapnames = [self.snapname]
     snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
 
     if use_gas:
-      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], Nthreads=numthreads)
+      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], nthreads=numthreads)
     if use_bh:
-      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], Nthreads=numthreads)
+      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], nthreads=numthreads)
     if use_star:
-      self.star.take_snapshots(snapshots, ptype = self.ptype['star'], Nthreads=numthreads)
+      self.star.take_snapshots(snapshots, ptype = self.ptype['star'], nthreads=numthreads)
 
     self.invalidate()
 
@@ -255,14 +255,12 @@ class GaplotContext(object):
       self.bh.dump_snapshots(snapshots, ptype = 5)
     if use_star:
       self.star.dump_snapshots(snapshots, ptype = 4)
-    @threads.job
-    def job(snapshot, lock):
-      snapshot.save_all()
-    job_q = Queue()
-    for snapshot in snapshots:
-      job_q.put((snapshot,))
 
-    threads.work(job, job_q)
+    with sharedmem.Pool(use_threads=True):
+      def work(snapshot):
+        snapshot.save_all()
+      pool.map(work, snapshots)
+
 
   def radial_mean(self, component, weightcomponent='mass', bins=100, min=None, max=None, std=False, origin=None):
     from numpy import histogram

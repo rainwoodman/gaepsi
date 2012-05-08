@@ -2,18 +2,26 @@ from numpy import isscalar
 from numpy import ones,zeros
 from numpy import append
 from numpy import asarray
+from numpy import atleast_1d
 from ccode import sml
 from ccode import peanohilbert
 from numpy import sin,cos, matrix
 from numpy import inner
 from numpy import newaxis
+from numpy import ndarray
 
 from cosmology import Cosmology
+from tools import sharedmem
 
 def is_string_like(v):
   try: v + ''
   except: return False
   return True
+def is_scalar_like(v):
+  if isscalar(v): return True
+  if isinstance(v, ndarray):
+    if v.ndim == 0: return True
+  return False
 
 class Cut:
   def __init__(self, xcut=None, ycut=None, zcut=None, center=None, size=None):
@@ -26,7 +34,7 @@ class Cut:
       return
 
     if size is not None:
-      if isscalar(size): size = ones(3) * size
+      if is_scalar_like(size): size = ones(3) * atleast_1d(size)
       if center is not None:
         self.center = asarray(center[0:3])
       else:
@@ -123,7 +131,8 @@ class Field(object):
     return self.cut.size
   @boxsize.setter
   def boxsize(self, value):
-    if isscalar(value): value = ones(3) * value
+    if is_scalar_like(value):
+      value = ones(3) * atleast_1d(value)
     self.cut.center = zeros(3)
     self.cut.size = zeros(3)
     for axis in range(3):
@@ -157,8 +166,8 @@ class Field(object):
       tmp[ptype] = self.numpoints
       snapshot.C['Ntot'] = tmp
       snapshot.C['Nfiles'] = Nfile
-      snapshot.C['OmegaM'] = self.cosmology.Omega['M']
-      snapshot.C['OmegaL'] = self.cosmology.Omega['L']
+      snapshot.C['OmegaM'] = self.cosmology.M
+      snapshot.C['OmegaL'] = self.cosmology.L
       snapshot.C['h'] = self.cosmology.h
       snapshot.C['boxsize'] = self.boxsize[0]
       snapshot.C['redshift'] = self.redshift
@@ -181,76 +190,72 @@ class Field(object):
     if skipped_comps:
       print 'warning: blocks not supported in snapshot', skipped_comps
 
-  def take_snapshots(self, snapshots, ptype, Nthreads=8):
-    from tools import threads
-    from Queue import Queue
-
-    job1_q = Queue()
-    job2_q = Queue()
-
+  def take_snapshots(self, snapshots, ptype, nthreads=None):
     self.init_from_snapshot(snapshots[0])
 
     self.numpoints = 0
 
-    @threads.job
-    def job1(snapshot, var, lock):
-      snapshot.load(ptype = ptype, blocknames = ['pos'])
-      if snapshot.C.N[ptype] != 0:
-        mask = self.cut.select(snapshot.P[ptype]['pos'])
-        if mask is not None:
-          length = mask.sum()
-        else:
-          length = snapshot.C.N[ptype]
-      else:
-        length = 0
-        mask = None
-      var['mask'] = mask
-      var['length'] = length
+    lengths = zeros(dtype='u8', shape=len(snapshots))
+    starts  = lengths.copy()
 
-    vars = []
-    for snapshot in snapshots:
-      vars += [{}]
+    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+      def work(i, snapshot):
+        snapshot.load(ptype = ptype, blocknames = ['pos'])
+        if snapshot.C.N[ptype] != 0:
+          mask = self.cut.select(snapshot.P[ptype]['pos'])
+          if mask is not None:
+            lengths[i] = mask.sum()
+          else:
+            lengths[i] = snapshot.C.N[ptype]
+      pool.starmap(work, list(enumerate(snapshots)))
+       
+    starts[1:] = lengths.cumsum()[:-1]
 
-    for snapshot, var in zip(snapshots, vars):
-      job1_q.put((snapshot, var))
+    self.numpoints = lengths.sum()
 
-    threads.work(job1, job1_q, Nthreads)
+    blocklist = []
 
-    for snapshot, var in zip(snapshots, vars):
-      start = self.numpoints
-      self.numpoints = self.numpoints + var['length']
-      job2_q.put((snapshot, var['mask'], var['length'], start))
-
-    # allocate the storage space, trashing whatever already there.
-    for comp in self:
+    def resize(comp):
       shape = list(self[comp].shape)
       shape[0] = self.numpoints
       self.dict[comp] = zeros(shape = shape,
          dtype = self.dict[comp].dtype)
 
-    skipped_comps = set([])
+    resize('locations')
 
-    @threads.job
-    def job2(snapshot, mask, length, start, lock):
-      if length == 0: 
-        return
-      for comp in self:
-        try:
-          snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
-        except KeyError:
-          # skip blocks that are not in the snapshot
-          skipped_comps.update(set([comp]))
-          continue
-        if mask is None:
-          self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][:]
-        else:
-          self[comp][start:start+length] = snapshot.P[ptype][self.comp_to_block(comp)][mask]
-        snapshot.clear(self.comp_to_block(comp))
+    for comp in self:
+      if comp == 'locations': continue # skip locations it is handled differnently
+      block = self.comp_to_block(comp)
+      if not block in snapshots[0].reader:
+        print block, 'is not supported in snapshot'
+      else:
+        blocklist.append((comp, block))
+        resize(comp)
 
-    threads.work(job2, job2_q, Nthreads)
-
-    if skipped_comps:
-      print 'warning: comp not suppored by the snapshot', skipped_comps
+    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+      def work(snapshot, start, length):
+        if length == 0: return
+        pos, = snapshot.load(blocknames=['pos'], ptype=ptype)
+        mask = None
+        if snapshot.C.N[ptype] != 0:
+          mask = self.cut.select(snapshot.P[ptype]['pos'])
+          if mask is None:
+            self['locations'][start:start+length] = pos[:]
+          else:
+            self['locations'][start:start+length] = pos[mask]
+        del pos
+        snapshot.clear('pos')
+  
+        for comp, block in blocklist:
+          data, = snapshot.load(ptype = ptype, blocknames = [block])
+          if mask is None:
+            self[comp][start:start+length] = data[:]
+          else:
+            self[comp][start:start+length] = data[mask]
+          del data
+          snapshot.clear(self.comp_to_block(comp))
+        del mask
+      pool.starmap(work, zip(snapshots, starts, lengths))
 
   def add_snapshot(self, snapshot, ptype):
     """ """
@@ -295,8 +300,8 @@ class Field(object):
       return repeat(array([index]), self.numpoints)
 
   def __setitem__(self, index, value):
-    if isscalar(value):
-      value = ones(self.numpoints) * value
+    if is_scalar_like(value):
+      value = ones(self.numpoints) * atleast_1d(value)
     if value.shape[0] != self.numpoints:
       raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
     self.dict[index] = value

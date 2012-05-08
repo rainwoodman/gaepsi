@@ -1,7 +1,7 @@
 from gaepsi.readers import get_reader
 
 class Snapshot:
-  def __init__(self, file=None, reader=None, create=False, **kwargs):
+  def __init__(self, file=None, reader=None, create=False, overwrite=True, **kwargs):
     """ creats a snapshot
       **kwargs are the fields in the header to be filled if create=True.
       **kwargs are ignored when create=False.
@@ -25,7 +25,7 @@ class Snapshot:
     self.file = file
     if create:
       self.save_on_delete = True
-      reader.create(self)
+      reader.create(self, overwrite=overwrite)
       for key in kwargs:
         self.header[key] = kwargs[key]
 
@@ -35,7 +35,7 @@ class Snapshot:
 
   def __del__(self):
     if self.save_on_delete:
-      print 'saving snapshot %s at destruction' % self.file
+#      print 'saving snapshot %s at destruction' % self.file
       self.save_all()
 
   def load(self, blocknames, ptype='all') :
@@ -47,8 +47,8 @@ class Snapshot:
   def save_all(self):
     self.save_on_delete = False
     self.save(blocknames = 'header')
-    print self.offsets
-    print self.sizes
+#    print self.offsets
+#    print self.sizes
     for ptype in range(6):
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:

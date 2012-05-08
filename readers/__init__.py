@@ -1,6 +1,4 @@
-from numpy import dtype
-from numpy import zeros
-from numpy import uint64
+import numpy
 
 def is_string_like(v):
   try: v + ''
@@ -38,10 +36,10 @@ class ReaderBase:
        endian is either '<'(intel) or '>' (ibm).
     """
 
-    self.header_dtype = dtype(header)
+    self.header_dtype = numpy.dtype(header)
     self.constants = constants
     self.schemas = [dict(name = sch[0], 
-                    dtype=dtype(sch[1]),
+                    dtype=numpy.dtype(sch[1]),
                     ptypes=sch[2], 
                     conditions=sch[3]) for sch in schemas]
     self.file_class = file_class
@@ -58,11 +56,13 @@ class ReaderBase:
     snapshot.C = Constants(self, snapshot.header)
     self.update_offsets(snapshot)
 
-  def create(self, snapshot):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='w+')
+  def create(self, snapshot, overwrite=True):
+    if not overwrite:
+      file = self.file_class(snapshot.file, endian=self.endian, mode='wx+')
+    else:
+      file = self.file_class(snapshot.file, endian=self.endian, mode='w+')
     snapshot.reader = self
-    buf = zeros(dtype=self.header_dtype, shape=1)
-    snapshot.header = buf[0]
+    snapshot.header = numpy.zeros(dtype=self.header_dtype, shape=None)
     for f in self.defaults:
       snapshot.header[f] = self.defaults[f]
 
@@ -70,25 +70,25 @@ class ReaderBase:
 
   def get_constant(self, header, index):
     if index == 'Ntot':
-      return header['Nparticle_total_low'][:] +(uint64(header['Nparticle_total_high']) << 32)
+      return header['Nparticle_total_low'][:] +(numpy.uint64(header['Nparticle_total_high']) << 32)
     entry = self.constants[index]
     if isinstance(entry, basestring):
       return header[entry]
     if isinstance(entry, (list, tuple)):
-      return array([header[item] for item in entry])
+      return numpy.array([header[item] for item in entry])
     return entry
 
   def set_constant(self, header, index, value):
     if index == 'Ntot':
       header['Nparticle_total_low'][:] = value[:]
       header['Nparticle_total_high'][:] = value[:] << 32
-      print value
       return
 
     entry = self.constants[index]
     if hasattr(entry, 'isalnum'):
       header[entry] = value
       return
+
     raise IndexError('%s is readonly', index)
 
   def __getitem__(self, key):
@@ -135,9 +135,7 @@ class ReaderBase:
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
           file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
       file.seek(0)
-      buf = zeros(dtype = self.header_dtype, shape = 1)
-      buf[0] = snapshot.header
-      file.write_record(buf, 1)
+      file.write_record(snapshot.header)
       return
 
     sch = self.hash[name]
@@ -170,7 +168,7 @@ class ReaderBase:
     file = self.file_class(snapshot.file, endian=self.endian, mode='r')
     if name == 'header':
       file.seek(0)
-      snapshot.header = file.read_record(self.header_dtype, 1)[0]
+      snapshot.header = file.read_record(self.header_dtype, 1).squeeze()
       return
 
     if snapshot[ptype].has_key(name) : return
@@ -193,26 +191,21 @@ class ReaderBase:
           offset += snapshot.C.N[i]
       snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C.N[ptype])
 
-from numpy import fromfile
-from numpy import int32
-from numpy import array
-from numpy import dtype
-from numpy import little_endian
 class CFile(file):
   def get_size(size):
     return size
   get_size = staticmethod(get_size)
   def __init__(self, *args, **kwargs) :
     self.endian = kwargs.pop('endian', 'N')
-    self.bsdtype = dtype('i4').newbyteorder(self.endian)
+    self.bsdtype = numpy.dtype('i4').newbyteorder(self.endian)
     self.little_endian = ( self.bsdtype.byteorder == '<' or (
-                     self.bsdtype.byteorder == '=' and little_endian))
+                     self.bsdtype.byteorder == '=' and numpy.little_endian))
     file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=0, nread=None) :
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
-    arr = fromfile(self, dtype, length)
+    arr = numpy.fromfile(self, dtype, length)
     self.seek((length - nread - offset) * dtype.itemsize, 1)
     return arr
   def skip_record(self, dtype, length) :
@@ -238,14 +231,14 @@ class F77File(file):
   def __init__(self, *args, **kwargs) :
     self.endian = kwargs.pop('endian', 'N')
     
-    self.bsdtype = dtype('i4').newbyteorder(self.endian)
+    self.bsdtype = numpy.dtype('i4').newbyteorder(self.endian)
     self.little_endian = ( self.bsdtype.byteorder == '<' or (
-                     self.bsdtype.byteorder == '=' and little_endian))
+                     self.bsdtype.byteorder == '=' and numpy.little_endian))
     file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=0, nread=None) :
-    if length == 0: return array([])
-    size = fromfile(self, self.bsdtype, 1)[0]
+    if length == 0: return numpy.array([], dtype=dtype)
+    size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
       raise IOError("length doesn't match %d != %d" % (length, _length))
@@ -253,53 +246,53 @@ class F77File(file):
     length = _length
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
-    X = fromfile(self, dtype, nread)
+    X = numpy.fromfile(self, dtype, nread)
     self.seek((length - nread - offset) * dtype.itemsize, 1)
-    size2 = fromfile(self, self.bsdtype, 1)[0]
+    size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
-    if self.little_endian != little_endian: X.byteswap(True)
+    if self.little_endian != numpy.little_endian: X.byteswap(True)
     return X
 
   def write_record(self, a, length = None, offset=0):
     if length == None: length = a.size
 
     if length == 0: return
-    if self.little_endian != little_endian: a.byteswap(True)
+    if self.little_endian != numpy.little_endian: a.byteswap(True)
     dtype = a.dtype
-    size = int32(length * a.dtype.itemsize)
-    array([size], dtype=self.bsdtype).tofile(self)
+    size = numpy.int32(length * a.dtype.itemsize)
+    numpy.array([size], dtype=self.bsdtype).tofile(self)
     self.seek(offset * dtype.itemsize, 1)
     a.tofile(self)
     self.seek((length - offset - a.size) * dtype.itemsize, 1)
-    array([size], dtype=self.bsdtype).tofile(self)
+    numpy.array([size], dtype=self.bsdtype).tofile(self)
 
   def skip_record(self, dtype, length = None) :
     if length == 0: return
-    size = fromfile(self, self.bsdtype, 1)[0]
+    size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
       raise IOError("length doesn't match %d != %d" % (length, _length))
     self.seek(size, 1)
-    size2 = fromfile(self, self.bsdtype, 1)[0]
+    size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
 
   def rewind_record(self, dtype, length = None) :
     if length == 0: return
     self.seek(-self.bsdtype.itemsize, 1)
-    size = fromfile(self, self.bsdtype, 1)[0]
+    size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
       raise IOError("length doesn't match %d != %d" % (length, _length))
     self.seek(-size, 1)
     self.seek(-self.bsdtype.itemsize, 1)
-    size2 = fromfile(self, self.bsdtype, 1)[0]
+    size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     self.seek(-self.bsdtype.itemsize, 1)
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
   def create_record(self, dtype, length):
-    size = int32(length * dtype.itemsize)
-    array([size], dtype=self.bsdtype).tofile(self)
+    size = numpy.int32(length * dtype.itemsize)
+    numpy.array([size], dtype=self.bsdtype).tofile(self)
     self.seek(size, 1)
-    array([size], dtype=self.bsdtype).tofile(self)
+    numpy.array([size], dtype=self.bsdtype).tofile(self)

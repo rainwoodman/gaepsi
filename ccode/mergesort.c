@@ -82,6 +82,7 @@ static PyObject * permute(PyObject * self,
     Py_INCREF(array);
     return (PyObject*) array;
 }
+
 static PyObject * merge(PyObject * self,
      PyObject * args, PyObject * kwds) {
 
@@ -133,6 +134,7 @@ static PyObject * merge(PyObject * self,
     #define VA PyArray_GETPTR1(data, *Aptr)
     #define VB PyArray_GETPTR1(data, (*Bptr) + sizeA)
 
+    Py_BEGIN_ALLOW_THREADS
     while(Aptr < Aend|| Bptr < Bend) {
         while(Aptr < Aend && (Bptr == Bend || func(VA, VB) <= 0)) {
             *Optr = *Aptr;
@@ -147,6 +149,7 @@ static PyObject * merge(PyObject * self,
             //printf("adding from B, j = %ld, k = %ld v = %ld\n", j, k, v);
         }
     }
+    Py_END_ALLOW_THREADS
     Py_INCREF(Py_None);
     return Py_None;
 }

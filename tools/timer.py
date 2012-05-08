@@ -11,6 +11,9 @@ mpicomm = None
 from time import time as default_timer
 
 programstart = default_timer()
+root = Session("__main__")
+current = root
+current.start()
 
 class Session:
   def __init__(self, descr):
@@ -18,9 +21,11 @@ class Session:
     self.start_time = 0
     self.checkpoint_time = 0
   def __enter__(self):
+    self.parent = current
     self.start()
   def __exit__(self, type, value, traceback):
     self.end()
+    current = self.parent
 
   def start(self):
     if self.start_time != 0: return # already started.
@@ -30,6 +35,7 @@ class Session:
     self.checkpoint_time = self.start_time
     if mpicomm == None or mpicomm.rank == 0:
       print self.descr, 'started at', self.start_time - programstart
+
   def checkpoint(self, msg):
     if mpicomm!=None:
       mpicomm.Barrier()
@@ -46,9 +52,4 @@ class Session:
     if mpicomm == None or mpicomm.rank == 0:
       print self.descr, 'ended at', newtimer - programstart, 'time used', newtimer - self.start_time
     self.start_time = 0
-
-def session(descr):
-  s = Session(descr)
-  s.start()
-  return s
 
