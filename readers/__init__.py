@@ -1,4 +1,5 @@
 import numpy
+import warnings
 
 def is_string_like(v):
   try: v + ''
@@ -89,7 +90,7 @@ class ReaderBase:
       header[entry] = value
       return
 
-    raise IndexError('%s is readonly', index)
+    warnings.warn('%s is readonly' % index)
 
   def __getitem__(self, key):
     return self.hash[key]

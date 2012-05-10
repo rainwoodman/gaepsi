@@ -216,6 +216,9 @@ def argsort(data, nchunks=None):
   from gaepsi.ccode import merge
 
   # round to power of two.
+  if nchunks is None:
+    nchunks = len(data) / 65536 + 1
+
   if nchunks & (nchunks - 1) != 0: 
     v = nchunks - 1
     v |= v >> 1

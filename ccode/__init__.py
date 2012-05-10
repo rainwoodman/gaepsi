@@ -5,6 +5,7 @@ from gaepsi._gaepsiccode import peanohilbert
 from gaepsi._gaepsiccode import scanline
 from gaepsi._gaepsiccode import camera
 from gaepsi._gaepsiccode import merge as _merge, permute as _permute
+#from gaepsi.ccode import ztree as ztree
 from render import color
 from image import rasterize
 

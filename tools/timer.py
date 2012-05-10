@@ -11,9 +11,6 @@ mpicomm = None
 from time import time as default_timer
 
 programstart = default_timer()
-root = Session("__main__")
-current = root
-current.start()
 
 class Session:
   def __init__(self, descr):
@@ -21,11 +18,9 @@ class Session:
     self.start_time = 0
     self.checkpoint_time = 0
   def __enter__(self):
-    self.parent = current
     self.start()
   def __exit__(self, type, value, traceback):
     self.end()
-    current = self.parent
 
   def start(self):
     if self.start_time != 0: return # already started.

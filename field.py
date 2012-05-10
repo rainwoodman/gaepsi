@@ -43,6 +43,7 @@ class Cut:
       return
     # uninitialized cut
     self.center = None
+    self.size = None
 
   @property
   def empty(self):
@@ -103,21 +104,16 @@ class Field(object):
     self.dict = {}
     self.cut = Cut()
     self.cut.take(cut)
-    self.__tree__ = None
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
     self.redshift = 0
+    self.boxsize = 0
     if components is not None:
       for comp in components:
         self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
-    self.mask = None
 
-  @property
-  def tree(self):
-    if self.__tree__ is None:
-      from tools.octtree import OctTree
-      self.__tree__ = OctTree(self)
-    return self.__tree__
+  def __len__(self):
+    return self.numpoints
 
   @property
   def a(self):
@@ -126,28 +122,9 @@ class Field(object):
   def a(self, value):
     self.redshift = 1. / a - 1.
 
-  @property
-  def boxsize(self):
-    return self.cut.size
-  @boxsize.setter
-  def boxsize(self, value):
-    if is_scalar_like(value):
-      value = ones(3) * atleast_1d(value)
-    self.cut.center = zeros(3)
-    self.cut.size = zeros(3)
-    for axis in range(3):
-      self.cut[axis] = (0, value[axis])
-
-  def set_mask(self, mask):
-    if mask != None:
-      assert(self.numpoints == mask.size)
-    self.mask = mask
-
   def init_from_snapshot(self, snapshot, cut=None):
-    if cut is None and self.cut.empty:
-      self.boxsize = snapshot.C['boxsize']
-    else: self.cut.take(cut)
-
+    self.boxsize = snapshot.C['boxsize']
+    self.cut.take(cut)
     self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
     self.redshift = snapshot.C['redshift']
 
@@ -169,7 +146,7 @@ class Field(object):
       snapshot.C['OmegaM'] = self.cosmology.M
       snapshot.C['OmegaL'] = self.cosmology.L
       snapshot.C['h'] = self.cosmology.h
-      snapshot.C['boxsize'] = self.boxsize[0]
+      snapshot.C['boxsize'] = self.boxsize
       snapshot.C['redshift'] = self.redshift
     skipped_comps = set([])
 
@@ -330,9 +307,46 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, NGB=32):
-    self.peano_reorder()
-    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
+  def smooth(self, weight='mass', NGB=32, tol=1e-5):
+#    self.peano_reorder()
+#    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
+    if weight is not None:
+      expect = self[weight].mean() * NGB
+    else:
+      expect = NGB
+    tree = self.zorder(tree=True)
+    points = self['locations']
+    sml = empty(self.numpoints, dtype='f4')
+    def work(points, out): 
+      ngb = tree.query_neighbours(points, NGB)
+      neipos = self['locations'][ngb, :]
+      if weight is not None:
+        neiwei = self[weight][ngb] 
+      else:
+        neiwei = 1
+      neipos -= points[:, newaxis, :]
+      neipos **= 2
+      dist = neipos.sum(axis=-1) ** 0.5
+      del neipos
+      hmax = dist[:, -1].copy()
+      hmin = dist[:, 1].copy()
+      while True:
+        hmax *= 2
+        mmax = 4 * pi / 3 *k0(dist / hmax[:, newaxis]).sum(axis=-1)
+        if (mmax > expt).all(): break
+      while True:
+        hmin *= 0.5
+        mmin = 4 * pi / 3 *k0(dist / hmin[:, newaxis]).sum(axis=-1)
+        if (mmin < expt).all(): break
+      while True:
+        h = (hmin + hmax) * 0.5
+        m = 4 * pi / 3 *k0(dist / h[:, newaxis]).sum(axis=-1)
+        mask = m > expt
+        hmax[mask] = h[mask]
+        hmin[~mask] = h[~mask]
+        if (1 - hmin/hmax > tol).all(): break
+    with sharedmem.Pool(use_threads=True) as pool:
+      pool.map(work, pool.split((points, out), nchunk=1024))
 
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
@@ -376,10 +390,7 @@ class Field(object):
         the field has to be in a cubic box located from (0,0,0)
     """
     from tools.remap import remap
-    boxsize = self.boxsize[0]
-    for b in self.boxsize:
-      if b != boxsize:
-        raise ValueError("the box has to be cubic.")
+    boxsize = self.boxsize
 
     pos = self['locations']
     pos /= boxsize
@@ -387,6 +398,30 @@ class Field(object):
     newpos *= boxsize
     self['locations'] = newpos
     self.boxsize = newboxsize * boxsize
+
+  def zorder(self, sort=True, ztree=False):
+    """ fill in the ZORDER key of the field to ['_ZORDER'],
+        and return it. 
+        if sort is tree, the field is sorted by zorder
+        if ztree is false, return zorder, scale 
+        if ztree is true, the field is permuted into the zorder,
+        and a ZTree is returned.
+    """
+    from ccode import ztree
+    x, y, z = (self['locations'][:, 0],
+              self['locations'][:, 1],
+              self['locations'][:, 2])
+
+    scale = ztree.Scale(x, y, z, bits=21)
+    self['_ZORDER'] = ztree.zorder(x, y, z, scale=scale)
+    if sort or ztree:
+      # use sharemem.argsort, because it is faster
+      arg = sharedmem.argsort(self['_ZORDER'])
+      for comp in self.dict:
+        self.dict[comp] = self.dict[comp][arg]
+    if ztree:
+      return ztree.Tree(zorder=self['_ZORDER'], scale=scale, thresh=30)
+    return self['_ZORDER'], scale
 
   def peano_reorder(self):
     xyz = zeros(shape = (self.numpoints, 3), dtype='i4')

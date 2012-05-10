@@ -36,5 +36,13 @@ setup(name="gaepsi", version="1.0",
              include_dirs=[get_include()],
              depends = ["ccode/defines.h"]
         ),
+        Extension("gaepsi.ccode.ztree", 
+             ["ccode/ztree.c", 
+             ], 
+#             extra_compile_args=['-g -O3'], 
+             extra_compile_args=['-O3', '-fopenmp'],
+             libraries=['gomp', 'pluecker'],
+             include_dirs=[get_include()],
+        ),
       ])
 
