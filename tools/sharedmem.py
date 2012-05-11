@@ -9,7 +9,7 @@ Notice that Pool.map and Pool.star map do not return ordered results.
 
 import multiprocessing as mp
 import numpy
-
+import os
 import threading
 import Queue as queue
 import ctypes
@@ -19,6 +19,13 @@ import copy_reg
 from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
 from itertools import cycle, izip, repeat
+
+def cpu_count():
+  num = os.get_env("OMP_NUM_THREADS")
+  try:
+    return int(num)
+  except:
+    return mt.cpu_count()
 
 class Pool:
   """
@@ -35,7 +42,7 @@ class Pool:
     pass
 
   def __init__(self, np=None, use_threads=False):
-    if np is None: np = mp.cpu_count()
+    if np is None: np = cpu_count()
     self.np = np
 
     if use_threads:
