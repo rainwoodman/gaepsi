@@ -25,7 +25,7 @@ def cpu_count():
   try:
     return int(num)
   except:
-    return mt.cpu_count()
+    return mp.cpu_count()
 
 class Pool:
   """
