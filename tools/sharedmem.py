@@ -21,7 +21,7 @@ from multiprocessing.sharedctypes import RawArray
 from itertools import cycle, izip, repeat
 
 def cpu_count():
-  num = os.get_env("OMP_NUM_THREADS")
+  num = os.getenv("OMP_NUM_THREADS")
   try:
     return int(num)
   except:
