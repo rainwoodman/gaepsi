@@ -167,10 +167,6 @@ class GaplotContext(object):
   def pixel_area(self):
     return (self.cut.size[0] * (self.cut.size[1] * 1.0)/(self.shape[0] * self.shape[1]))
 
-  def select(self, mask):
-    self.gas.set_mask(mask)
-    self.invalidate()
-
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
           starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None, periodic=True):

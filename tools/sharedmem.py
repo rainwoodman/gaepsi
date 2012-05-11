@@ -51,19 +51,28 @@ class Pool:
       self.JoinableQueueFactory = mp.JoinableQueue
       self.SlaveFactory = mp.Process
 
-  def split(self, list, nchunks=None):
-    """ split every item in the list into nchunks, and return a list of chunked items.
-        for non sequence item returns a repeated iterator in the list
-        therefore if sequence items in list have different lengths the
-        result is nonsense."""
+  def split(self, list, nchunks=None, chunksize=None):
+    """ Split every item in the list into nchunks, and return a list of chunked items.
+           - then used with p.starmap(work, zip(*p.split((xxx,xxx,xxxx), chunksize=1024))
+        For non sequence items and tuples, constructs a repeated iterator,
+        For sequence items(but tuples), convert to numpy array then use nupy.array_split to split them.
+        either give nchunks or chunksize. chunksize is only instructive, nchunk is estimated from chunksize
+    """
     result = []
     if nchunks is None:
-      nchunks = self.np * 2
-
+      if chunksize is None:
+        nchunks = self.np * 2
+      else:
+        nchunks = 0
+        for item in list:
+          if hasattr(item, '__len__') and not isinstance(item, tuple):
+            nchunks = int(len(item) / chunksize)
+        if nchunks == 0: nchunks = 1
+      
     for item in list:
       if isinstance(item, numpy.ndarray):
         result += [numpy.array_split(item, nchunks)]
-      elif hasattr(item, '__getslice__'):
+      elif hasattr(item, '__getslice__') and not isinstance(item, tuple):
         result += [numpy.array_split(numpy.asarray(item), nchunks)]
       else:
         result += [repeat(item)]
@@ -203,7 +212,7 @@ def copy(a):
 def wrap(a):
   return copy(a)
 
-def argsort(data, nchunks=None):
+def argsort(data, chunksize=65536):
   """
      parallel argsort, like numpy.argsort
 
@@ -216,8 +225,8 @@ def argsort(data, nchunks=None):
   from gaepsi.ccode import merge
 
   # round to power of two.
-  if nchunks is None:
-    nchunks = len(data) / 65536 + 1
+  nchunks = len(data) / chunksize
+  if nchunks == 0: return data.argsort()
 
   if nchunks & (nchunks - 1) != 0: 
     v = nchunks - 1

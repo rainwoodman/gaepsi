@@ -1,5 +1,5 @@
 from numpy import isscalar
-from numpy import ones,zeros
+from numpy import ones,zeros, empty
 from numpy import append
 from numpy import asarray
 from numpy import atleast_1d
@@ -12,6 +12,7 @@ from numpy import ndarray
 
 from cosmology import Cosmology
 from tools import sharedmem
+from ccode import k0
 
 def is_string_like(v):
   try: v + ''
@@ -307,23 +308,24 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, weight='mass', NGB=32, tol=1e-5):
+  def smooth(self, weight=None, NGB=32, tol=1e-5):
 #    self.peano_reorder()
 #    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
     if weight is not None:
-      expect = self[weight].mean() * NGB
+      expt = self[weight].mean() * NGB
     else:
-      expect = NGB
-    tree = self.zorder(tree=True)
+      expt = NGB
+    tree = self.zorder(ztree=True)
     points = self['locations']
     sml = empty(self.numpoints, dtype='f4')
+    self['sml'] = sml
     def work(points, out): 
-      ngb = tree.query_neighbours(points, NGB)
+      ngb = tree.query_neighbours(points[:, 0], points[:, 1], points[:, 2], NGB)
       neipos = self['locations'][ngb, :]
       if weight is not None:
         neiwei = self[weight][ngb] 
       else:
-        neiwei = 1
+        neiwei = asarray([1])
       neipos -= points[:, newaxis, :]
       neipos **= 2
       dist = neipos.sum(axis=-1) ** 0.5
@@ -332,21 +334,26 @@ class Field(object):
       hmin = dist[:, 1].copy()
       while True:
         hmax *= 2
-        mmax = 4 * pi / 3 *k0(dist / hmax[:, newaxis]).sum(axis=-1)
+        mmax = 4 * 3.1416 / 3 *(k0(dist / hmax[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
         if (mmax > expt).all(): break
       while True:
         hmin *= 0.5
-        mmin = 4 * pi / 3 *k0(dist / hmin[:, newaxis]).sum(axis=-1)
+        mmin = 4 * 3.1416 / 3 *(k0(dist / hmin[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
         if (mmin < expt).all(): break
+      iterations = 0
       while True:
         h = (hmin + hmax) * 0.5
-        m = 4 * pi / 3 *k0(dist / h[:, newaxis]).sum(axis=-1)
+        m = 4 * 3.1416 / 3 *(k0(dist / h[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
         mask = m > expt
         hmax[mask] = h[mask]
         hmin[~mask] = h[~mask]
-        if (1 - hmin/hmax > tol).all(): break
+        if (1 - hmin/hmax < tol).all(): break
+        print h, m
+        iterations = iterations + 1
+      out[:] = h
+      print 'num of', iterations
     with sharedmem.Pool(use_threads=True) as pool:
-      pool.map(work, pool.split((points, out), nchunk=1024))
+      pool.starmap(work, zip(*pool.split((points, sml), chunksize=8192)))
 
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
@@ -407,21 +414,23 @@ class Field(object):
         if ztree is true, the field is permuted into the zorder,
         and a ZTree is returned.
     """
-    from ccode import ztree
+    from ccode import ztree as zt
     x, y, z = (self['locations'][:, 0],
               self['locations'][:, 1],
               self['locations'][:, 2])
 
-    scale = ztree.Scale(x, y, z, bits=21)
-    self['_ZORDER'] = ztree.zorder(x, y, z, scale=scale)
+    scale = zt.Scale(x, y, z, bits=21)
+    zorder = zt.zorder(x, y, z, scale=scale)
     if sort or ztree:
       # use sharemem.argsort, because it is faster
-      arg = sharedmem.argsort(self['_ZORDER'])
+      arg = sharedmem.argsort(zorder)
       for comp in self.dict:
         self.dict[comp] = self.dict[comp][arg]
+      zorder = zorder[arg]
     if ztree:
-      return ztree.Tree(zorder=self['_ZORDER'], scale=scale, thresh=30)
-    return self['_ZORDER'], scale
+      return zt.Tree(zorder=zorder, scale=scale, thresh=30)
+    return zorder, scale
+
 
   def peano_reorder(self):
     xyz = zeros(shape = (self.numpoints, 3), dtype='i4')

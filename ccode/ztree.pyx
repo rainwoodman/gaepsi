@@ -236,7 +236,7 @@ cdef class Tree(object):
     return rt
     
   @cython.boundscheck(False)
-  def query_neighbour(Tree self, x, y, z, int32_t count):
+  def query_neighbours(Tree self, x, y, z, int32_t count):
     cdef numpy.ndarray[numpy.intp_t, ndim=2] out
     cdef intptr_t i, d
     cdef int64_t [:] zorder = self.zorder 
@@ -256,11 +256,11 @@ cdef class Tree(object):
       center[0] = x[i]
       center[1] = y[i]
       center[2] = z[i]
-      self.__query_neighbour_one(zorder, result, queryzorder[i], center, count, out[i, :])
+      self.__query_neighbours_one(zorder, result, queryzorder[i], center, count, out[i, :])
     return out
 
   @cython.boundscheck(False)
-  cdef void __query_neighbour_one(Tree self, int64_t [:] zorder, Result result, int64_t key, float center[3], int32_t count, intptr_t[:] out) except *:
+  cdef void __query_neighbours_one(Tree self, int64_t [:] zorder, Result result, int64_t key, float center[3], int32_t count, intptr_t[:] out) except *:
     cdef intptr_t chain[32]
     cdef int last = 0
     cdef intptr_t this, child

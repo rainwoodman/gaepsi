@@ -32,5 +32,5 @@ def rasterize(field, targets, values, xrange, yrange, zrange, quick=True):
   return _ccode.image(targets = expandedT, locations = field['locations'],
           sml = field['sml'], values = expandedV,
           xmin = xrange[0], ymin = yrange[0], xmax = xrange[1], ymax = yrange[1],
-          zmin = zrange[0], zmax = zrange[1], mask = field.mask, quick = quick, boxsize=field.boxsize)
+          zmin = zrange[0], zmax = zrange[1], mask = None, quick = quick, boxsize=None)
 
