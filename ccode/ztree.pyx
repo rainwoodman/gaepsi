@@ -6,6 +6,8 @@ cimport numpy
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 from libc.float cimport FLT_MAX
+from libc.limits cimport INT_MAX, INT_MIN
+
 cimport cython
 import cython
 from cython.parallel import prange
@@ -116,11 +118,12 @@ cdef class Scale(object):
          1 / (x.max() - self.min[0]),
          1 / (y.max() - self.min[1]),
          1 / (z.max() - self.min[2])], dtype=x.dtype)
+      self.norm *= ((1 << bits) - 1)
     else:
       self.min = numpy.array([0., 0., 0.])
       self.norm = numpy.array([1., 1., 1.])
+      self.norm *= ((1 << bits) - 1)
     self.bits = bits
-    self.norm *= ((1 << bits) - 1)
 
   def __call__(self, x, y, z, ix=None, iy=None, iz=None):
     x = numpy.asarray(x)
@@ -316,8 +319,6 @@ cdef class Tree(object):
   def query_box(Tree self, x, y, z, radius):
     ix0, iy0, iz0 = self.scale(x, y, z)
     oshape = numpy.asarray(x).shape
-    ir = numpy.empty(3, dtype='i4')
-    ir[:] = radius * self.scale.norm
     cdef int32_t [:] ix = numpy.atleast_1d(ix0)
     cdef int32_t [:] iy = numpy.atleast_1d(iy0)
     cdef int32_t [:] iz = numpy.atleast_1d(iz0)
@@ -325,8 +326,10 @@ cdef class Tree(object):
     cdef int32_t min[3]
     cdef int32_t max[3]
     cdef int32_t center[3]
+    cdef float rf
     cdef Result result
     cdef intptr_t i, d
+    cdef float f
     cdef numpy.ndarray[cython.object, ndim=1] ret = numpy.zeros(ix.shape[0], dtype=numpy.dtype('object'))
 
     for i in range(ix.shape[0]):
@@ -334,8 +337,16 @@ cdef class Tree(object):
       center[1] = iy[i]
       center[2] = iz[i]
       for d in range(3):
-        min[d] = center[d] - ir[d]
-        max[d] = center[d] + ir[d]
+        rf = radius * self.scale.norm[d]
+        f = center[d] - rf
+        if f > INT_MAX: min[d] = INT_MAX
+        elif f < INT_MIN: min[d] = INT_MIN
+        else: min[d] = <int32_t>f
+
+        f = center[d] + rf
+        if f > INT_MAX: max[d] = INT_MAX
+        elif f < INT_MIN: max[d] = INT_MIN
+        else: max[d] = <int32_t>f
 
       result = Result()
       self.__query_box_one(result, min, max, 0)

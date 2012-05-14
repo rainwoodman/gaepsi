@@ -16,4 +16,3 @@ def parsematrix(option, opt_str, value, parser, *args, **kwargs):
   if kwargs['shape'] and (kwargs['shape'] != mat.shape):
     raise OptionValueError("shape %s doesn't match with %s" % (mat.shape, kwargs['shape']))
   setattr(parser.values, option.dest, mat)
- 

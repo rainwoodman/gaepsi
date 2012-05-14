@@ -3,8 +3,6 @@ from numpy import ones,zeros, empty
 from numpy import append
 from numpy import asarray
 from numpy import atleast_1d
-from ccode import sml
-from ccode import peanohilbert
 from numpy import sin,cos, matrix
 from numpy import inner
 from numpy import newaxis
@@ -133,7 +131,12 @@ class Field(object):
     if comp == 'locations': return 'pos'
     return comp
 
-  def dump_snapshots(self, snapshots, ptype):
+  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, nthreads=None):
+    """ dump field into snapshots.
+        if save_and_clear is True, immediately save the file and clear the snapshot object,
+        using less memory.
+        otherwise, leave the data in memory in snapshot object.
+    """
     Nfile = len(snapshots)
     starts = zeros(dtype = 'u8', shape = Nfile)
     for i in range(Nfile):
@@ -151,8 +154,11 @@ class Field(object):
       snapshot.C['redshift'] = self.redshift
     skipped_comps = set([])
 
-    for i in range(Nfile):
+    def work(i):
       snapshot = snapshots[i]
+      if save_and_clear:
+        snapshot.create_structure()
+
       for comp in self:
         block = self.comp_to_block(comp)
         try:
@@ -164,7 +170,14 @@ class Field(object):
           snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]].astype(dtype.base)
         else:
           snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]]
+        if save_and_clear:
+          snapshot.save([block], ptype=ptype)
+          snapshot.clear([block], ptype=ptype)
       #skip if the reader doesn't save the block
+
+    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+      pool.map(work, list(range(Nfile)))
+
     if skipped_comps:
       print 'warning: blocks not supported in snapshot', skipped_comps
 
@@ -173,18 +186,21 @@ class Field(object):
 
     self.numpoints = 0
 
+      
     lengths = zeros(dtype='u8', shape=len(snapshots))
     starts  = lengths.copy()
 
     with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
       def work(i, snapshot):
-        snapshot.load(ptype = ptype, blocknames = ['pos'])
-        if snapshot.C.N[ptype] != 0:
-          mask = self.cut.select(snapshot.P[ptype]['pos'])
-          if mask is not None:
-            lengths[i] = mask.sum()
-          else:
-            lengths[i] = snapshot.C.N[ptype]
+        mask = None
+        if (ptype, 'pos') in snapshot:
+          pos = snapshot[ptype, 'pos']
+          if snapshot.C.N[ptype] != 0:
+            mask = self.cut.select(pos)
+        if mask is not None:
+          lengths[i] = mask.sum()
+        else:
+          lengths[i] = snapshot.C.N[ptype]
       pool.starmap(work, list(enumerate(snapshots)))
        
     starts[1:] = lengths.cumsum()[:-1]
@@ -199,12 +215,13 @@ class Field(object):
       self.dict[comp] = zeros(shape = shape,
          dtype = self.dict[comp].dtype)
 
-    resize('locations')
+    if (ptype, 'pos') in snapshots[0]:
+      resize('locations')
 
     for comp in self:
       if comp == 'locations': continue # skip locations it is handled differnently
       block = self.comp_to_block(comp)
-      if not block in snapshots[0].reader:
+      if not (ptype, block) in snapshots[0]:
         print block, 'is not supported in snapshot'
       else:
         blocklist.append((comp, block))
@@ -213,58 +230,28 @@ class Field(object):
     with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
       def work(snapshot, start, length):
         if length == 0: return
-        pos, = snapshot.load(blocknames=['pos'], ptype=ptype)
         mask = None
-        if snapshot.C.N[ptype] != 0:
-          mask = self.cut.select(snapshot.P[ptype]['pos'])
+        if (ptype, 'pos') in snapshot:
+          pos = snapshot[ptype, 'pos']
+          if snapshot.C.N[ptype] != 0:
+            mask = self.cut.select(pos)
           if mask is None:
             self['locations'][start:start+length] = pos[:]
           else:
             self['locations'][start:start+length] = pos[mask]
-        del pos
-        snapshot.clear('pos')
+          del pos
+          del snapshot[ptype, 'pos']
   
         for comp, block in blocklist:
-          data, = snapshot.load(ptype = ptype, blocknames = [block])
+          data = snapshot[ptype, block]
           if mask is None:
             self[comp][start:start+length] = data[:]
           else:
             self[comp][start:start+length] = data[mask]
           del data
-          snapshot.clear(self.comp_to_block(comp))
+          del snapshot[ptype, block]
         del mask
       pool.starmap(work, zip(snapshots, starts, lengths))
-
-  def add_snapshot(self, snapshot, ptype):
-    """ """
-
-    if snapshot.C['N'][ptype] == 0: return 0
-
-    for comp in self:
-      snapshot.load(ptype = ptype, blocknames = [self.comp_to_block(comp)])
-
-    mask = self.cut.select(snapshot.P[ptype]['pos'])
-    if mask is not None:
-      add_points = mask.sum()
-      if add_points == 0: return 0
-
-      for comp in self:
-        self.dict[comp] = append(self[comp], 
-            snapshot.P[ptype][self.comp_to_block(comp)][mask], 
-            axis = 0)
-    else:
-      add_points = snapshot.C['N'][ptype]
-      for comp in self:
-        self.dict[comp] = append(self[comp], 
-            snapshot.P[ptype][self.comp_to_block(comp)], 
-            axis = 0)
-
-    self.numpoints = self.numpoints + add_points
-
-    for comp in self:
-      snapshot.clear(self.comp_to_block(comp))
-    
-    return add_points
 
   def __iter__(self):
     return iter(self.dict)
@@ -348,10 +335,8 @@ class Field(object):
         hmax[mask] = h[mask]
         hmin[~mask] = h[~mask]
         if (1 - hmin/hmax < tol).all(): break
-        print h, m
         iterations = iterations + 1
       out[:] = h
-      print 'num of', iterations
     with sharedmem.Pool(use_threads=True) as pool:
       pool.starmap(work, zip(*pool.split((points, sml), chunksize=8192)))
 
@@ -424,24 +409,12 @@ class Field(object):
     if sort or ztree:
       # use sharemem.argsort, because it is faster
       arg = sharedmem.argsort(zorder)
-      for comp in self.dict:
-        self.dict[comp] = self.dict[comp][arg]
+      with sharedmem.Pool(use_threads=True) as pool:
+        def work(key):
+          self.dict[key] = self.dict[key].take(arg, axis=0)
+        pool.map(work, self.dict.keys())
       zorder = zorder[arg]
     if ztree:
       return zt.Tree(zorder=zorder, scale=scale, thresh=30)
     return zorder, scale
 
-
-  def peano_reorder(self):
-    xyz = zeros(shape = (self.numpoints, 3), dtype='i4')
-    pos=self['locations'] 
-    min = pos.min(axis=0)
-    max = pos.max(axis=0)
-    dinv = (1<<19) / (max - min)
-    xyz[:,:] = (pos - min[newaxis, :]) * dinv[newaxis, :]
-    print min, max, dinv
-    key = peanohilbert(xyz[:,0], xyz[:, 1], xyz[:,2])
-    arg = key.argsort()
-    for comp in self.dict:
-      self.dict[comp] = self.dict[comp][arg]
-    #return arg, key, xyz

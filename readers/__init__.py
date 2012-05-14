@@ -53,7 +53,10 @@ class ReaderBase:
   def open(self, snapshot):
     file = self.file_class(snapshot.file, endian=self.endian, mode='r')
     snapshot.reader = self
-    self.load(snapshot, name = 'header')
+
+    file.seek(0)
+    snapshot.header = file.read_record(self.header_dtype, 1).squeeze()
+
     snapshot.C = Constants(self, snapshot.header)
     self.update_offsets(snapshot)
 
@@ -100,6 +103,14 @@ class ReaderBase:
     return dict(
       N = snapshot.header['N'])
 
+  def has_block(self, snapshot, ptype, block):
+    if not block in self.hash: return False
+    s = self.hash[block]
+    for cond in s['conditions']:
+      if snapshot.header[cond] == 0 : return False
+    if ptype in s['ptypes']: return True
+    return False
+
   def update_offsets(self, snapshot):
     blockpos = self.file_class.get_size(self.header_dtype.itemsize);
     for s in self.schemas:
@@ -125,19 +136,20 @@ class ReaderBase:
     return blockpos
 
 
-  def save(self, snapshot, name, ptype='all'):
+  def create_structure(self, snapshot):
     file = self.file_class(snapshot.file, endian=self.endian, mode='r+')
-    if name == 'header':
-      self.update_offsets(snapshot)
-      for s in self.schemas:
+    self.update_offsets(snapshot)
+    for s in self.schemas:
         name = s['name']
         if not snapshot.sizes[name] == None:
           file.seek(snapshot.offsets[name])
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
           file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
-      file.seek(0)
-      file.write_record(snapshot.header)
-      return
+    file.seek(0)
+    file.write_record(snapshot.header)
+
+  def save(self, snapshot, ptype, name):
+    file = self.file_class(snapshot.file, endian=self.endian, mode='r+')
 
     sch = self.hash[name]
     file.seek(snapshot.offsets[name])
@@ -165,14 +177,8 @@ class ReaderBase:
       file.skip_record(sch['dtype'], length)
    
 
-  def load(self, snapshot, name, ptype='all'):
+  def load(self, snapshot, ptype, name):
     file = self.file_class(snapshot.file, endian=self.endian, mode='r')
-    if name == 'header':
-      file.seek(0)
-      snapshot.header = file.read_record(self.header_dtype, 1).squeeze()
-      return
-
-    if snapshot[ptype].has_key(name) : return
 
     sch = self.hash[name]
     file.seek(snapshot.offsets[name])

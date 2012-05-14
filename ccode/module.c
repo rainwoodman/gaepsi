@@ -8,7 +8,6 @@ extern HIDDEN void gadget_initwarp(PyObject * m);
 extern HIDDEN void gadget_initkernel(PyObject * m);
 extern HIDDEN void gadget_initrender(PyObject * m);
 extern HIDDEN void gadget_initpmin(PyObject * m);
-extern HIDDEN void gadget_initsml(PyObject * m);
 extern HIDDEN void gadget_initcamera(PyObject * m);
 extern HIDDEN void gadget_initpeano(PyObject * m);
 extern HIDDEN void gadget_initmergesort(PyObject * m);
@@ -30,7 +29,6 @@ void init_gaepsiccode (void) {
 	gadget_initkernel(m);
 	gadget_initrender(m);
 	gadget_initpmin(m);
-	gadget_initsml(m);
 	gadget_initcamera(m);
 	gadget_initpeano(m);
 	gadget_initmergesort(m);

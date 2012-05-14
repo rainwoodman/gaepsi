@@ -12,7 +12,6 @@ class Snapshot:
     self.P = {}
     for i in range(6):
       self.P[i] = {}
-    self.P['all'] = {}
 
     # block offset table
     self.sizes = {}
@@ -34,21 +33,31 @@ class Snapshot:
       reader.open(self)
 
   def __del__(self):
-    if self.save_on_delete:
+    if hasattr(self, 'save_on_delete') and self.save_on_delete:
 #      print 'saving snapshot %s at destruction' % self.file
       self.save_all()
 
-  def load(self, blocknames, ptype='all') :
+  def load(self, blocknames, ptype) :
+    """ Load blocks into memory if they are not """
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
-    for bn in blocknames: 
-      self.reader.load(self, bn, ptype)
+    for bn in blocknames:
+      if ptype in self.P and bn in self.P[ptype]: continue
+      if not self.has(bn, ptype): continue
+      self.reader.load(self, ptype, bn)
+    print ptype, bn
     return [self.P[ptype][bn] for bn in blocknames]
+
+  def has(self, blockname, ptype):
+    return self.reader.has_block(self, ptype, blockname)
+    
+  def create_structure(self):
+    self.reader.create_structure(self)
 
   def save_all(self):
     self.save_on_delete = False
-    self.save(blocknames = 'header')
-#    print self.offsets
-#    print self.sizes
+    self.reader.create_structure(self)
+
+    # now ensure the structure of the file is complete
     for ptype in range(6):
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:
@@ -56,22 +65,30 @@ class Snapshot:
 # no need to flush as the file is supposingly closed.
 #    self.file.flush()
 
-  def save(self, blocknames, ptype='all') :
+  def save(self, blocknames, ptype) :
     self.save_on_delete = False
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
-      self.reader.save(self, bn, ptype)
+      self.reader.save(self, ptype, bn)
  
   def check(self):
     self.reader.check(self)
 
-  def clear(self, blocknames, ptype='all') :
+  def clear(self, blocknames, ptype) :
+    """ relase memory used by the blocks, do not flush to the disk """
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
-    if ptype == None: ptype = 'all'
     for name in blocknames :
       if self.P[ptype].has_key(name): del self.P[ptype][name]
 
-  def __getitem__(self, key) :
-    if key == None: key = 'all'
-    return self.P[key]
-    
+  def __getitem__(self, index):
+    ptype, block = index
+    return self.load([block], ptype)[0]
+
+  def __contains__(self, index):
+    ptype, block = index
+    return self.has(block, ptype)
+
+  def __delitem__(self, index):
+    ptype, block = index
+    return self.clear([block], ptype)
+

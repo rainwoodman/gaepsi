@@ -143,12 +143,17 @@ class GaplotContext(object):
     self.cache2.clear()
    
   def zoom(self, center=None, size=None):
-    if center == None:
+    if center is None:
       center = self.cut.center
-    if size == None:
+    if size is None:
       size = self.cut.size
     self.cut.take(Cut(center=center, size=size))
     self.invalidate()
+
+  def autozoom(self, ftype):
+    min=self.F[ftype]['locations'].min(axis=0)
+    max=self.F[ftype]['locations'].max(axis=0)
+    self.zoom(center=(min+max) * 0.5, size=(max - min))
 
   def slice(self, z, thickness):
     cut = Cut(center=self.cut.center, size=self.cut.size)
@@ -169,10 +174,13 @@ class GaplotContext(object):
 
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
-          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None, periodic=True):
-    self.components = components
-    self.components['mass'] = 'f4'
-    self.components['sml'] = 'f4'
+          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None, _components=None, periodic=True):
+    if _components is not None:
+      self.components = _components
+    else:
+      self.components = components
+      self.components['mass'] = 'f4'
+      self.components['sml'] = 'f4'
     self.snapname = snapname
     self.format = format
     self.F['gas'] = Field(components=self.components, cut=cut)
@@ -192,6 +200,7 @@ class GaplotContext(object):
     self.bh.init_from_snapshot(snap)
     self.star.init_from_snapshot(snap)
     self.C = snap.C
+    self.header = snap.header
     if cut == None:
       self.cut.take(Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']]))
     else:
@@ -552,7 +561,7 @@ class GaplotContext(object):
           )
 
   def bhshow(self, ax, component='bhmass', radius=(4, 1), logscale=True, labelfmt=None, labelcolor='white', vmin=None, vmax=None, count=-1, *args, **kwargs):
-    return fieldshow(self, ax, 'bh', component, radius, logscale, labelfmt, labelcolor, vmin, vmax, count, *args, **kwargs)
+    return self.pointshow(ax, 'bh', component, radius, logscale, labelfmt, labelcolor, vmin, vmax, count, *args, **kwargs)
 
   #  col = CircleCollection(offsets=zip(X.flat,Y.flat), sizes=(R * radius)**2, edgecolor='green', facecolor='none', transOffset=gca().transData)
   #  ax.add_collection(col)
@@ -903,6 +912,10 @@ use.__doc__ = GaplotContext.use.__doc__
 def zoom(*args, **kwargs):
   return context.zoom(*args, **kwargs)
 zoom.__doc__ = GaplotContext.zoom.__doc__
+
+def autozoom(*args, **kwargs):
+  return context.autozoom(*args, **kwargs)
+autozoom.__doc__ = GaplotContext.autozoom.__doc__
 
 def slice(*args, **kwargs):
   return context.slice(*args, **kwargs)
