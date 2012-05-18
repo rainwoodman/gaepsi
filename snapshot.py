@@ -44,7 +44,6 @@ class Snapshot:
       if ptype in self.P and bn in self.P[ptype]: continue
       if not self.has(bn, ptype): continue
       self.reader.load(self, ptype, bn)
-    print ptype, bn
     return [self.P[ptype][bn] for bn in blocknames]
 
   def has(self, blockname, ptype):

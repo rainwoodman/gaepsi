@@ -20,6 +20,11 @@ from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
 from itertools import cycle, izip, repeat
 
+__shmdebug__ = False
+def set_debug(flag):
+  global __shmdebug__
+  __shmdebug__ = flag
+
 def cpu_count():
   num = os.getenv("OMP_NUM_THREADS")
   try:
@@ -50,7 +55,7 @@ class Pool:
       self.JoinableQueueFactory = queue.Queue
       def func(*args, **kwargs):
         slave = threading.Thread(*args, **kwargs)
-        slave.daemon = False
+        slave.daemon = True
         return slave
       self.SlaveFactory = func
     else:
@@ -92,6 +97,7 @@ class Pool:
     """
       calls work on every item in sequence. the return value is unordered unless ordered=True.
     """
+    if __shmdebug__: self.map_debug(work, squence, chunksize, ordered, star)
     if not hasattr(sequence, '__getslice__'):
       raise TypeError('can only take a slicable sequence')
 
@@ -99,7 +105,8 @@ class Pool:
       dead = False
       while True:
         begin, end = S.get()
-        if begin is None and end is None: 
+        if begin is None: 
+          print 'a worker has terminated with token', end
           S.task_done()
           break
         if dead: 
@@ -116,8 +123,8 @@ class Pool:
         finally:
           S.task_done()
 
-        Q.put((begin, out))
-      
+        if not dead: Q.put((begin, out))
+
     P = []
     Q = self.QueueFactory()
     S = self.JoinableQueueFactory()
@@ -131,12 +138,20 @@ class Pool:
       i = j
 
     for i in range(self.np):
-        S.put((None, None)) # sentinel
+        S.put((None, i)) # sentinel
+
+    for i in range(self.np):
         p = self.SlaveFactory(target=worker, args=(S, sequence, Q))
         P.append(p)
         p.start()
 
     S.join()
+
+    for p in P:
+      if p.is_alive():
+        p.join(10)
+        if p.is_alive():
+          raise Exception("thread alive after queue joined")
 
 #   the result is not sorted 
     R = []
@@ -148,10 +163,10 @@ class Pool:
     
     return R
 
-  def starmap_debug(self, work, sequence, chunksize=1):
-    return self.map_debug(work, sequence, chunksize, star=True)
+  def starmap_debug(self, work, sequence, ordered=False, chunksize=1):
+    return self.map_debug(work, sequence, chunksize, ordered, star=True)
 
-  def map_debug(self, work, sequence, chunksize=1, star=False):
+  def map_debug(self, work, sequence, chunksize=1, ordered=False, star=False):
     def worker(args):
        if star: return args[0](*(args[1]))
        else: return args[0](args[1])

@@ -304,7 +304,7 @@ class Field(object):
       expt = NGB
     tree = self.zorder(ztree=True)
     points = self['locations']
-    sml = empty(self.numpoints, dtype='f4')
+    sml = sharedmem.empty(self.numpoints, dtype='f4').view(type=ndarray)
     self['sml'] = sml
     def work(points, out): 
       ngb = tree.query_neighbours(points[:, 0], points[:, 1], points[:, 2], NGB)
@@ -312,32 +312,37 @@ class Field(object):
       if weight is not None:
         neiwei = self[weight][ngb] 
       else:
-        neiwei = asarray([1])
+        neiwei = ones(shape=(ngb.shape[0], NGB), dtype='f4')
       neipos -= points[:, newaxis, :]
       neipos **= 2
       dist = neipos.sum(axis=-1) ** 0.5
       del neipos
       hmax = dist[:, -1].copy()
+      mmax = 4 * 3.1416 / 3 *(k0(dist / hmax[:, newaxis]) * neiwei).sum(axis=-1)
       hmin = dist[:, 1].copy()
-      while True:
-        hmax *= 2
-        mmax = 4 * 3.1416 / 3 *(k0(dist / hmax[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
-        if (mmax > expt).all(): break
-      while True:
-        hmin *= 0.5
-        mmin = 4 * 3.1416 / 3 *(k0(dist / hmin[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
-        if (mmin < expt).all(): break
+      mmin = 4 * 3.1416 / 3 *(k0(dist / hmin[:, newaxis]) * neiwei).sum(axis=-1)
+      mask = mmax < expt
+      while mask.any():
+        hmax[mask] *= 2
+        mmax[mask] = 4 * 3.1416 / 3 *(k0(dist[mask] / hmax[mask][:, newaxis]) * neiwei[mask]).sum(axis=-1)
+        mask[:] = mmax < expt
+      mask[:] = mmin > expt
+      while mask.any():
+        hmin[mask] *= 0.5
+        mmin[mask] = 4 * 3.1416 / 3 *(k0(dist[mask] / hmin[mask][:, newaxis]) * neiwei[mask]).sum(axis=-1)
+        mask[:] = mmin > expt
+
       iterations = 0
-      while True:
+      while iterations < 100:
         h = (hmin + hmax) * 0.5
-        m = 4 * 3.1416 / 3 *(k0(dist / h[:, newaxis]) * neiwei[:, newaxis]).sum(axis=-1)
+        m = 4 * 3.1416 / 3 *(k0(dist / h[:, newaxis]) * neiwei).sum(axis=-1)
         mask = m > expt
         hmax[mask] = h[mask]
         hmin[~mask] = h[~mask]
         if (1 - hmin/hmax < tol).all(): break
         iterations = iterations + 1
       out[:] = h
-    with sharedmem.Pool(use_threads=True) as pool:
+    with sharedmem.Pool(use_threads=False) as pool:
       pool.starmap(work, zip(*pool.split((points, sml), chunksize=8192)))
 
   def rotate(self, angle, axis, origin):
@@ -405,7 +410,13 @@ class Field(object):
               self['locations'][:, 2])
 
     scale = zt.Scale(x, y, z, bits=21)
-    zorder = zt.zorder(x, y, z, scale=scale)
+    zorder = empty(self.numpoints, dtype='i8')
+    with sharedmem.Pool(use_threads=True) as pool:
+      def work(zorder, locations):
+        x, y, z = locations[:, 0], locations[:, 1], locations[:, 2]
+        zt.zorder(x, y, z, scale=scale, out=zorder)
+      pool.starmap(work, zip(*pool.split((zorder, self['locations']))))
+
     if sort or ztree:
       # use sharemem.argsort, because it is faster
       arg = sharedmem.argsort(zorder)
@@ -415,6 +426,6 @@ class Field(object):
         pool.map(work, self.dict.keys())
       zorder = zorder[arg]
     if ztree:
-      return zt.Tree(zorder=zorder, scale=scale, thresh=30)
+      return zt.Tree(zorder=zorder, scale=scale, thresh=128)
     return zorder, scale
 

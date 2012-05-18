@@ -771,20 +771,16 @@ class GaplotContext(object):
     return ret
      
   def render(self, todraw, mass, mode=None, vmin=None, vmax=None, logscale=True, logweight=True, cmap=pygascmap, gamma=1.0, mmin=None, mmax=None, over=None, composite=None):
+    """ vmin can be a string, eg '40 dB', so the vmin=vmax/1e4 """
     if mode == 'intensity' or mode == 'mean':
       todraw /= mass
 
     if logscale:
-     if vmin is not None:
+     if vmin is not None and not isinstance(vmin, basestring):
        vmin = 10 ** vmin
      if vmax is not None:
        vmax = 10 ** vmax
 
-    if vmin is None: 
-      if logscale:
-        vmin = ccode.pmin.reduce(todraw.flat)
-      else:
-        vmin = fmin.reduce(todraw.flat)
     if vmax is None: 
       if mode == 'intensity' or mode == 'mean' or over is None:
         vmax = fmax.reduce(todraw.flat)
@@ -793,7 +789,14 @@ class GaplotContext(object):
         ind = sort[(len(sort) - 1) * (1.0 - over)]
         vmax = todraw.ravel()[ind]
         del sort
-
+    if vmin is None: 
+      if logscale:
+        vmin = ccode.pmin.reduce(todraw.flat)
+      else:
+        vmin = fmin.reduce(todraw.flat)
+    elif isinstance(vmin, basestring):
+      db = int(vmin[:-3])
+      vmin = vmax / 10 ** (db/10.)
     if logscale:
       log10(todraw, todraw)
       vmin = log10(vmin)
