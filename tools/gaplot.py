@@ -174,20 +174,28 @@ class GaplotContext(object):
 
   def use(self, snapname, format, components={}, 
           bhcomponents={'bhmass':'f4', 'bhmdot':'f4', 'id':'u8'}, 
-          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, star=4, bh=5, cut=None, _components=None, periodic=True):
-    if _components is not None:
-      self.components = _components
+          starcomponents={'sft':'f4', 'mass':'f4'}, gas=0, halo=1, disk=2, bulge=3, star=4, bh=5, cut=None, gascomponents=None, periodic=True):
+    if gascomponents is not None:
+      self.components = gascomponents
     else:
       self.components = components
       self.components['mass'] = 'f4'
       self.components['sml'] = 'f4'
+
     self.snapname = snapname
     self.format = format
     self.F['gas'] = Field(components=self.components, cut=cut)
     self.F['bh'] = Field(components=bhcomponents, cut=cut)
     self.F['star'] = Field(components=starcomponents, cut=cut)
+    self.F['halo'] = Field(components=self.components, cut=cut)
+    self.F['disk'] = Field(components=self.components, cut=cut)
+    self.F['bulge'] = Field(components=self.components, cut=cut)
+
     self.ptype = {
       "gas": gas,
+      "halo": halo,
+      "disk": disk,
+      "bulge": bulge,
       "star": star,
       "bh": bh,
     }
@@ -199,6 +207,10 @@ class GaplotContext(object):
     self.gas.init_from_snapshot(snap)
     self.bh.init_from_snapshot(snap)
     self.star.init_from_snapshot(snap)
+    self.halo.init_from_snapshot(snap)
+    self.disk.init_from_snapshot(snap)
+    self.bulge.init_from_snapshot(snap)
+
     self.C = snap.C
     self.header = snap.header
     if cut == None:
@@ -216,6 +228,32 @@ class GaplotContext(object):
     return self.C['redshift']
 
   @property
+  def halo(self):
+    return self.F['halo']
+  @halo.setter
+  def halo(self, value):
+    self.F['halo'] = value
+    print 'halo set'
+    self.invalidate()
+
+  @property
+  def bulge(self):
+    return self.F['bulge']
+  @bulge.setter
+  def bulge(self, value):
+    self.F['bulge'] = value
+    print 'bulge set'
+    self.invalidate()
+  @property
+  def disk(self):
+    return self.F['disk']
+  @disk.setter
+  def disk(self, value):
+    self.F['disk'] = value
+    print 'disk set'
+    self.invalidate()
+
+  @property
   def gas(self):
     return self.F['gas']
   @gas.setter
@@ -227,12 +265,21 @@ class GaplotContext(object):
   @property
   def bh(self):
     return self.F['bh']
-
+  @bh.setter
+  def bh(self, value):
+    self.F['bh'] = value
+    print 'bh set'
+    self.invalidate()
   @property
   def star(self):
     return self.F['star']
+  @star.setter
+  def star(self, value):
+    self.F['star'] = value
+    print 'star set'
+    self.invalidate()
 
-  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, numthreads=None):
+  def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, use_halo=False, use_disk=False, use_bulge=False, numthreads=None):
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
     else:
@@ -241,6 +288,12 @@ class GaplotContext(object):
 
     if use_gas:
       self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], nthreads=numthreads)
+    if use_halo:
+      self.halo.take_snapshots(snapshots, ptype = self.ptype['halo'], nthreads=numthreads)
+    if use_disk:
+      self.disk.take_snapshots(snapshots, ptype = self.ptype['disk'], nthreads=numthreads)
+    if use_bulge:
+      self.bulge.take_snapshots(snapshots, ptype = self.ptype['bulge'], nthreads=numthreads)
     if use_bh:
       self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], nthreads=numthreads)
     if use_star:
@@ -955,8 +1008,9 @@ def drawscale(ax=None, *args, **kwargs):
 def gasshow(component='mass', ax=None, *args, **kwargs):
   "see fieldshow for docs"
   kwargs['component'] = component
+  ftype = kwargs.pop('ftype', 'gas')
   if ax is None: ax = gca()
-  ret = context.fieldshow(ax, 'gas', *args, **kwargs)
+  ret = context.fieldshow(ax, ftype, *args, **kwargs)
   ax._sci(ret)
   draw()
 
@@ -969,12 +1023,8 @@ def fieldcontour(ftype='gas', component='mass', use_figimage=False, ax=None, *ar
   draw()
 
 def starshow(component='mass', ax=None, *args, **kwargs):
-  "see fieldshow for docs"
-  kwargs['component'] = component
-  if ax is None: ax = gca()
-  ret = context.fieldshow(ax, 'star', *args, **kwargs)
-  ax._sci(ret)
-  draw()
+  kwargs['ftype'] = 'star'
+  gasshow(component, ax, *args, **kwargs)
 
 def starshow_poor(ax=None, *args, **kwargs):
   if ax is None: ax = gca()

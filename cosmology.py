@@ -22,51 +22,7 @@ from numpy import add
 from numpy import broadcast
 
 from constant import SI
-
-class Units:
-  def __init__(self, h):
-    C = 3e5
-    G = 43007.1
-    H0 = 0.1
-    pi = 3.1415926
-    #internal units
-    TIME = H0 / (SI.H0 * h)
-    LENGTH = TIME * (SI.C / C)
-    MASS = G / SI.G * LENGTH ** 3 * TIME ** -2
-    TEMPERATURE = 1.0
-    ENERGY = MASS * (LENGTH / TIME) ** 2
-    POWER = ENERGY / TIME
-
-    #quantities
-    BOLTZMANN = SI.BOLTZMANN / ((LENGTH / TIME) ** 2 * MASS)
-    SOLARMASS = SI.SOLARMASS / MASS
-    SOLARLUMINOSITY = SI.SOLARLUMINOSITY / POWER
-    PROTONMASS = SI.PROTONMASS / MASS
-    KPC_h = SI.KPC / LENGTH / h
-    MPC_h = KPC_h * 1000
-    MYEAR_h = SI.MYEAR / TIME / h
-    KPC = SI.KPC / LENGTH
-    MPC = KPC * 1000
-    METER = SI.METER / LENGTH
-    NANOMETER = SI.NANOMETER / LENGTH
-    MYEAR = SI.MYEAR / TIME
-    LYMAN_ALPHA_CROSSSECTION = SI.LYMAN_ALPHA_CROSSSECTION / (LENGTH**2)
-    J = SI.J / ENERGY
-    W = SI.W / (ENERGY / TIME)
-    EV = SI.EV / ENERGY
-    SECOND = SI.SECOND / TIME
-    RYDBERG = SI.RYDBERG / ENERGY
-    CRITICAL_DENSITY = 3 * H0 ** 2/ (8 * pi * G)
-
-    self.set_dict(locals());
-
-  def set_dict(self, locals):
-    for field in locals:
-      if field == "self": continue
-      self.__dict__[field] = locals[field]
-  def __str__(self):
-    return str(self.__dict__)
-
+from units import Units
 class Cosmology:
   def __init__(self, h, M, L, K=0):
     self.M = M
@@ -233,7 +189,7 @@ class Cosmology:
   def D2z(self, z0, d):
     """returns the z satisfying Dc(z0, z) = d, and z > z0"""
     d0 = interp(z0, self._z_table, self._intEzinv_table)
-    z = interp((d / self.DH + d0), self._intEzinv_table, self._z_table)
+    z = interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
     return z
 
   def radec2pos(self, ra, dec, z, out=None):

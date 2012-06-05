@@ -2,14 +2,17 @@
 #cython: cdivision=True
 import numpy
 cimport cpython
+from cpython.ref cimport Py_INCREF
 cimport numpy
+cimport npyiter
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 from libc.float cimport FLT_MAX
 from libc.limits cimport INT_MAX, INT_MIN
-
+from libc.math cimport fmin
 cimport cython
 import cython
+from warnings import warn
 
 numpy.import_array()
 
@@ -57,7 +60,7 @@ cdef float dist2(int64_t key1, int64_t key2, float norm[3], int bits) nogil:
     z = iz / norm[2]
     return x * x + y * y + z * z
 
-cdef class Result(object):
+cdef class Result:
   def __cinit__(Result self, int limit = 0):
     if limit > 0:
       self.limit = limit 
@@ -156,11 +159,9 @@ cdef class Scale(object):
 
   def __call__(self, x, y, z, ix=None, iy=None, iz=None):
     x = numpy.asarray(x)
-    oshape = x.shape
-    x = numpy.atleast_1d(x)
-    y = numpy.atleast_1d(y)
-    z = numpy.atleast_1d(z)
-    
+    y = numpy.asarray(y)
+    z = numpy.asarray(z)
+
     if ix is None:
       ix = numpy.empty(shape=x.shape, dtype='i4')
     if iy is None:
@@ -168,17 +169,81 @@ cdef class Scale(object):
     if iz is None:
       iz = numpy.empty(shape=z.shape, dtype='i4')
 
-    ix[:] = (x - self.min[0]) * self.norm[0]
-    iy[:] = (y - self.min[1]) * self.norm[1]
-    iz[:] = (z - self.min[2]) * self.norm[2]
+    ix[...] = (x - self.min[0]) * self.norm[0]
+    iy[...] = (y - self.min[1]) * self.norm[1]
+    iz[...] = (z - self.min[2]) * self.norm[2]
 
-    ix.shape = oshape
-    iy.shape = oshape
-    iz.shape = oshape
     return ix, iy, iz
 
   def __str__(self):
     return str(dict(min=self.min, norm=self.norm))
+
+  cdef void BBint(Scale self, float pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil:
+    cdef float rf, f
+    for d in range(3):
+      center[d] = <int32_t> ((pos[d] - self._min[d] ) * self._norm[d])
+      rf = r * self._norm[d]
+      f = center[d] - rf
+      if f > INT_MAX: min[d] = INT_MAX
+      elif f < INT_MIN: min[d] = INT_MIN
+      else: min[d] = <int32_t>f
+
+      f = center[d] + rf
+      if f > INT_MAX: max[d] = INT_MAX
+      elif f < INT_MIN: max[d] = INT_MIN
+      else: max[d] = <int32_t>f
+    
+  cdef void from_float(Scale self, float pos[3], int32_t point[3]) nogil:
+    cdef int d
+    for d in range(3):
+      point[d] = <int32_t> ((pos[d] - self._min[d]) * self._norm[d])
+
+  cdef float dist2(Scale self, int32_t center[3], int32_t point[3]) nogil:
+    cdef float x, dx
+    cdef int d
+    x = 0
+    for d in range(3):
+       dx = (point[d] - center[d]) / self._norm[d]
+       x += dx * dx
+    return x
+
+  cdef void decode(Scale self, int64_t key, int32_t point[3]) nogil:
+    cdef int j
+    point[0] = 0
+    point[1] = 0
+    point[2] = 0
+    for j in range(0, self.bits) :
+      point[2] += ((key & 1) << j)
+      key >>= 1
+      point[1] += ((key & 1) << j)
+      key >>= 1
+      point[0] += ((key & 1) << j)
+      key >>= 1
+  cdef void decode_float(Scale self, int64_t key, float pos[3]) nogil:
+    cdef int32_t point[3]
+    cdef int d
+    self.decode(key, point)
+    for d in range(3):
+      pos[d] = point[d] / self._norm[d] + self._min[d]
+    
+  cdef int64_t encode(Scale self, int32_t point[3]) nogil:
+    cdef int64_t key = 0
+    cdef int j
+    for j in range(self.bits-1, -1, -1) :
+      key = key << 1
+      key = key + ((point[0] >> j) & 1)
+      key = key << 1
+      key = key + ((point[1] >> j) & 1)
+      key = key << 1
+      key = key + ((point[2] >> j) & 1)
+    return key
+
+  cdef int64_t encode_float (Scale self, float pos[3]) nogil:
+    cdef int32_t point[3]
+    cdef int d
+    for d in range(3):
+      point[d] = <int32_t> ((pos[d] - self._min[d]) * self._norm[d])
+    return self.encode(point)
 
 cdef class Tree(object):
 
@@ -263,124 +328,197 @@ cdef class Tree(object):
     return rt
     
   @cython.boundscheck(False)
+  cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
+     cdef intptr_t j
+     cdef int32_t r
+     cdef int64_t key
+     cdef intptr_t tmp
+     cdef int32_t min[3], max[3], center[3]
+     key = self.scale.encode_float(pos)
+     r = self.__query_neighbours_estimate_radius(key, result.limit)
+     cdef float max_weight = 0
+     cdef int iteration = 0
+     while iteration < 4:
+       result.truncate()
+       self.scale.BBint(pos, r / self.scale._norm[0], center, min, max)
+       self.query_box_one(result, min, max, center)
+       r = (r << 1)
+       iteration = iteration + 1
+       if result.used < result.limit:
+         continue
+       if max_weight == result._weight[result.limit -1]: 
+         break
+       else:
+         max_weight = result._weight[result.limit -1]
+     if iteration == 4:
+       with gil:
+         warn('query neighbour one failed, returning %d /%d', result.used, result.limit)
+       for j in range(result.used, result.limit):
+         result._buffer[j] = -1
+
+  @cython.boundscheck(False)
   def query_neighbours(Tree self, x, y, z, int32_t count):
-    cdef intptr_t [:] cand
-    cdef intptr_t i, d, j, k, used
+    cdef intptr_t i, d, j, k
     cdef int64_t [:] queryzorder
-    cdef float normmax, norm[3], smin[3], x2, r, rf, f
-    cdef int32_t min[3], max[3], center[3]
-    cdef numpy.ndarray[numpy.intp_t, ndim=2] out
-    oshape = numpy.array(x).shape
+    cdef float pos[3]
 
-    normmax = self.scale.norm[0]
-    if self.scale.norm[1] > normmax:
-      normmax = self.scale.norm[1]
-    if self.scale.norm[2] > normmax:
-      normmax = self.scale.norm[2]
-    for i in range(3):
-      norm[i] = self.scale.norm[i]
-      smin[i] = self.scale.min[i]
-    x = numpy.atleast_1d(x)
-    y = numpy.atleast_1d(y)
-    z = numpy.atleast_1d(z)
-    queryzorder = _zorder(x, y, z, scale=self.scale)
-    
-    out = numpy.empty(shape=(x.shape[0], count), dtype=numpy.intp)
+    out = numpy.empty_like(x, dtype=[('data', (numpy.intp, count))])
+    iter = numpy.nditer([x, y, z, out], op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], flags=['buffered', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', out.dtype])
 
-    for i in range(x.shape[0]):
-      r = self.__query_neighbours_estimate_radius(queryzorder[i], normmax, count)
-      while True:
-        center[0] = (x[i] - smin[0]) * norm[0]
-        center[1] = (y[i] - smin[1]) * norm[1]
-        center[2] = (z[i] - smin[2]) * norm[2]
+    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
+    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
+    cdef char ** data = npyiter.GetDataPtrArray(citer)
+    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
+    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
+    cdef intptr_t iop, size
+    cdef intptr_t total = 0
+    cdef Result result = Result(count)
+
+    with nogil:
+     while True:
+      size = size_ptr[0]
+      total += size
+      while size > 0:
         for d in range(3):
-          rf = r * norm[d]
-          f = center[d] - rf
-          if f > INT_MAX: min[d] = INT_MAX
-          elif f < INT_MIN: min[d] = INT_MIN
-          else: min[d] = <int32_t>f
+          pos[d] = (<float*>data[d])[0]
+        result.truncate()
+        self.query_neighbours_one(result, pos)
+        for i in range(count):
+          (<intptr_t*>data[3])[i] = result._buffer[i]
 
-          f = center[d] + rf
-          if f > INT_MAX: max[d] = INT_MAX
-          elif f < INT_MIN: max[d] = INT_MIN
-          else: max[d] = <int32_t>f
+        for iop in range(4):
+          data[iop] += strides[iop]
+        size = size - 1
+      i = next(citer)
+      if i == 0: break
 
-        result = Result(count)
-        self.__query_box_one(result, min, max, center, norm, 0)
-        if result.used == count: break
-        r *= 2
-        
-      for j in range(count):
-        out[i, j] = result._buffer[j]
-
-    return out.reshape(list(oshape) + [count])
+    out = out.view(dtype=(numpy.intp, count))
+    return out
   
   @cython.boundscheck(False)
-  cdef float __query_neighbours_estimate_radius(Tree self, int64_t ckey, float norm, int count) nogil:
-    cdef intptr_t this, child
+  cdef int32_t __query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil:
+    cdef intptr_t this, child, next
     cdef float rt = 0, tmp = 0
     this = 0
-    while self._buffer[this].child_length > 0:
+    while this != -1 and self._buffer[this].child_length > 0:
+      next = this
       for i in range(self._buffer[this].child_length):
         child = self._buffer[this].child[i]
         if insquare(self._buffer[child].key, self._buffer[child].order, ckey):
-          this = child
+          next = child
           break
-      if self._buffer[this].npar < count:
-        this = self._buffer[this].parent
-        break
+      if next == this: break
+      else:
+        if self._buffer[next].npar < count: break
+        this = next
+        continue
+
+    while this != -1 and self._buffer[this].npar < count:
+      this = self._buffer[this].parent
+
     if this == -1: this = 0
-    return ((1 << self._buffer[this].order) - 1) / norm
+    return ((1 << self._buffer[this].order) - 1)
     
 
   @cython.boundscheck(False)
   def query_box(Tree self, x, y, z, radius, int limit = 0):
-    ix0, iy0, iz0 = self.scale(x, y, z)
     oshape = numpy.asarray(x).shape
-    cdef int32_t [:] ix = numpy.atleast_1d(ix0)
-    cdef int32_t [:] iy = numpy.atleast_1d(iy0)
-    cdef int32_t [:] iz = numpy.atleast_1d(iz0)
     radius = numpy.atleast_1d(radius)
     cdef int32_t min[3]
     cdef int32_t max[3]
     cdef int32_t center[3]
-    cdef float rf
     cdef Result result
-    cdef intptr_t i, d
-    cdef float f
-    cdef float r
-    cdef float norm[3]
-    cdef numpy.ndarray[cython.object, ndim=1] ret = numpy.zeros(ix.shape[0], dtype=numpy.dtype('object'))
+    cdef intptr_t i
+    cdef float pos[3]
+    cdef numpy.ndarray ret 
 
-    for d in range(3):
-      norm[d] = self.scale.norm[d]
+    ret = numpy.empty_like(x, dtype=numpy.dtype('object'))
+    iter = numpy.nditer([x, y, z, radius, ret], op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], flags=['buffered', 'refs_ok', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
 
-    for i in range(ix.shape[0]):
-      center[0] = ix[i]
-      center[1] = iy[i]
-      center[2] = iz[i]
-      if radius.shape[0] > 1: r = radius[i]
-      else: r = radius[0]
-      for d in range(3):
-        rf = r * norm[d]
-        f = center[d] - rf
-        if f > INT_MAX: min[d] = INT_MAX
-        elif f < INT_MIN: min[d] = INT_MIN
-        else: min[d] = <int32_t>f
+    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
+    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
+    cdef char ** data = npyiter.GetDataPtrArray(citer)
+    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
+    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
+    cdef intptr_t iop, size
+    cdef object a
+    # this cannot be done with no gil.
 
-        f = center[d] + rf
-        if f > INT_MAX: max[d] = INT_MAX
-        elif f < INT_MIN: max[d] = INT_MIN
-        else: max[d] = <int32_t>f
+    while True:
+      size = size_ptr[0]
+      while size > 0:
+        for d in range(3):
+          pos[d] = (<float*>data[d])[0]
+        r = (<float*> data[3])[0]
+        self.scale.BBint(pos, r, center, min, max)
+        result = Result(limit)
+        self.query_box_one(result, min, max, center)
+        a = (result.harvest())
+        (<void**>data[4])[0] = <void*> a
+        Py_INCREF(a)
+        for iop in range(5):
+          data[iop] += strides[iop]
+        size = size - 1
+      i = next(citer)
+      if i == 0: break
 
-      result = Result(limit)
-      self.__query_box_one(result, min, max, center, norm, 0)
-      ret[i] = result.harvest()
-
-    return ret.reshape(oshape)
+    return ret
 
   @cython.boundscheck(False)
-  cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], float norm[3], intptr_t node) nogil:
+  def query_box_wh(Tree self, x, y, z, x1, y1, z1, int limit = 0):
+    oshape = numpy.asarray(x).shape
+    cdef int32_t min[3]
+    cdef int32_t max[3]
+    cdef int32_t center[3]
+    cdef Result result
+    cdef intptr_t i
+    cdef float pos[3]
+    cdef numpy.ndarray ret 
+
+    ret = numpy.empty_like(x, dtype=numpy.dtype('object'))
+    iter = numpy.nditer([x, y, z, x1, y1, z1, ret], 
+      op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], 
+      flags=['buffered', 'refs_ok', 'external_loop'], 
+      casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
+
+    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
+    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
+    cdef char ** data = npyiter.GetDataPtrArray(citer)
+    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
+    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
+    cdef intptr_t iop, size
+    cdef object a
+    # this cannot be done with no gil.
+    while True:
+      size = size_ptr[0]
+      while size > 0:
+        for d in range(3):
+          pos[d] = (<float*>data[d])[0]
+        self.scale.from_float(pos, min)
+        for d in range(3):
+          pos[d] = (<float*>data[3+d])[0]
+        self.scale.from_float(pos, max)
+
+        for d in range(3):
+          pos[d] = (<float*>data[3+d])[0] + (<float*>data[d])[0] 
+          pos[d] *= 0.5
+        self.scale.from_float(pos, center)
+
+        result = Result(limit)
+        self.query_box_one(result, min, max, center)
+        a = (result.harvest())
+        (<void**>data[6])[0] = <void*> a
+        Py_INCREF(a)
+        for iop in range(7):
+          data[iop] += strides[iop]
+        size = size - 1
+      i = next(citer)
+      if i == 0: break
+
+    return ret
+
+  @cython.boundscheck(False)
+  cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t node) nogil:
     """ add the pars in a node into result, use the distance if result.limit > 0"""
     cdef float dx, x
     cdef int64_t key
@@ -393,30 +531,19 @@ cdef class Tree(object):
       return
 
     for i in range(self._buffer[node].first, self._buffer[node].first + self._buffer[node].npar):
-        key = self._zorder[i]
-        ipos[0] = 0
-        ipos[1] = 0
-        ipos[2] = 0
-        for j in range(0, self.scale.bits) :
-          ipos[2] += ((key & 1) << j)
-          key >>= 1
-          ipos[1] += ((key & 1) << j)
-          key >>= 1
-          ipos[0] += ((key & 1) << j)
-          key >>= 1
+        self.scale.decode(self._zorder[i], ipos)
+
         good = 1
         for d in range(3):
           if ipos[d] > max[d] or ipos[d] < min[d]:
             good = 0
             break
+
         if good: 
           if result.limit == 0:
             result.append_one(i)
           else: 
-            x = 0
-            for d in range(3):
-               dx = (ipos[d] - center[d]) * norm[d]
-               x += dx * dx
+            x = self.scale.dist2(ipos, center)
             result.append_one_with_weight(i, x)
     
   cdef int __goodness(Tree self, intptr_t node, int32_t min[3], int32_t max[3]) nogil:
@@ -424,17 +551,8 @@ cdef class Tree(object):
     cdef int32_t cmin[3]
     cdef intptr_t i, j, d
     cdef int32_t box = (1 << self._buffer[node].order) - 1
-    cdef int64_t key = self._buffer[node].key
-    cmin[0] = 0
-    cmin[1] = 0
-    cmin[2] = 0
-    for j in range(0, self.scale.bits) :
-      cmin[2] += ((key & 1) << j)
-      key >>= 1
-      cmin[1] += ((key & 1) << j)
-      key >>= 1
-      cmin[0] += ((key & 1) << j)
-      key >>= 1
+
+    self.scale.decode(self._buffer[node].key, cmin)
 
     for d in range(3):
       if cmin[d] > max[d] or cmin[d] + box < min[d]:
@@ -447,16 +565,19 @@ cdef class Tree(object):
     return 1
      
   @cython.boundscheck(False)
-  cdef void __query_box_one(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], float norm[3], intptr_t root) nogil:
+  cdef void query_box_one(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3]) nogil:
+    self.__query_box_one_from(result, min, max, center, 0)
+
+  cdef void __query_box_one_from(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t root) nogil:
     cdef int verygood = self.__goodness(root, min, max)
     if verygood == -1: return
     if self._buffer[root].child_length == 0 or verygood == 1:
       # has no children or fully inside, open the node, pump in
-      self.__add_node(result, min, max, center, norm, root)
+      self.__add_node(result, min, max, center, root)
     else:
       # loop over the children
       for i in range(self._buffer[root].child_length):
-        self.__query_box_one(result, min, max, center, norm, self._buffer[root].child[i])
+        self.__query_box_one_from(result, min, max, center, self._buffer[root].child[i])
 
   @cython.boundscheck(False)
   cdef int _tree_build(Tree self) nogil:
@@ -564,23 +685,13 @@ cdef void _fused_zorder(
    float[:] z,
    Scale scale
 ):
-    cdef intptr_t i, j
-    cdef int32_t ix, iy, iz
-    cdef int64_t key
-
+    cdef intptr_t i
+    cdef float pos[3]
     for i in range(x.shape[0]):
-      ix = <int32_t> (scale._norm[0] * (x[i] - scale._min[0]))
-      iy = <int32_t> (scale._norm[1] * (y[i] - scale._min[1]))
-      iz = <int32_t> (scale._norm[2] * (z[i] - scale._min[2]))
-      key = 0
-      for j in range(scale.bits-1, -1, -1) :
-        key = key << 1
-        key = key + ((ix >> j) & 1)
-        key = key << 1
-        key = key + ((iy >> j) & 1)
-        key = key << 1
-        key = key + ((iz >> j) & 1)
-      out[i] = key
+      pos[0] = x[i]
+      pos[1] = y[i]
+      pos[2] = z[i]
+      out[i] = scale.encode_float(pos)
 
 def zorder_inverse(zorder, scale, x=None, y=None, z=None):
   if x is None:
@@ -609,16 +720,9 @@ cdef void _fused_zorder_inverse(
     cdef intptr_t i, j
     cdef int32_t ix, iy, iz
     cdef int64_t key
+    cdef float pos[3]
     for i in range(x.shape[0]):
-      key = zorder[i]
-      ix = iy = iz = 0
-      for j in range(0, scale.bits) :
-        iz = iz + ((key & 1) << j)
-        key = key >>1
-        iy = iy + ((key & 1) << j)
-        key = key >>1
-        ix = ix + ((key & 1) << j)
-        key = key >>1
-      x[i] = ix / (scale._norm[0]) + scale._min[0]
-      y[i] = iy / (scale._norm[1]) + scale._min[1]
-      z[i] = iz / (scale._norm[2]) + scale._min[2]
+      scale.decode_float(zorder[i], pos)
+      x[i] = pos[0]
+      y[i] = pos[1]
+      z[i] = pos[2]

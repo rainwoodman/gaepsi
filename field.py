@@ -11,6 +11,7 @@ from numpy import ndarray
 from cosmology import Cosmology
 from tools import sharedmem
 from ccode import k0
+from warnings import warn
 
 def is_string_like(v):
   try: v + ''
@@ -183,27 +184,34 @@ class Field(object):
 
   def take_snapshots(self, snapshots, ptype, nthreads=None):
     self.init_from_snapshot(snapshots[0])
+    if isscalar(ptype):
+       ptypes = [ptype]
+    else:
+       ptypes = ptype
+
+    ptype = None
 
     self.numpoints = 0
 
       
-    lengths = zeros(dtype='u8', shape=len(snapshots))
+    lengths = zeros(dtype='u8', shape=(len(snapshots), len(ptypes)))
     starts  = lengths.copy()
 
     with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
       def work(i, snapshot):
-        mask = None
-        if (ptype, 'pos') in snapshot:
-          pos = snapshot[ptype, 'pos']
-          if snapshot.C.N[ptype] != 0:
-            mask = self.cut.select(pos)
-        if mask is not None:
-          lengths[i] = mask.sum()
-        else:
-          lengths[i] = snapshot.C.N[ptype]
+        for j, ptype in enumerate(ptypes):
+          mask = None
+          if (ptype, 'pos') in snapshot:
+            pos = snapshot[ptype, 'pos']
+            if snapshot.C.N[ptype] != 0:
+              mask = self.cut.select(pos)
+          if mask is not None:
+            lengths[i, j] = mask.sum()
+          else:
+            lengths[i, j] = snapshot.C.N[ptype]
       pool.starmap(work, list(enumerate(snapshots)))
-       
-    starts[1:] = lengths.cumsum()[:-1]
+
+    starts.flat[1:] = lengths.cumsum()[:-1]
 
     self.numpoints = lengths.sum()
 
@@ -215,54 +223,71 @@ class Field(object):
       self.dict[comp] = zeros(shape = shape,
          dtype = self.dict[comp].dtype)
 
-    if (ptype, 'pos') in snapshots[0]:
+    if (ptypes[0], 'pos') in snapshots[0]:
       resize('locations')
 
     for comp in self:
       if comp == 'locations': continue # skip locations it is handled differnently
       block = self.comp_to_block(comp)
-      if not (ptype, block) in snapshots[0]:
-        print block, 'is not supported in snapshot'
-      else:
-        blocklist.append((comp, block))
-        resize(comp)
+
+      blocklist.append((comp, block))
+      resize(comp)
+
+    #  if not (ptypes[0], block) in snapshots[0]:
+    #    resize(comp)
+    #    if block == 'mass':
+    #      self[comp][:] = snapshots[0].header['mass'][ptype]
+    #    else:
+    #      print block, 'is not supported in snapshot'
+    #  else:
 
     with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
       def work(snapshot, start, length):
-        if length == 0: return
-        mask = None
-        if (ptype, 'pos') in snapshot:
-          pos = snapshot[ptype, 'pos']
-          if snapshot.C.N[ptype] != 0:
-            mask = self.cut.select(pos)
-          if mask is None:
-            self['locations'][start:start+length] = pos[:]
-          else:
-            self['locations'][start:start+length] = pos[mask]
-          del pos
-          del snapshot[ptype, 'pos']
+        for j, ptype in enumerate(ptypes):
+          if length[j] == 0: continue
+          mask = None
+          if (ptype, 'pos') in snapshot:
+            pos = snapshot[ptype, 'pos']
+            if snapshot.C.N[ptype] != 0:
+              mask = self.cut.select(pos)
+            if mask is None:
+              self['locations'][start[j]:start[j]+length[j]] = pos[:]
+            else:
+              length0 = mask.sum()
+              self['locations'][start[j]:start[j]+length[j]] = pos[mask]
+            del pos
+            del snapshot[ptype, 'pos']
   
-        for comp, block in blocklist:
-          data = snapshot[ptype, block]
-          if mask is None:
-            self[comp][start:start+length] = data[:]
-          else:
-            self[comp][start:start+length] = data[mask]
-          del data
-          del snapshot[ptype, block]
-        del mask
+          for comp, block in blocklist:
+            if not (ptype, block) in snapshot:
+              if block != 'mass':
+                warn('ptype %d, %s not in snapshot file' % (ptype, block))
+              else:
+                self[comp][start[j]:start[j]+length[j]] = snapshot.header['mass'][ptype]
+              continue
+            data = snapshot[ptype, block]
+            if mask is None:
+              self[comp][start[j]:start[j]+length[j]] = data[:]
+            else:
+              self[comp][start[j]:start[j]+length[j]] = data[mask]
+            del data
+            del snapshot[ptype, block]
+          del mask
       pool.starmap(work, zip(snapshots, starts, lengths))
 
   def __iter__(self):
     return iter(self.dict)
   def __str__(self) :
     return str(self.dict)
+
   def __getitem__(self, index):
     if type(index) is str:
       return self.dict[index]
     else:
-      from numpy import repeat, array
-      return repeat(array([index]), self.numpoints)
+      result = {}
+      for comp in self:
+        result[comp] = self[comp][index]
+      return result
 
   def __setitem__(self, index, value):
     if is_scalar_like(value):
@@ -298,52 +323,23 @@ class Field(object):
   def smooth(self, weight=None, NGB=32, tol=1e-5):
 #    self.peano_reorder()
 #    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
-    if weight is not None:
-      expt = self[weight].mean() * NGB
-    else:
-      expt = NGB
     tree = self.zorder(ztree=True)
-    points = self['locations']
-    sml = sharedmem.empty(self.numpoints, dtype='f4').view(type=ndarray)
-    self['sml'] = sml
-    def work(points, out): 
-      ngb = tree.query_neighbours(points[:, 0], points[:, 1], points[:, 2], NGB)
-      neipos = self['locations'][ngb, :]
-      if weight is not None:
-        neiwei = self[weight][ngb] 
-      else:
-        neiwei = ones(shape=(ngb.shape[0], NGB), dtype='f4')
-      neipos -= points[:, newaxis, :]
-      neipos **= 2
-      dist = neipos.sum(axis=-1) ** 0.5
-      del neipos
-      hmax = dist[:, -1].copy()
-      mmax = 4 * 3.1416 / 3 *(k0(dist / hmax[:, newaxis]) * neiwei).sum(axis=-1)
-      hmin = dist[:, 1].copy()
-      mmin = 4 * 3.1416 / 3 *(k0(dist / hmin[:, newaxis]) * neiwei).sum(axis=-1)
-      mask = mmax < expt
-      while mask.any():
-        hmax[mask] *= 2
-        mmax[mask] = 4 * 3.1416 / 3 *(k0(dist[mask] / hmax[mask][:, newaxis]) * neiwei[mask]).sum(axis=-1)
-        mask[:] = mmax < expt
-      mask[:] = mmin > expt
-      while mask.any():
-        hmin[mask] *= 0.5
-        mmin[mask] = 4 * 3.1416 / 3 *(k0(dist[mask] / hmin[mask][:, newaxis]) * neiwei[mask]).sum(axis=-1)
-        mask[:] = mmin > expt
+    if weight is not None:
+      weight = self[weight]
+    else:
+      weight = asarray(1.0, dtype='f4')
 
-      iterations = 0
-      while iterations < 100:
-        h = (hmin + hmax) * 0.5
-        m = 4 * 3.1416 / 3 *(k0(dist / h[:, newaxis]) * neiwei).sum(axis=-1)
-        mask = m > expt
-        hmax[mask] = h[mask]
-        hmin[~mask] = h[~mask]
-        if (1 - hmin/hmax < tol).all(): break
-        iterations = iterations + 1
-      out[:] = h
-    with sharedmem.Pool(use_threads=False) as pool:
-      pool.starmap(work, zip(*pool.split((points, sml), chunksize=8192)))
+    points = self['locations']
+#    sml = sharedmem.copy(self['sml']).view(type=ndarray)
+#    self['sml'] = sml
+    sml = self['sml']
+    from ccode._field import solve_sml
+    
+    def work(points, w, out): 
+      solve_sml(points, w, self['locations'], atleast_1d(weight), out, tree, NGB)
+      print 'chunk done'
+    with sharedmem.Pool(use_threads=True) as pool:
+      pool.starmap(work, zip(*pool.split((points, weight, sml), nchunks=1024)))
 
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
@@ -351,15 +347,15 @@ class Field(object):
     if axis == 2 or axis == 'z':
       M = matrix([[ cos(angle), -sin(angle), 0],
                   [ sin(angle), cos(angle), 0],
-                  [ 0         ,          0, 1]])
+                  [ 0         ,          0, 1]], dtype='f4')
     if axis == 1 or axis == 'y':
       M = matrix([[ cos(angle), 0, -sin(angle)],
                   [ 0         ,          1, 0],
-                  [ sin(angle), 0, cos(angle)]])
+                  [ sin(angle), 0, cos(angle)]], dtype='f4')
     if axis == 0 or axis == 'x':
       M = matrix([[ 1, 0         ,          0],
                   [ 0, cos(angle), -sin(angle)],
-                  [ 0, sin(angle), cos(angle)]])
+                  [ 0, sin(angle), cos(angle)]], dtype='f4')
 
     self['locations'] -= origin
     self['locations'] = inner(self['locations'], M)
@@ -423,7 +419,8 @@ class Field(object):
       with sharedmem.Pool(use_threads=True) as pool:
         def work(key):
           self.dict[key] = self.dict[key].take(arg, axis=0)
-        pool.map(work, self.dict.keys())
+        pool.map(work, list(self.dict.keys()))
+
       zorder = zorder[arg]
     if ztree:
       return zt.Tree(zorder=zorder, scale=scale, thresh=128)

@@ -83,6 +83,10 @@ class Snapshot:
     ptype, block = index
     return self.load([block], ptype)[0]
 
+  def __setitem__(self, index, value):
+    ptype, block = index
+    self.P[ptype][block] = value
+
   def __contains__(self, index):
     ptype, block = index
     return self.has(block, ptype)

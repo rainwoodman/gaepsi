@@ -15,6 +15,7 @@ import Queue as queue
 import ctypes
 import traceback
 import copy_reg
+import signal
 
 from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
@@ -49,7 +50,6 @@ class Pool:
   def __init__(self, np=None, use_threads=False):
     if np is None: np = cpu_count()
     self.np = np
-
     if use_threads:
       self.QueueFactory = queue.Queue
       self.JoinableQueueFactory = queue.Queue
@@ -58,15 +58,24 @@ class Pool:
         slave.daemon = True
         return slave
       self.SlaveFactory = func
+      self.lock = threading.Lock()
     else:
       self.QueueFactory = mp.Queue
       self.JoinableQueueFactory = mp.JoinableQueue
-      self.SlaveFactory = mp.Process
+      def func(*args, **kwargs):
+        slave = mp.Process(*args, **kwargs)
+        slave.daemon = True
+        return slave
+      self.SlaveFactory = func
+      self.lock = mp.Lock()
+
+  def zipsplit(self, list, nchunks=None, chunksize=None):
+    return zip(*self.split(list, nchunks, chunksize))
 
   def split(self, list, nchunks=None, chunksize=None):
     """ Split every item in the list into nchunks, and return a list of chunked items.
            - then used with p.starmap(work, zip(*p.split((xxx,xxx,xxxx), chunksize=1024))
-        For non sequence items and tuples, constructs a repeated iterator,
+        For non sequence items, tuples, and 0d arrays, constructs a repeated iterator,
         For sequence items(but tuples), convert to numpy array then use nupy.array_split to split them.
         either give nchunks or chunksize. chunksize is only instructive, nchunk is estimated from chunksize
     """
@@ -83,7 +92,10 @@ class Pool:
       
     for item in list:
       if isinstance(item, numpy.ndarray):
-        result += [numpy.array_split(item, nchunks)]
+        if item.shape:
+          result += [numpy.array_split(item, nchunks)]
+        else:
+          result += [repeat(item)]
       elif hasattr(item, '__getslice__') and not isinstance(item, tuple):
         result += [numpy.array_split(numpy.asarray(item), nchunks)]
       else:
@@ -97,80 +109,101 @@ class Pool:
     """
       calls work on every item in sequence. the return value is unordered unless ordered=True.
     """
-    if __shmdebug__: self.map_debug(work, squence, chunksize, ordered, star)
+    if __shmdebug__: 
+      print 'shm debugging'
+      return self.map_debug(work, sequence, chunksize, ordered, star)
     if not hasattr(sequence, '__getslice__'):
       raise TypeError('can only take a slicable sequence')
 
     def worker(S, sequence, Q):
       dead = False
+      error = None
       while True:
         begin, end = S.get()
         if begin is None: 
-          print 'a worker has terminated with token', end
           S.task_done()
           break
         if dead: 
+          Q.put((None, None))
           S.task_done()
           continue
+
         out = []
         try:
           for i in sequence[begin:end]:
             if star: out += [ work(*i) ]
             else: out += [ work(i) ]
         except Exception as e:
-          Q.put((e, traceback.format_exc()))
+          error = (e, traceback.format_exc())
+          Q.put(error)
           dead = True
-        finally:
-          S.task_done()
 
         if not dead: Q.put((begin, out))
-
+        S.task_done()
     P = []
     Q = self.QueueFactory()
     S = self.JoinableQueueFactory()
 
     i = 0
 
+    N = 0
     while i < len(sequence):
       j = i + chunksize 
       if j > len(sequence): j = len(sequence)
       S.put((i, j))
       i = j
+      N = N + 1
 
     for i in range(self.np):
         S.put((None, i)) # sentinel
 
+    # the slaves will not raise KeyboardInterrupt Exceptions
+    old = signal.signal(signal.SIGINT, signal.SIG_IGN)
     for i in range(self.np):
         p = self.SlaveFactory(target=worker, args=(S, sequence, Q))
         P.append(p)
+
+    signal.signal(signal.SIGINT, old)
+
+    for p in P:
         p.start()
 
     S.join()
 
+
+#   the result is not sorted yet
+    R = []
+    error = []
+    while N > 0:
+      ind, r = Q.get()
+      if isinstance(ind, Exception): 
+        error += [(ind, r)]
+      elif ind is None:
+        # the worker dead, nothing done
+        pass
+      else:
+        R += r
+      N = N - 1
+
+    # must clear Q before joining the Slaves or we deadlock.
     for p in P:
       if p.is_alive():
         p.join(10)
         if p.is_alive():
+          # we are in a serious Bug of sharedmem if reached here.
           raise Exception("thread alive after queue joined")
+    # now report any errors
+    if error:
+      raise Exception('%d errors received\n' % len(error) + error[0][1])
 
-#   the result is not sorted 
-    R = []
-    while not Q.empty():
-      ind, r = Q.get()
-      if isinstance(ind, Exception): 
-        raise Exception(r)
-      R += r
-    
     return R
 
   def starmap_debug(self, work, sequence, ordered=False, chunksize=1):
     return self.map_debug(work, sequence, chunksize, ordered, star=True)
 
   def map_debug(self, work, sequence, chunksize=1, ordered=False, star=False):
-    def worker(args):
-       if star: return args[0](*(args[1]))
-       else: return args[0](args[1])
-    return map(worker, izip(cycle([work]), sequence))
+    if star: return [work(*x) for x in sequence]
+    else: return [work(x) for x in sequence]
 
 # Pickling is needed only for mp.Pool. Our pool is directly based on Process
 # thus no need to pickle anything
@@ -214,6 +247,10 @@ class SharedMemArray(numpy.ndarray):
     return __unpickle__, (self.__array_interface__, self.dtype)
 
 copy_reg.pickle(SharedMemArray, __pickle__, __unpickle__)
+
+def empty_like(array, dtype=None):
+  if dtype is None: dtype = array.dtype
+  return empty(array.shape, dtype)
 
 def empty(shape, dtype='f8'):
   """ allocates an empty array on the shared memory """

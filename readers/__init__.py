@@ -144,7 +144,7 @@ class ReaderBase:
         if not snapshot.sizes[name] == None:
           file.seek(snapshot.offsets[name])
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
-          file.create_record(s['dtype'], snapshot.sizes[name] // s['dtype'].base.itemsize)
+          file.create_record(s['dtype'].base, snapshot.sizes[name] // s['dtype'].base.itemsize)
     file.seek(0)
     file.write_record(snapshot.header)
 
@@ -210,12 +210,14 @@ class CFile(file):
     file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=0, nread=None) :
+    dtype = numpy.dtype(dtype)
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
     arr = numpy.fromfile(self, dtype, length)
     self.seek((length - nread - offset) * dtype.itemsize, 1)
     return arr
   def skip_record(self, dtype, length) :
+    dtype = numpy.dtype(dtype)
     size = length * dtype.itemsize
     self.seek(size, 1)
   def write_record(self, a, length = None, offset=0):
@@ -224,9 +226,11 @@ class CFile(file):
     a.tofile(self)
     self.seek((length - a.size - offset) * dtype.itemsize, 1)
   def rewind_record(self, dtype, length) :
+    dtype = numpy.dtype(dtype)
     size = length * dtype.itemsize
     self.seek(-size, 1)
   def create_record(self, dtype, length):
+    dtype = numpy.dtype(dtype)
     self.seek(length * dtype.itemsize, 1)
 
 class F77File(file):
@@ -244,6 +248,7 @@ class F77File(file):
     file.__init__(self, *args, **kwargs)
 
   def read_record(self, dtype, length = None, offset=0, nread=None) :
+    dtype = numpy.dtype(dtype)
     if length == 0: return numpy.array([], dtype=dtype)
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
@@ -275,6 +280,7 @@ class F77File(file):
     numpy.array([size], dtype=self.bsdtype).tofile(self)
 
   def skip_record(self, dtype, length = None) :
+    dtype = numpy.dtype(dtype)
     if length == 0: return
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
@@ -286,6 +292,7 @@ class F77File(file):
       raise IOError("record size doesn't match %d != %d" % (size, size2))
 
   def rewind_record(self, dtype, length = None) :
+    dtype = numpy.dtype(dtype)
     if length == 0: return
     self.seek(-self.bsdtype.itemsize, 1)
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
@@ -299,6 +306,7 @@ class F77File(file):
     if size != size2 :
       raise IOError("record size doesn't match %d != %d" % (size, size2))
   def create_record(self, dtype, length):
+    dtype = numpy.dtype(dtype)
     size = numpy.int32(length * dtype.itemsize)
     numpy.array([size], dtype=self.bsdtype).tofile(self)
     self.seek(size, 1)
