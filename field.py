@@ -320,24 +320,27 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, weight=None, NGB=32, tol=1e-5):
-#    self.peano_reorder()
-#    self['sml'] = sml(locations = self['locations'], mass = self['mass'], N=NGB)
+  def smooth(self, weight='mass', NGB=0, tol=1e-5):
+    """ smooth a field. when NGB<=0, a quick method is used to give
+        a smoothing length estimated from the nearest tree node size; 
+        the weight is not used.
+        otherwise the sph kernel of nearest NGB particles is used to find
+        a mass conserving smoothing length, the weight is used as the mass.
+    """
+    # important to first zorder the tree because it reorders the components.
     tree = self.zorder(ztree=True)
     if weight is not None:
       weight = self[weight]
     else:
+      # an 0d array is not chunked by the pool. 
       weight = asarray(1.0, dtype='f4')
 
     points = self['locations']
-#    sml = sharedmem.copy(self['sml']).view(type=ndarray)
-#    self['sml'] = sml
     sml = self['sml']
     from ccode._field import solve_sml
     
     def work(points, w, out): 
       solve_sml(points, w, self['locations'], atleast_1d(weight), out, tree, NGB)
-      print 'chunk done'
     with sharedmem.Pool(use_threads=True) as pool:
       pool.starmap(work, zip(*pool.split((points, weight, sml), nchunks=1024)))
 

@@ -335,7 +335,7 @@ cdef class Tree(object):
      cdef intptr_t tmp
      cdef int32_t min[3], max[3], center[3]
      key = self.scale.encode_float(pos)
-     r = self.__query_neighbours_estimate_radius(key, result.limit)
+     r = self.query_neighbours_estimate_radius(key, result.limit)
      cdef float max_weight = 0
      cdef int iteration = 0
      while iteration < 4:
@@ -396,7 +396,7 @@ cdef class Tree(object):
     return out
   
   @cython.boundscheck(False)
-  cdef int32_t __query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil:
+  cdef int32_t query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil:
     cdef intptr_t this, child, next
     cdef float rt = 0, tmp = 0
     this = 0

@@ -49,7 +49,7 @@ cdef class Tree(object):
   cdef readonly numpy.ndarray zorder
   cdef readonly Scale scale
   cdef void _grow(self) nogil
-  cdef int32_t __query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil
+  cdef int32_t query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil
   cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t node) nogil
   cdef int __goodness(Tree self, intptr_t node, int32_t min[3], int32_t max[3]) nogil
   cdef void __query_box_one_from(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t root) nogil
