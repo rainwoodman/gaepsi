@@ -23,6 +23,9 @@ from numpy import broadcast
 
 from constant import SI
 from units import Units
+
+import ccode._cosmology
+
 class Cosmology:
   def __init__(self, h, M, L, K=0):
     self.M = M
@@ -132,9 +135,6 @@ class Cosmology:
         out cannot be an alias of t. """
 
     shape = broadcast(z1, z2, t).shape
-    if out is None:
-      out = empty(shape=shape, dtype='f4')
-
     DH = self.DH
     if z2 is None: 
       z2 = z1
@@ -142,17 +142,22 @@ class Cosmology:
     D1 = interp(z1, self._z_table, self._intEzinv_table)
     D2 = interp(z2, self._z_table, self._intEzinv_table)
     if t is None:
-      subtract(D2, D1, out)
-      multiply(out, DH, out)
+      out = subtract(D2, D1, out)
+      out *= DH
       return out
     else:
+      D1 *= DH
+      D2 *= DH
+      return ccode._cosmology.thirdleg(D1, D2, t, out)
+
 #
 #     z1-..-.-.+ |D|
 #    / )  DM1   \
 #   /t  )        \
 #  o----z1'--D21--z2
 #   
-
+#  below calculation is ugly and complicated. it's just the third leg
+#  of the triangle.
       D21 = empty(shape=broadcast(D2, D1).shape, dtype='f4')
       subtract(D2, D1, D21)
 
@@ -198,6 +203,8 @@ class Cosmology:
         dec cannot be an alias of out[:, 0]
         
     """
+    return ccode._cosmology.radec2pos(self, ra, dec, z, out)
+
     shape = broadcast(dec, ra, z).shape
     if out is None:
       out = empty(shape=shape, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
@@ -224,6 +231,8 @@ class Cosmology:
   def sphdist(self, ra1, dec1, ra2, dec2, out=None):
     """ all in rad 
        out cannot be alias of dec1, dec2 """
+    return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
+
     shape = broadcast(ra1, dec1, ra2, dec2).shape
     if out is None:
       out = empty(shape=shape, dtype='f4')

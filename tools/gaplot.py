@@ -953,57 +953,15 @@ class GaplotContext(object):
 
 context = GaplotContext()
 
-def __ensure__(figure):
-  if not has_attr(figure, 'gaplot'):
-    figure.gaplot = GaplotContext()
+methods = [
+  'read', 'use', 'zoom', 'autozoom', 'slice', 'unfold', 'rotate', 'circle', 
+  'reset_view', 'drawscale', 'decorate']
 
-def read(*args, **kwargs):
-  return context.read(*args, **kwargs)
-read.__doc__ = GaplotContext.read.__doc__
+methods += ['bhshow']
 
-def use(*args, **kwargs):
-  return context.use(*args, **kwargs)
-use.__doc__ = GaplotContext.use.__doc__
+for method in methods:
+  locals()[method] = context.__getitem__(method)
 
-def zoom(*args, **kwargs):
-  return context.zoom(*args, **kwargs)
-zoom.__doc__ = GaplotContext.zoom.__doc__
-
-def autozoom(*args, **kwargs):
-  return context.autozoom(*args, **kwargs)
-autozoom.__doc__ = GaplotContext.autozoom.__doc__
-
-def slice(*args, **kwargs):
-  return context.slice(*args, **kwargs)
-zoom.__doc__ = GaplotContext.slice.__doc__
-
-def unfold(*args, **kwargs):
-  return context.unfold(*args, **kwargs)
-
-def rotate(*args, **kwargs):
-  return context.rotate(*args, **kwargs)
-
-def circle(ax=None, *args, **kwargs):
-  if ax is None: ax = gca()
-  context.circle(ax, *args, **kwargs)
-  draw()
-circle.__doc__ = GaplotContext.circle.__doc__
-
-def bhshow(ax=None, *args, **kwargs):
-  if ax is None: ax = gca()
-  context.bhshow(ax, *args, **kwargs)
-  draw()
-bhshow.__doc__ = GaplotContext.bhshow.__doc__
-
-def reset_view(ax=None, camera=False):
-  if ax is None: ax = gca()
-  context.reset_view(ax, camera)
-  draw()
-
-def drawscale(ax=None, *args, **kwargs):
-  if ax is None: ax = gca()
-  context.drawscale(ax, *args, **kwargs)
-  draw()
 
 def gasshow(component='mass', ax=None, *args, **kwargs):
   "see fieldshow for docs"
@@ -1029,11 +987,6 @@ def starshow(component='mass', ax=None, *args, **kwargs):
 def starshow_poor(ax=None, *args, **kwargs):
   if ax is None: ax = gca()
   context.starshow_poor(ax, *args, **kwargs)
-  draw()
-
-def decorate(ax=None, *args, **kwargs):
-  if ax is None: ax = gca()
-  context.decorate(ax=ax, *args, **kwargs)
   draw()
 
 def velshow(ftype, ax=None, relative=False, color='cyan', alpha=0.8):
