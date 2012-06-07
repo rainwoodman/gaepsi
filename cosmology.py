@@ -26,6 +26,10 @@ from units import Units
 
 import ccode._cosmology
 
+def sphdist(ra1, dec1, ra2, dec2, out=None):
+  """ all in radians """
+  return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
+
 class Cosmology:
   def __init__(self, h, M, L, K=0):
     self.M = M

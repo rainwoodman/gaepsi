@@ -20,13 +20,45 @@ import signal
 from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
 from itertools import cycle, izip, repeat
+from warnings import warn
 
 __shmdebug__ = False
+__timeout__ = 10
+
 def set_debug(flag):
+  """ in debug mode (flag==True), no slaves are spawn,
+      rather all work are done in serial on the master thread/process.
+      so that if the worker throws out exceptions, debugging from the main
+      process context is possible. (in iptyhon, with debug magic command, eg)
+  """
   global __shmdebug__
   __shmdebug__ = flag
 
+def set_timeout(timeout):
+  """ set max number of timeout retries. each retry we wait for 10 secs. 
+      if the master fails to join all slaves after timeout retries,
+      a warning will be issued with the total number of alive slaves
+      reported. 
+      The program continues, but there may be a serious issue in the worker 
+      functions.
+  """
+  global __timeout__
+  ret = timeout
+  __timeout__ = timeout
+  return ret
+
 def cpu_count():
+  """ The cpu count defaults to the number of physical cpu cores
+      but can be set with OMP_NUM_THREADS environment variable.
+      OMP_NUM_THREADS is used because if you hybrid sharedmem with
+      some openMP extenstions one environment will do it all.
+
+      on some machines the physical number of cores does not equal
+      the number of cpus shall be used. PSC Blacklight for example.
+
+      Pool defaults to use cpu_count() slaves. however it can be overridden
+      in Pool.
+  """
   num = os.getenv("OMP_NUM_THREADS")
   try:
     return int(num)
@@ -41,6 +73,8 @@ class Pool:
       p.starmap(work, zip(A, B, C))
 
     To use a Thread pool, pass use_threads=True
+    there is a Lock accessible as 'with p.lock'
+    
   """
   def __enter__(self):
     return self
@@ -185,13 +219,26 @@ class Pool:
         R += r
       N = N - 1
 
+    while not Q.empty():
+      warn("remaining in queue %s" % str(Q.get()))
+      
     # must clear Q before joining the Slaves or we deadlock.
-    for p in P:
-      if p.is_alive():
-        p.join(10)
+    i = 0
+    alive = 1
+    while alive > 0 and i < __timeout__:
+      alive = 0
+      for p in P:
         if p.is_alive():
-          # we are in a serious Bug of sharedmem if reached here.
-          raise Exception("thread alive after queue joined")
+          p.join(10)
+          if p.is_alive():
+            # we are in a serious Bug of sharedmem if reached here.
+            warn("thread %s alive after queue joined" % str(p))
+            alive = alive + 1
+      i = i + 1
+
+    if alive > 0:
+      warn("%d thread alive after queue joined" % alive)
+      
     # now report any errors
     if error:
       raise Exception('%d errors received\n' % len(error) + error[0][1])

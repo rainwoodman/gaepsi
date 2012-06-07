@@ -99,6 +99,13 @@ class Cut:
     return mask
 
 class Field(object):
+  @staticmethod
+  def from_recarray(recarray):
+    field = Field(numpoints = len(recarray))
+    for name in recarray.dtype.fields:
+      field[name] = recarray[name]
+    return field
+
   def __init__(self, components=None, numpoints = 0, cut=None):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
@@ -160,7 +167,7 @@ class Field(object):
       if save_and_clear:
         snapshot.create_structure()
 
-      for comp in self:
+      for comp in self.names:
         block = self.comp_to_block(comp)
         try:
           dtype = snapshot.reader.hash[block]['dtype']
@@ -226,7 +233,7 @@ class Field(object):
     if (ptypes[0], 'pos') in snapshots[0]:
       resize('locations')
 
-    for comp in self:
+    for comp in self.names:
       if comp == 'locations': continue # skip locations it is handled differnently
       block = self.comp_to_block(comp)
 
@@ -276,31 +283,61 @@ class Field(object):
       pool.starmap(work, zip(snapshots, starts, lengths))
 
   def __iter__(self):
-    return iter(self.dict)
+    i = 0
+    while True:
+      (yield self[i])
+      i = i + 1
+      if i == self.numpoints: raise StopIteration
+     
   def __str__(self) :
     return str(self.dict)
 
+  @property
+  def names(self):
+    return self.dict.keys()
+
   def __getitem__(self, index):
-    if type(index) is str:
+    if isinstance(index, basestring):
       return self.dict[index]
+    elif isinstance(index, slice):
+      subfield = Field()
+      start, stop, step = index.indices(self.numpoints)
+      subfield.numpoints = (stop + step - 1 - start) / step
+      for comp in self.names:
+        subfield[comp] = self[comp][index]
+      return subfield
     else:
       result = {}
-      for comp in self:
+      for comp in self.names:
         result[comp] = self[comp][index]
       return result
-
+    
   def __setitem__(self, index, value):
-    if is_scalar_like(value):
-      value = ones(self.numpoints) * atleast_1d(value)
-    if value.shape[0] != self.numpoints:
-      raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
-    self.dict[index] = value
+    if isinstance(index, basestring):
+      if is_scalar_like(value):
+        value = ones(self.numpoints) * atleast_1d(value)
+      if value.shape[0] != self.numpoints:
+        raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
+      self.dict[index] = value
+
+    elif isinstance(index, slice):
+      raise IndexError("not supported setting a slice")
+    else:
+      raise IndexError("not supported setting a arbitrary index")
   
   def __delitem__(self, index):
-    del self.dict[index]
+    if isinstance(index, basestring):
+      del self.dict[index]
+    elif isinstance(index, slice):
+      raise IndexError("not supported deleting a slice")
+    else:
+      raise IndexError("not supported deleting a arbitrary index")
 
   def __contains__(self, index):
-    return index in self.dict
+    if isinstance(index, basestring):
+      return index in self.dict
+    else:
+      return index >= 0 and index < self.numpoints
 
   def __repr__(self):
     d = {}
@@ -363,7 +400,7 @@ class Field(object):
     self['locations'] -= origin
     self['locations'] = inner(self['locations'], M)
     self['locations'] += origin
-    for comp in self.dict.keys():
+    for comp in self.names:
       if comp != 'locations':
         if len(self[comp].shape) > 1:
           self[comp] = inner(self[comp], M)
@@ -395,9 +432,8 @@ class Field(object):
     self['locations'] = newpos
     self.boxsize = newboxsize * boxsize
 
-  def zorder(self, sort=True, ztree=False):
-    """ fill in the ZORDER key of the field to ['_ZORDER'],
-        and return it. 
+  def zorder(self, sort=True, ztree=False, thresh=128):
+    """ fill in the ZORDER key and return it. 
         if sort is tree, the field is sorted by zorder
         if ztree is false, return zorder, scale 
         if ztree is true, the field is permuted into the zorder,
@@ -426,6 +462,6 @@ class Field(object):
 
       zorder = zorder[arg]
     if ztree:
-      return zt.Tree(zorder=zorder, scale=scale, thresh=128)
+      return zt.Tree(zorder=zorder, scale=scale, thresh=thresh)
     return zorder, scale
 
