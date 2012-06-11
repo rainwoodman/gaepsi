@@ -130,10 +130,19 @@ class Field(object):
     self.redshift = 1. / a - 1.
 
   def init_from_snapshot(self, snapshot, cut=None):
-    self.boxsize = snapshot.C['boxsize']
+    if not 'boxsize' in snapshot.C:
+      warn("boxsize not supported in snapshot")
+    else:
+      self.boxsize = snapshot.C['boxsize']
+    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
+      warn("OmegaM, OmegaL, h not supported in snapshot")
+    else:
+      self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
+    if not 'redshift' in snapshot.C:
+      warn('redshift not supported in snapshot')
+    else:
+      self.redshift = snapshot.C['redshift']
     self.cut.take(cut)
-    self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
-    self.redshift = snapshot.C['redshift']
 
   def comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
