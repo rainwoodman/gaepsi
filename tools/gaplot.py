@@ -151,9 +151,10 @@ class GaplotContext(object):
     self.invalidate()
 
   def autozoom(self, ftype):
-    min=self.F[ftype]['locations'].min(axis=0)
-    max=self.F[ftype]['locations'].max(axis=0)
-    self.zoom(center=(min+max) * 0.5, size=(max - min))
+    if self.F[ftype].numpoints > 0:
+      min=self.F[ftype]['locations'].min(axis=0)
+      max=self.F[ftype]['locations'].max(axis=0)
+      self.zoom(center=(min+max) * 0.5, size=(max - min))
 
   def slice(self, z, thickness):
     cut = Cut(center=self.cut.center, size=self.cut.size)
@@ -213,10 +214,15 @@ class GaplotContext(object):
 
     self.C = snap.C
     self.header = snap.header
-    if cut == None:
-      self.cut.take(Cut(xcut=[0, snap.C['boxsize']], ycut=[0, snap.C['boxsize']], zcut=[0, snap.C['boxsize']]))
-    else:
+    if cut is not None:
       self.cut.take(cut)
+    else:
+      try:
+        boxsize = snap.C['boxsize']
+        self.cut.take(Cut(xcut=[0, boxsize], ycut=[0, boxsize], zcut=[0, boxsize]))
+      except:
+        pass
+
     self.invalidate()
     self.periodic = periodic
  

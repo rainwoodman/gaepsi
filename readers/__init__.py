@@ -8,8 +8,12 @@ def is_string_like(v):
 
 def get_reader(reader):
   if is_string_like(reader) :
-    _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
+    try:
+      _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
             ['Reader'],  -1)
+    except ImportError:
+      _temp = __import__(reader, globals(), locals(), ['Reader'], -1) 
+
     reader = _temp.Reader()
   return reader
 
@@ -17,6 +21,12 @@ class Constants:
   def __init__(self, reader, header):
     self.header = header
     self.reader = reader
+  def __contains__(self, index):
+    try:
+      self.reader.get_constant(self.header, index)
+      return True
+    except:
+      return False
   def __getattr__(self, index):
     return self.reader.get_constant(self.header, index)
   def __getitem__(self, index):
@@ -162,7 +172,7 @@ class ReaderBase:
       if not ptype in sch['ptypes'] : 
         return
       offset = 0
-      for i in range(6):
+      for i in range(len(snapshot.C.N)):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
       offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
@@ -193,7 +203,7 @@ class ReaderBase:
         snapshot.P[ptype][name] = None
         return
       offset = 0
-      for i in range(6):
+      for i in range(len(snapshot.C['N'])):
         if i in sch['ptypes'] and i < ptype :
           offset += snapshot.C.N[i]
       snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C.N[ptype])
