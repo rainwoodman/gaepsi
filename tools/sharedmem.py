@@ -9,6 +9,7 @@ Notice that Pool.map and Pool.star map do not return ordered results.
 
 import multiprocessing as mp
 import numpy
+import itertools
 import os
 import threading
 import Queue as queue
@@ -21,6 +22,7 @@ from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
 from itertools import cycle, izip, repeat
 from warnings import warn
+import heapq
 
 __shmdebug__ = False
 __timeout__ = 10
@@ -80,10 +82,18 @@ class Pool:
     return self
   def __exit__(self, type, value, traceback):
     pass
+  @property
+  def rank(self):
+    return self._local._rank
+
+  @property 
+  def local(self):
+    return self._local
 
   def __init__(self, np=None, use_threads=False):
     if np is None: np = cpu_count()
     self.np = np
+    self._local = None
     if use_threads:
       self.QueueFactory = queue.Queue
       self.JoinableQueueFactory = queue.Queue
@@ -93,6 +103,7 @@ class Pool:
         return slave
       self.SlaveFactory = func
       self.lock = threading.Lock()
+      self._local = threading.local()
     else:
       self.QueueFactory = mp.Queue
       self.JoinableQueueFactory = mp.JoinableQueue
@@ -102,6 +113,9 @@ class Pool:
         return slave
       self.SlaveFactory = func
       self.lock = mp.Lock()
+      self._local = lambda: None
+     # master threads's rank is None
+      self._local.rank = None
 
   def zipsplit(self, list, nchunks=None, chunksize=None):
     return zip(*self.split(list, nchunks, chunksize))
@@ -125,19 +139,24 @@ class Pool:
         if nchunks == 0: nchunks = 1
       
     for item in list:
-      if isinstance(item, numpy.ndarray):
-        if item.shape:
-          result += [numpy.array_split(item, nchunks)]
+      if isinstance(item, tuple):
+        result += [repeat(item)]
+      else:
+        aitem = numpy.asarray(item)
+        if aitem.shape:
+          result += [numpy.array_split(aitem, nchunks)]
         else:
           result += [repeat(item)]
-      elif hasattr(item, '__getslice__') and not isinstance(item, tuple):
-        result += [numpy.array_split(numpy.asarray(item), nchunks)]
-      else:
-        result += [repeat(item)]
+
     return result
 
   def starmap(self, work, sequence, chunksize=1, ordered=False):
     return self.map(work, sequence, chunksize, ordered=ordered, star=True)
+
+  def do(self, jobs):
+    def work(job):
+      job()
+    return self.map(work, jobs, chunksize=1, ordered=False, star=False)
 
   def map(self, work, sequence, chunksize=1, ordered=False, star=False):
     """
@@ -146,10 +165,11 @@ class Pool:
     if __shmdebug__: 
       print 'shm debugging'
       return self.map_debug(work, sequence, chunksize, ordered, star)
-    if not hasattr(sequence, '__getslice__'):
+    if not hasattr(sequence, '__getitem__'):
       raise TypeError('can only take a slicable sequence')
 
-    def worker(S, sequence, Q):
+    def worker(S, sequence, Q, i):
+      self._local._rank = i
       dead = False
       error = None
       while True:
@@ -194,13 +214,13 @@ class Pool:
     # the slaves will not raise KeyboardInterrupt Exceptions
     old = signal.signal(signal.SIGINT, signal.SIG_IGN)
     for i in range(self.np):
-        p = self.SlaveFactory(target=worker, args=(S, sequence, Q))
+        p = self.SlaveFactory(target=worker, args=(S, sequence, Q, i))
         P.append(p)
-
-    signal.signal(signal.SIGINT, old)
 
     for p in P:
         p.start()
+
+    signal.signal(signal.SIGINT, old)
 
     S.join()
 
@@ -216,34 +236,39 @@ class Pool:
         # the worker dead, nothing done
         pass
       else:
-        R += r
+        R.append((ind, r))
       N = N - 1
 
-    while not Q.empty():
-      warn("remaining in queue %s" % str(Q.get()))
-      
     # must clear Q before joining the Slaves or we deadlock.
+    while not Q.empty():
+      warn("unexpected extra queue item: %s" % str(Q.get()))
+      
     i = 0
     alive = 1
     while alive > 0 and i < __timeout__:
       alive = 0
-      for p in P:
+      for rank, p in enumerate(P):
         if p.is_alive():
           p.join(10)
           if p.is_alive():
             # we are in a serious Bug of sharedmem if reached here.
-            warn("thread %s alive after queue joined" % str(p))
+            warn("still waiting for slave %d" % rank)
             alive = alive + 1
       i = i + 1
 
     if alive > 0:
-      warn("%d thread alive after queue joined" % alive)
+      warn("%d slaves alive after queue joined" % alive)
       
     # now report any errors
     if error:
       raise Exception('%d errors received\n' % len(error) + error[0][1])
 
-    return R
+    if ordered:
+      heapq.heapify(R)
+      chain = itertools.chain.from_iterable((heapq.heappop(R)[1] for i in range(len(R))))
+    else:
+      chain = itertools.chain.from_iterable((r[1] for r in R ))
+    return numpy.array(list(chain))
 
   def starmap_debug(self, work, sequence, ordered=False, chunksize=1):
     return self.map_debug(work, sequence, chunksize, ordered, star=True)
@@ -305,7 +330,23 @@ def empty(shape, dtype='f8'):
   tp = ctypeslib._typecodes['|u1'] * dtype.itemsize
   ra = RawArray(tp, int(numpy.asarray(shape).prod()))
   shm = ctypeslib.as_array(ra)
-  return shm.view(dtype=dtype, type=SharedMemArray).reshape(shape)
+  if not shape:
+    fullshape = dtype.shape
+  else:
+    if not dtype.shape:
+      fullshape = shape
+    else:
+      if not hasattr(shape, "__iter__"):
+        shape = [shape]
+      else:
+        shape = list(shape)
+      if not hasattr(dtype.shape, "__iter__"):
+        dshape += [dtype.shape]
+      else:
+        dshape = list(dtype.shape)
+      fullshape = shape + dshape
+    
+  return shm.view(dtype=dtype.base, type=SharedMemArray).reshape(fullshape)
 
 def copy(a):
   """ copies an array to the shared memory, use
@@ -317,6 +358,36 @@ def copy(a):
 
 def wrap(a):
   return copy(a)
+
+def fromfile(filename, dtype, count=None, chunksize=1024 * 1024 * 64, np=None):
+  dtype = numpy.dtype(dtype)
+  if hasattr(filename, 'seek'):
+    file = filename
+  else:
+    file = open(filename)
+
+  cur = file.tell()
+
+  if count is None:
+    file.seek(0, os.SEEK_END)
+    length = file.tell()
+    count = (length - cur) / dtype.itemsize
+    file.seek(cur, os.SEEK_SET)
+
+  buffer = numpy.empty(dtype=dtype, shape=count) 
+  start = numpy.arange(0, count, chunksize)
+  stop = start + chunksize
+  with Pool(use_threads=True, np=np) as pool:
+    def work(start, stop):
+      if not hasattr(pool.local, 'file'):
+        pool.local.file = open(file.name)
+      start, stop, step = slice(start, stop).indices(count)
+      pool.local.file.seek(cur + start * dtype.itemsize, os.SEEK_SET)
+      buffer[start:stop] = numpy.fromfile(pool.local.file, count=stop-start, dtype=dtype)
+    pool.starmap(work, zip(start, stop))
+
+  file.seek(cur + count * dtype.itemsize, os.SEEK_SET)
+  return buffer
 
 def argsort(data, chunksize=65536):
   """
