@@ -6,13 +6,6 @@ class Snapshot:
       **kwargs are the fields in the header to be filled if create=True.
       **kwargs are ignored when create=False.
     """
-    # constants (cosmology and stuff)
-    self.C = None
-    # particle data
-    self.P = {}
-    for i in range(6):
-      self.P[i] = {}
-
     # block offset table
     self.sizes = {}
     self.offsets = {}
@@ -34,6 +27,11 @@ class Snapshot:
       self.save_on_delete = False
       reader.open(self)
 
+    #self.C is set after reader.create / reader.open
+    # particle data
+    self.P = [{} for n in self.C['N']]
+
+
   def __del__(self):
     if hasattr(self, 'save_on_delete') and self.save_on_delete:
 #      print 'saving snapshot %s at destruction' % self.file
@@ -43,7 +41,7 @@ class Snapshot:
     """ Load blocks into memory if they are not """
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames:
-      if ptype in self.P and bn in self.P[ptype]: continue
+      if bn in self.P[ptype]: continue
       if not self.has(bn, ptype): continue
       self.reader.load(self, ptype, bn)
     return [self.P[ptype][bn] for bn in blocknames]
@@ -56,15 +54,13 @@ class Snapshot:
 
   def save_all(self):
     self.save_on_delete = False
-    self.reader.create_structure(self)
+    self.create_structure()
 
     # now ensure the structure of the file is complete
     for ptype in range(len(self.C['N'])):
       for block in [sch['name'] for sch in self.reader.schemas]:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
-# no need to flush as the file is supposingly closed.
-#    self.file.flush()
 
   def save(self, blocknames, ptype) :
     self.save_on_delete = False
@@ -79,7 +75,7 @@ class Snapshot:
     """ relase memory used by the blocks, do not flush to the disk """
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for name in blocknames :
-      if self.P[ptype].has_key(name): del self.P[ptype][name]
+      if name in self.P[ptype]: del self.P[ptype][name]
 
   def __getitem__(self, index):
     ptype, block = index

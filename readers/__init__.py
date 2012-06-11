@@ -37,7 +37,7 @@ class Constants:
   def __iter__(self):
     return iter(self.dict)
   def __contains__(self, index):
-    return ind in self.dict
+    return index in self.dict
 
   def __repr__(self):
     return "Constants(header=%s, dict=%s)" % (repr(self.header), repr(self.dict))
@@ -192,18 +192,14 @@ class ReaderBase:
     file.seek(snapshot.offsets[name])
     # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
     length = snapshot.sizes[name] // sch['dtype'].base.itemsize
-    if ptype == 'all':
-      if snapshot.sizes[name] != 0 :
-        file.write_record(snapshot.P['all'][name])
-    else :
-      if not ptype in sch['ptypes'] : 
-        return
-      offset = 0
-      for i in range(len(snapshot.C['N'])):
-        if i in sch['ptypes'] and i < ptype :
-          offset += snapshot.C['N'][i]
-      offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
-      file.write_record(snapshot.P[ptype][name], length, offset)
+    if not ptype in sch['ptypes'] : 
+      return
+    offset = 0
+    for i in range(len(snapshot.C['N'])):
+      if i in sch['ptypes'] and i < ptype :
+        offset += snapshot.C['N'][i]
+    offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
+    file.write_record(snapshot.P[ptype][name], length, offset)
    
   def check(self, snapshot):
     file = self.file_class(snapshot.file, endian=self.endian, mode='r')
@@ -220,20 +216,14 @@ class ReaderBase:
     sch = self.hash[name]
     file.seek(snapshot.offsets[name])
     length = snapshot.sizes[name] // sch['dtype'].itemsize
-    if ptype == 'all':
-      if snapshot.sizes[name] != 0 :
-        snapshot.P['all'][name] = file.read_record(sch['dtype'], length)
-      else :
-        snapshot.P['all'][name] = None
-    else :
-      if not ptype in sch['ptypes'] : 
-        snapshot.P[ptype][name] = None
-        return
-      offset = 0
-      for i in range(len(snapshot.C['N'])):
-        if i in sch['ptypes'] and i < ptype :
-          offset += snapshot.C['N'][i]
-      snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C['N'][ptype])
+    if not ptype in sch['ptypes'] : 
+      snapshot.P[ptype][name] = None
+      return
+    offset = 0
+    for i in range(len(snapshot.C['N'])):
+      if i in sch['ptypes'] and i < ptype :
+        offset += snapshot.C['N'][i]
+    snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C['N'][ptype])
 
 class CFile(file):
   def get_size(size):
