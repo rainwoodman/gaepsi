@@ -106,15 +106,12 @@ class Field(object):
       field[name] = recarray[name]
     return field
 
-  def __init__(self, components=None, numpoints = 0, cut=None):
+  def __init__(self, components=None, numpoints = 0):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
-    self.cut = Cut()
-    self.cut.take(cut)
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
     self.redshift = 0
-    self.boxsize = 0
     if components is not None:
       for comp in components:
         self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
@@ -129,11 +126,7 @@ class Field(object):
   def a(self, value):
     self.redshift = 1. / a - 1.
 
-  def init_from_snapshot(self, snapshot, cut=None):
-    if not 'boxsize' in snapshot.C:
-      warn("boxsize not supported in snapshot")
-    else:
-      self.boxsize = snapshot.C['boxsize']
+  def init_from_snapshot(self, snapshot):
     if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
       warn("OmegaM, OmegaL, h not supported in snapshot")
     else:
@@ -142,7 +135,6 @@ class Field(object):
       warn('redshift not supported in snapshot')
     else:
       self.redshift = snapshot.C['redshift']
-    self.cut.take(cut)
 
   def comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
@@ -167,7 +159,6 @@ class Field(object):
       snapshot.C['OmegaM'] = self.cosmology.M
       snapshot.C['OmegaL'] = self.cosmology.L
       snapshot.C['h'] = self.cosmology.h
-      snapshot.C['boxsize'] = self.boxsize
       snapshot.C['redshift'] = self.redshift
     skipped_comps = set([])
 
@@ -196,7 +187,7 @@ class Field(object):
     if skipped_comps:
       print 'warning: blocks not supported in snapshot', skipped_comps
 
-  def take_snapshots(self, snapshots, ptype, nthreads=None):
+  def take_snapshots(self, snapshots, ptype, cut=None, nthreads=None):
     """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
     self.init_from_snapshot(snapshots[0])
     if isscalar(ptype):
@@ -218,8 +209,8 @@ class Field(object):
           mask = None
           if (ptype, 'pos') in snapshot:
             pos = snapshot[ptype, 'pos']
-            if snapshot.C['N'][ptype] != 0:
-              mask = self.cut.select(pos)
+            if snapshot.C['N'][ptype] != 0 and cut is not None:
+              mask = cut.select(pos)
           if mask is not None:
             lengths[i, j] = mask.sum()
           else:
@@ -263,8 +254,8 @@ class Field(object):
           mask = None
           if (ptype, 'pos') in snapshot:
             pos = snapshot[ptype, 'pos']
-            if snapshot.C['N'][ptype] != 0:
-              mask = self.cut.select(pos)
+            if snapshot.C['N'][ptype] != 0 and cut is not None:
+              mask = cut.select(pos)
             if mask is None:
               self['locations'][start[j]:start[j]+length[j]] = pos[:]
             else:
@@ -351,8 +342,8 @@ class Field(object):
     d = {}
     for key in self.dict:
       d[key] = self.dict[key].dtype
-    return 'Field(numpoints=%d, components=%s, cut=%s>' % (self.numpoints, 
-            repr(d), repr(self.cut))
+    return 'Field(numpoints=%d, components=%s)' % (self.numpoints, 
+            repr(d))
 
   def describe(self, index):
     if self.numpoints > 0:
@@ -423,7 +414,7 @@ class Field(object):
     v = inner(vel, dir) / H
     self['locations'] += dir[newaxis,:] * v[:, newaxis] / a
 
-  def unfold(self, M):
+  def unfold(self, M, boxsize):
     """ unfold the field position by transformation M
         the field shall be periodic. M is an
         list of column integer vectors of the shearing
@@ -431,14 +422,13 @@ class Field(object):
         the field has to be in a cubic box located from (0,0,0)
     """
     from tools.remap import remap
-    boxsize = self.boxsize
 
     pos = self['locations']
     pos /= boxsize
     newpos,newboxsize = remap(M, pos)
     newpos *= boxsize
     self['locations'] = newpos
-    self.boxsize = newboxsize * boxsize
+    return newboxsize * boxsize
 
   def zorder(self, sort=True, ztree=False, thresh=128):
     """ fill in the ZORDER key and return it. 

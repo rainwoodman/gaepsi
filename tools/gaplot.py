@@ -163,12 +163,12 @@ class GaplotContext(object):
     self.invalidate()
 
   def unfold(self, M):
-    self.gas.unfold(M)
-    self.star.unfold(M)
-    self.bh.unfold(M)
-    self.cut.take(Cut(xcut=[0, self.gas.boxsize[0]], 
-                   ycut=[0, self.gas.boxsize[1]], 
-                   zcut=[0, self.gas.boxsize[2]]))
+    self.gas.unfold(M, self.boxsize)
+    self.star.unfold(M, self.boxsize)
+    self.boxsize = self.bh.unfold(M, self.boxsize)
+    self.cut.take(Cut(xcut=[0, self.boxsize[0]], 
+                   ycut=[0, self.boxsize[1]], 
+                   zcut=[0, self.boxsize[2]]))
   @property
   def pixel_area(self):
     return (self.cut.size[0] * (self.cut.size[1] * 1.0)/(self.shape[0] * self.shape[1]))
@@ -185,12 +185,12 @@ class GaplotContext(object):
 
     self.snapname = snapname
     self.format = format
-    self.F['gas'] = Field(components=self.components, cut=cut)
-    self.F['bh'] = Field(components=bhcomponents, cut=cut)
-    self.F['star'] = Field(components=starcomponents, cut=cut)
-    self.F['halo'] = Field(components=self.components, cut=cut)
-    self.F['disk'] = Field(components=self.components, cut=cut)
-    self.F['bulge'] = Field(components=self.components, cut=cut)
+    self.F['gas'] = Field(components=self.components)
+    self.F['bh'] = Field(components=bhcomponents)
+    self.F['star'] = Field(components=starcomponents)
+    self.F['halo'] = Field(components=self.components)
+    self.F['disk'] = Field(components=self.components)
+    self.F['bulge'] = Field(components=self.components)
 
     self.ptype = {
       "gas": gas,
@@ -213,7 +213,6 @@ class GaplotContext(object):
     self.bulge.init_from_snapshot(snap)
 
     self.C = snap.C
-    self.header = snap.header
     if cut is not None:
       self.cut.take(cut)
     else:
@@ -223,15 +222,14 @@ class GaplotContext(object):
       except:
         pass
 
+    self.boxsize = ones(3) * snap.C['boxsize']
+    self.redshift = snap.C['redshift']
     self.invalidate()
     self.periodic = periodic
  
   @property
   def extent(self):
     return (self.cut['x'][0], self.cut['x'][1], self.cut['y'][0], self.cut['y'][1])
-  @property
-  def redshift(self):
-    return self.C['redshift']
 
   @property
   def halo(self):
@@ -288,42 +286,26 @@ class GaplotContext(object):
   def read(self, fids=None, use_gas=True, use_bh=True, use_star=True, use_halo=False, use_disk=False, use_bulge=False, numthreads=None):
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
+    elif '%d' in self.snapname:
+      snapnames = [self.snapname % i for i in self.C['Nfiles']]
     else:
       snapnames = [self.snapname]
     snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
 
     if use_gas:
-      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], nthreads=numthreads)
+      self.gas.take_snapshots(snapshots, ptype = self.ptype['gas'], nthreads=numthreads, cut=self.cut)
     if use_halo:
-      self.halo.take_snapshots(snapshots, ptype = self.ptype['halo'], nthreads=numthreads)
+      self.halo.take_snapshots(snapshots, ptype = self.ptype['halo'], nthreads=numthreads, cut=self.cut)
     if use_disk:
-      self.disk.take_snapshots(snapshots, ptype = self.ptype['disk'], nthreads=numthreads)
+      self.disk.take_snapshots(snapshots, ptype = self.ptype['disk'], nthreads=numthreads, cut=self.cut)
     if use_bulge:
-      self.bulge.take_snapshots(snapshots, ptype = self.ptype['bulge'], nthreads=numthreads)
+      self.bulge.take_snapshots(snapshots, ptype = self.ptype['bulge'], nthreads=numthreads, cut=self.cut)
     if use_bh:
-      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], nthreads=numthreads)
+      self.bh.take_snapshots(snapshots, ptype = self.ptype['bh'], nthreads=numthreads, cut=self.cut)
     if use_star:
-      self.star.take_snapshots(snapshots, ptype = self.ptype['star'], nthreads=numthreads)
+      self.star.take_snapshots(snapshots, ptype = self.ptype['star'], nthreads=numthreads, cut=self.cut)
 
     self.invalidate()
-
-  def save(self, snapname, format, fids=None, use_gas=True, use_bh=True, use_star=True, **kwargs):
-    if fids != None:
-      snapnames = [snapname % i for i in fids]
-    else:
-      snapnames = [snapname]
-    snapshots = [Snapshot(snapname, format, create=True, **kwargs) for snapname in snapnames]
-    if use_gas:
-      self.gas.dump_snapshots(snapshots, ptype = 0)
-    if use_bh:
-      self.bh.dump_snapshots(snapshots, ptype = 5)
-    if use_star:
-      self.star.dump_snapshots(snapshots, ptype = 4)
-
-    with sharedmem.Pool(use_threads=True):
-      def work(snapshot):
-        snapshot.save_all()
-      pool.map(work, snapshots)
 
 
   def radial_mean(self, component, weightcomponent='mass', bins=100, min=None, max=None, std=False, origin=None):
@@ -411,7 +393,7 @@ class GaplotContext(object):
     """ return a line of sight of a field, pos, value """
     f = self.F[ftype]
     tree = f.tree
-    if length is None: length = f.boxsize[0]
+    if length is None: length = self.boxsize[0]
     pars = tree.trace(src, dir, length)
     pos = f['locations'][pars, :]
     sml = f['sml'][pars]
@@ -444,7 +426,7 @@ class GaplotContext(object):
       sph = [m, t]
       raster = [ zeros(dtype='f8', shape = (self.shape[0], self.shape[1])),
                zeros(dtype='f8', shape = (self.shape[0], self.shape[1])), ]
-    if self.periodic: boxsize = asarray(f.boxsize)
+    if self.periodic: boxsize = asarray(self.boxsize)
     else: boxsize = None
     ccode.camera(raster=raster, sph=sph, locations=f['locations'], 
            sml=f['sml'], near=camera.near, far=camera.far, Fov=camera.fov / 360. * 3.1415, 
@@ -626,20 +608,20 @@ class GaplotContext(object):
   #  ax.add_collection(col)
 
   def bhshow_camera(self, ax, component='bhmdot', radius=4, logscale=True, vmin=None, vmax=None, count=-1, camera=None, *args, **kwargs):
-    bhlum = context.bh.cosmology.QSObol(context.bh[component], 'blue') 
+    bhlum = self.bh.cosmology.QSObol(self.bh[component], 'blue') 
 
     good = bhlum > 0
     if len(bhlum) > 0 and good.sum() > 0:
       bhlum0 = bhlum[good]
-      bhpos0 = context.bh['locations'][good]
+      bhpos0 = self.bh['locations'][good]
 
-    if context.periodic:
+    if self.periodic:
       bhpos = zeros((27, bhpos0.shape[0], 3))
       bhlum = zeros((27, bhlum0.shape[0]))
 
       for im in range(27):
         i, j, k = im / 9 - 1, (im % 9) / 3 -1, im % 3 -1
-        bhpos[im, :, :] = bhpos0[:, :] + array([i, j, k]) * context.bh.boxsize
+        bhpos[im, :, :] = bhpos0[:, :] + array([i, j, k]) * self.boxsize
         bhlum[im, :] = bhlum0[:]
 
       bhpos.shape = -1, 3
@@ -648,10 +630,10 @@ class GaplotContext(object):
       bhpos = bhpos0
       bhlum = bhlum0
 
-    bhpos = camera.map(bhpos, context.shape)
+    bhpos = camera.map(bhpos, self.shape)
     bhdist = bhpos[:, 2]
     bhlum /= 4 * 3.1416 * bhdist ** 2
-    bhlum /= (context.bh.cosmology.units.W / context.bh.cosmology.units.METER ** 2 )
+    bhlum /= (self.bh.cosmology.units.W / self.bh.cosmology.units.METER ** 2 )
 
     print 'distance of bhs', bhdist.min(), bhdist.max()
     print 'lum of bhs', bhlum.min(), bhlum.max()
