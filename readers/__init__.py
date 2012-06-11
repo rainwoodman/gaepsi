@@ -18,21 +18,74 @@ def get_reader(reader):
   return reader
 
 class Constants:
-  def __init__(self, reader, header):
+  """
+    dict = {
+      key: action
+    }
+    action can be:
+      a basestring: index in header
+      a list:       list of indices in header
+      a length 1 tuple: a getter function
+      a length 2 tuple: a getter function and a setter function
+    getter function: lambda header: header[bluh] + header[bluh] ...
+    setter function: lambda value: {key:value/100, key2:value+200} ...
+  """
+  def __init__(self, header, dict={}):
     self.header = header
-    self.reader = reader
+    self.dict = dict
+
+  def __iter__(self):
+    return iter(self.dict)
   def __contains__(self, index):
-    try:
-      self.reader.get_constant(self.header, index)
-      return True
-    except:
-      return False
-  def __getattr__(self, index):
-    return self.reader.get_constant(self.header, index)
+    return ind in self.dict
+
+  def __repr__(self):
+    return "Constants(header=%s, dict=%s)" % (repr(self.header), repr(self.dict))
+
+  def __str__(self):
+    items = ['%s = %s' % (index, self[index]) for index in self.dict]
+    return '\n'.join(items)
+    
   def __getitem__(self, index):
-    return self.reader.get_constant(self.header, index)
+    if not index in self.dict:
+      return self.header[index]
+    action = self.dict[index]
+    if isinstance(action, basestring):
+      return self.header[action]
+    elif isinstance(action, tuple):
+      if len(action) >= 1 and hasattr(action[0], '__call__'):
+        return action[0](self.header)
+      else:
+        raise Exception("do not understand tuple constant, use (getter, setter)")
+    elif isinstance(action, list):
+      return numpy.array([self.__getitem__(item) for item in action])
+    else:
+      return action
+
   def __setitem__(self, index, value):
-    self.reader.set_constant(self.header, index, value)
+    if not index in self.dict:
+      self.header[index] = value
+      return
+    action = self.dict[index]
+    if isinstance(action, basestring):
+      self.header[action] = value
+    elif isinstance(action, tuple):
+      if len(action) == 2 and hasattr(action[1], '__call__'):
+        d = action[1](value)
+        for key in d:
+          self.__setitem__(key, d[key])
+      else:
+        raise Exception("do not understand tuple constant, use (getter, setter)")
+    elif isinstance(action, list):
+      for item, v in zip(action, value):
+        self.__setitem__(item, v)
+    else:
+      raise Exception("constant[%s] has action %s and is readonly", index, action)
+
+#  def __getattr__(self, index):
+#    return self.__getitem__(index)
+#  def __setattr__(self, index, value):
+#    self.__setitem__(index, value)
 
 class ReaderBase:
   def __init__(self, file_class, header, schemas, defaults={}, constants={}, endian='<'):
@@ -67,7 +120,7 @@ class ReaderBase:
     file.seek(0)
     snapshot.header = file.read_record(self.header_dtype, 1).squeeze()
 
-    snapshot.C = Constants(self, snapshot.header)
+    snapshot.C = Constants(snapshot.header, self.constants)
     self.update_offsets(snapshot)
 
   def create(self, snapshot, overwrite=True):
@@ -80,38 +133,12 @@ class ReaderBase:
     for f in self.defaults:
       snapshot.header[f] = self.defaults[f]
 
-    snapshot.C = Constants(self, snapshot.header)
-
-  def get_constant(self, header, index):
-    if index == 'Ntot':
-      return header['Nparticle_total_low'][:] +(numpy.uint64(header['Nparticle_total_high']) << 32)
-    entry = self.constants[index]
-    if isinstance(entry, basestring):
-      return header[entry]
-    if isinstance(entry, (list, tuple)):
-      return numpy.array([header[item] for item in entry])
-    return entry
-
-  def set_constant(self, header, index, value):
-    if index == 'Ntot':
-      header['Nparticle_total_low'][:] = value[:]
-      header['Nparticle_total_high'][:] = value[:] << 32
-      return
-
-    entry = self.constants[index]
-    if hasattr(entry, 'isalnum'):
-      header[entry] = value
-      return
-
-    warnings.warn('%s is readonly' % index)
+    snapshot.C = Constants(snapshot.header, self.constants)
 
   def __getitem__(self, key):
     return self.hash[key]
   def __contains__(self, key):
     return key in self.hash
-  def constants(self, snapshot):
-    return dict(
-      N = snapshot.header['N'])
 
   def has_block(self, snapshot, ptype, block):
     if not block in self.hash: return False
@@ -135,7 +162,7 @@ class ReaderBase:
         continue
       N = 0
       for ptype in s['ptypes']:
-        N += snapshot.C.N[ptype]
+        N += snapshot.C['N'][ptype]
       blocksize = N * s['dtype'].itemsize
 
       snapshot.sizes[name] = blocksize
@@ -172,9 +199,9 @@ class ReaderBase:
       if not ptype in sch['ptypes'] : 
         return
       offset = 0
-      for i in range(len(snapshot.C.N)):
+      for i in range(len(snapshot.C['N'])):
         if i in sch['ptypes'] and i < ptype :
-          offset += snapshot.C.N[i]
+          offset += snapshot.C['N'][i]
       offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
       file.write_record(snapshot.P[ptype][name], length, offset)
    
@@ -205,8 +232,8 @@ class ReaderBase:
       offset = 0
       for i in range(len(snapshot.C['N'])):
         if i in sch['ptypes'] and i < ptype :
-          offset += snapshot.C.N[i]
-      snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C.N[ptype])
+          offset += snapshot.C['N'][i]
+      snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C['N'][ptype])
 
 class CFile(file):
   def get_size(size):

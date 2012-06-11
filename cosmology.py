@@ -45,11 +45,10 @@ class Cosmology:
     self._intEzinv_table = (Ezinv * dz).cumsum()[::256]
     self._z_table = z[::256]
     self._Ezinv_table = Ezinv[::256]
+    self.DH = self.units.C / self.units.H0
+
   def __repr__(self):
     return "Cosmology(h=%g M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
-  @property
-  def DH(self):
-    return self.units.C / self.units.H0
 
   def Ez(self, z):
     M,L,K = self.M, self.L, self.K
@@ -154,47 +153,6 @@ class Cosmology:
       D2 *= DH
       return ccode._cosmology.thirdleg(D1, D2, t, out)
 
-#
-#     z1-..-.-.+ |D|
-#    / )  DM1   \
-#   /t  )        \
-#  o----z1'--D21--z2
-#   
-#  below calculation is ugly and complicated. it's just the third leg
-#  of the triangle.
-      D21 = empty(shape=broadcast(D2, D1).shape, dtype='f4')
-      subtract(D2, D1, D21)
-
-#     DM1 = 2 * sin(t * 0.5) * D1
-      
-      del D2
-
-      tmp = empty_like(t, dtype='f4')
-      multiply(t , 0.5, tmp)
-      sin(tmp, tmp)
-      DM1 = empty(shape=broadcast(D1, t).shape, dtype='f4')
-      multiply(D1, tmp, DM1)
-      multiply(DM1, 2, DM1)
-
-      del D1
-#      D = sqrt(DM1 **2 + D21 **2 - 2 * cos(0.5 * (pi + t)) * DM1 * D21)
-      # cross term first
-      add(t, pi, tmp)
-      multiply(tmp, 0.5, tmp)
-      cos(tmp, tmp)
-      multiply(tmp, 2, tmp)
-      multiply(tmp, DM1, out)
-      multiply(out, D21, out)
-
-      multiply(DM1, DM1, DM1)
-      multiply(D21, D21, D21)
-
-      subtract(DM1, out, out)
-      add(out, D21, out)
-      sqrt(out, out)
-      multiply(out, DH, out)
-      return out
-
   def D2z(self, z0, d):
     """returns the z satisfying Dc(z0, z) = d, and z > z0"""
     d0 = interp(z0, self._z_table, self._intEzinv_table)
@@ -209,63 +167,10 @@ class Cosmology:
     """
     return ccode._cosmology.radec2pos(self, ra, dec, z, out)
 
-    shape = broadcast(dec, ra, z).shape
-    if out is None:
-      out = empty(shape=shape, dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
-    else:
-      out = out.view(dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
-      
-    
-#    out[:, 0] = r * cos(dec) * cos(ra)
-#    out[:, 1] = r * cos(dec) * sin(ra)
-#    out[:, 2] = r * sin(dec)
-
-    tmp = self.Dc(z)
-    cos(dec, out['x'])
-    sin(dec, out['z'])
-    multiply(out['x'], tmp, out['x'])
-    multiply(out['z'], tmp, out['z'])
-    del tmp
-    tmp = cos(ra)
-    multiply(out['x'], sin(ra), out['y'])
-    multiply(out['x'], tmp, out['x'])
-
-    return out.view(dtype=('f4', 3))
-
   def sphdist(self, ra1, dec1, ra2, dec2, out=None):
     """ all in rad 
        out cannot be alias of dec1, dec2 """
     return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
-
-    shape = broadcast(ra1, dec1, ra2, dec2).shape
-    if out is None:
-      out = empty(shape=shape, dtype='f4')
-
-    #cr = cos(ra1) * cos(ra2)
-    multiply(cos(ra1), cos(ra2), out)
-
-    t1 = empty(shape=broadcast(ra1, ra2).shape, dtype='f4')
-    #sr = sin(ra1) * sin(ra2)
-    multiply(sin(ra1), sin(ra2), t1)
-
-    # (cr + sr)
-    add(out, t1, out)
-    del t1
-    #cd = cos(dec1) * cos(dec2)
-    t1 = empty(shape=broadcast(dec1, dec2).shape, dtype='f4')
-    multiply(cos(dec1), cos(dec2), t1)
-    
-    # cd * (sr + cr)
-    multiply(t1, out, out)
-
-    # sd = sin(dec1) * sin(dec2)
-    multiply(sin(dec1), sin(dec2), t1)
-
-    # sd += cd * (sr + cr)
-    add(t1, out, out)
-   
-    clip(out, a_min=-1, a_max=1, out=out)
-    return arccos(out, out)
 
   def H(self, a):
     """ return the hubble constant at the given z or a, 

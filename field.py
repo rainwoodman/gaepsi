@@ -159,8 +159,8 @@ class Field(object):
     for i in range(Nfile):
       snapshot = snapshots[i]
       starts[i] = self.numpoints * i / Nfile
-      snapshot.C.N[ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
-      tmp = snapshot.C.Ntot
+      snapshot.C['N'][ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
+      tmp = snapshot.C['Ntot']
       tmp[ptype] = self.numpoints
       snapshot.C['Ntot'] = tmp
       snapshot.C['Nfiles'] = Nfile
@@ -183,10 +183,8 @@ class Field(object):
         except KeyError:
           skipped_comps.update(set([comp]))
           continue
-        if dtype.base is not self[comp].dtype:
-          snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]].astype(dtype.base)
-        else:
-          snapshot.P[ptype][block] = self[comp][starts[i]:starts[i]+snapshot.C.N[ptype]]
+        snapshot[ptype, block] = array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
+
         if save_and_clear:
           snapshot.save([block], ptype=ptype)
           snapshot.clear([block], ptype=ptype)
@@ -199,6 +197,7 @@ class Field(object):
       print 'warning: blocks not supported in snapshot', skipped_comps
 
   def take_snapshots(self, snapshots, ptype, nthreads=None):
+    """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
     self.init_from_snapshot(snapshots[0])
     if isscalar(ptype):
        ptypes = [ptype]
@@ -219,12 +218,12 @@ class Field(object):
           mask = None
           if (ptype, 'pos') in snapshot:
             pos = snapshot[ptype, 'pos']
-            if snapshot.C.N[ptype] != 0:
+            if snapshot.C['N'][ptype] != 0:
               mask = self.cut.select(pos)
           if mask is not None:
             lengths[i, j] = mask.sum()
           else:
-            lengths[i, j] = snapshot.C.N[ptype]
+            lengths[i, j] = snapshot.C['N'][ptype]
       pool.starmap(work, list(enumerate(snapshots)))
 
     starts.flat[1:] = lengths.cumsum()[:-1]
@@ -264,7 +263,7 @@ class Field(object):
           mask = None
           if (ptype, 'pos') in snapshot:
             pos = snapshot[ptype, 'pos']
-            if snapshot.C.N[ptype] != 0:
+            if snapshot.C['N'][ptype] != 0:
               mask = self.cut.select(pos)
             if mask is None:
               self['locations'][start[j]:start[j]+length[j]] = pos[:]

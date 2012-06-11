@@ -17,9 +17,11 @@ class Snapshot:
     self.sizes = {}
     self.offsets = {}
 
-    if reader == None: return
-
     reader = get_reader(reader)
+
+    if reader == None: 
+      raise Excpetion('reader %s is not found' % reader)
+
 
     self.file = file
     if create:
