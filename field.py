@@ -9,6 +9,7 @@ from numpy import newaxis
 from numpy import ndarray
 
 from cosmology import Cosmology
+from cosmology import WMAP7
 from tools import sharedmem
 from ccode import k0
 from warnings import warn
@@ -111,7 +112,6 @@ class Field(object):
     self.dict = {}
     self.numpoints = numpoints
     self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
-    self.redshift = 0
     if components is not None:
       for comp in components:
         self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
@@ -128,11 +128,14 @@ class Field(object):
 
   def init_from_snapshot(self, snapshot):
     if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
-      warn("OmegaM, OmegaL, h not supported in snapshot")
+      warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
+      self.comsology = WMAP7
     else:
       self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
+
     if not 'redshift' in snapshot.C:
-      warn('redshift not supported in snapshot')
+      warn('redshift not supported in snapshot, assuming redshift=0 (proper)')
+      self.redshift = 0
     else:
       self.redshift = snapshot.C['redshift']
 
@@ -356,7 +359,7 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, weight='mass', NGB=0, tol=1e-5):
+  def smooth(self, weight='mass', NGB=0):
     """ smooth a field. when NGB<=0, a quick method is used to give
         a smoothing length estimated from the nearest tree node size; 
         the weight is not used.
@@ -431,11 +434,14 @@ class Field(object):
     return newboxsize * boxsize
 
   def zorder(self, sort=True, ztree=False, thresh=128):
-    """ fill in the ZORDER key and return it. 
-        if sort is tree, the field is sorted by zorder
+    """ calculate zorder (morton key) and return it.
+        if sort is true, the field is sorted by zorder
         if ztree is false, return zorder, scale 
         if ztree is true, the field is permuted into the zorder,
         and a ZTree is returned.
+        scale object is used to convert pos to zorder and verse vica
+        Notice that if sort or ztree is true, all previous reference
+        to the field's components are invalid.
     """
     from ccode import ztree as zt
     x, y, z = (self['locations'][:, 0],
