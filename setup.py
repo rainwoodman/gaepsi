@@ -57,5 +57,13 @@ setup(name="gaepsi", version="1.0",
              libraries=[],
              include_dirs=[get_include()],
         ),
+        Extension("gaepsi.ccode.listtools", 
+             ["ccode/listtools.c", 
+             ], 
+#             extra_compile_args=['-g -O3'], 
+             extra_compile_args=['-O3'],
+             libraries=[],
+             include_dirs=[get_include()],
+        ),
       ])
 
