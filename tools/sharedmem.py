@@ -360,6 +360,8 @@ def wrap(a):
   return copy(a)
 
 def fromfile(filename, dtype, count=None, chunksize=1024 * 1024 * 64, np=None):
+  """ the default size 64MB agrees with lustre block size but is not an optimized choice.
+  """
   dtype = numpy.dtype(dtype)
   if hasattr(filename, 'seek'):
     file = filename
@@ -389,7 +391,19 @@ def fromfile(filename, dtype, count=None, chunksize=1024 * 1024 * 64, np=None):
   file.seek(cur + count * dtype.itemsize, os.SEEK_SET)
   return buffer
 
-def argsort(data, chunksize=65536):
+def __round_to_power_of_two(i):
+  if i == 0: return i
+  if (i & (i - 1)) == 0: return i
+  i = i - 1
+  i |= (i >> 1)
+  i |= (i >> 2)
+  i |= (i >> 4)
+  i |= (i >> 8)
+  i |= (i >> 16)
+  i |= (i >> 32)
+  return i + 1
+
+def argsort(data):
   """
      parallel argsort, like numpy.argsort
 
@@ -397,25 +411,27 @@ def argsort(data, chunksize=65536):
      then merge the returned arg.
      it uses 2 * len(data) * int64.itemsize of memory during calculation,
      that is len(data) * int64.itemsize in addition to the size of the returned array.
+     the default chunksize (65536*16) gives a sorting time of 0.4 seconds on a single core 2G Hz computer.
+     which is justified by the cost of spawning threads and etc.
+
+     it uses an extra len(data)  * sizeof('i8') for the merging.
+     we use threads because it turns out with threads the speed is faster(by 10%~20%)
+     for sorting a 100,000,000 'f8' array, on a 16 core machine.
+     
+     TODO: shall try to use the inplace merge mentioned in 
+            http://keithschwarz.com/interesting/code/?dir=inplace-merge.
   """
 
   from gaepsi.ccode import merge
 
-  # round to power of two.
-  nchunks = len(data) / chunksize
-  if nchunks == 0: return data.argsort()
+  if len(data) < 64*65536: return data.argsort()
 
-  if nchunks & (nchunks - 1) != 0: 
-    v = nchunks - 1
-    v |= v >> 1
-    v |= v >> 2
-    v |= v >> 4
-    v |= v >> 8
-    v |= v >> 16
-    v |= v >> 32
-    nchunks = v + 1
+  if cpu_count() <= 1: return data.argsort()
+
+  nchunks = __round_to_power_of_two(cpu_count()) * 4
 
   arg1 = numpy.empty(len(data), dtype='i8')
+
   data_split = numpy.array_split(data, nchunks)
   sublengths = numpy.array([len(x) for x in data_split], dtype='i8')
   suboffsets = numpy.zeros(shape = sublengths.shape, dtype='i8')
@@ -430,16 +446,45 @@ def argsort(data, chunksize=65536):
   
   arg2 = numpy.empty(len(data), dtype='i8')
 
+  def work(off1, len1, off2, len2, arg1, arg2, data):
+    merge(data[off1:off1+len1+len2], arg1[off1:off1+len1], arg1[off2:off2+len2], arg2[off1:off1+len1+len2])
+
   while len(sublengths) > 1:
     with Pool(use_threads=True) as pool:
-      def work(off1, len1, off2, len2, arg1, arg2, data):
-        merge(data[off1:off1+len1+len2], arg1[off1:off1+len1], arg1[off2:off2+len2], arg2[off1:off1+len1+len2])
-
-    pool.starmap(work, zip(suboffsets[::2], sublengths[::2], suboffsets[1::2], sublengths[1::2], repeat(arg1), repeat(arg2), repeat(data)))
+      pool.starmap(work, zip(suboffsets[::2], sublengths[::2], suboffsets[1::2], sublengths[1::2], repeat(arg1), repeat(arg2), repeat(data)))
     arg1, arg2 = arg2, arg1
     suboffsets = [x for x in suboffsets[::2]]
     sublengths = [x+y for x,y in zip(sublengths[::2], sublengths[1::2])]
 
-  del arg2
-  return arg1.view(type=numpy.ndarray)
+  return arg1
 
+def take(source, indices, axis=None, out=None, mode='wrap'):
+  """ the default mode is 'wrap', because 'raise' will copy the output array.
+      we use threads because it is faster than processes.
+      need the patch on numpy ticket 2131 to release the GIL.
+
+  """
+  if cpu_count() <= 1:
+    return numpy.take(source, indices, axis, out, mode)
+
+  indices = numpy.asarray(indices, dtype='i8')
+  if out is None:
+    if axis is None:
+      out = numpy.empty(dtype=source.dtype, shape=indices.shape)
+    else:
+      shape = []
+      for d, n in enumerate(source.shape):
+        if d < axis or d > axis:
+          shape += [n]
+        else:
+          for dd, nn in enumerate(indices.shape):
+            shape += [nn]
+      out = numpy.empty(dtype=source.dtype, shape=shape)
+
+  with Pool(use_threads=True) as pool:
+    def work(arg, out):
+      #needs numpy ticket #2156
+      if len(out) == 0: return
+      source.take(arg, axis=axis, out=out, mode=mode)
+    pool.starmap(work, pool.zipsplit((indices, out)))
+  return out

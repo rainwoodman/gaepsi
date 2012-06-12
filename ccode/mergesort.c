@@ -154,14 +154,14 @@ static PyObject * merge(PyObject * self,
     return Py_None;
 }
 
-
 static PyMethodDef module_methods[] = {
 	{"merge", (PyCFunction) merge, METH_KEYWORDS, 
     "merge(data, A, B, out) A, B, out are sorted arg indices, data is the unsorted data.\n"
     "len(data) = len(A) + len(B) = len(out)\n"
     "data[:len(A)][A] is sorted\n"
     "data[len(A):][B] is sorted\n"
-    "in other words both A and B are 0 started indices\n",},
+    "in other words both A and B are 0 started indices\n"
+    "everything must be continueous in memory!",},
 	{"permute", (PyCFunction) permute, METH_KEYWORDS, 
     "permute(array, index) array = array[index] with O(1) storage. index has to be u8. array has to be 1d.\n"},
 	{NULL}

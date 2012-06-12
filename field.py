@@ -459,10 +459,9 @@ class Field(object):
     if sort or ztree:
       # use sharemem.argsort, because it is faster
       arg = sharedmem.argsort(zorder)
-      with sharedmem.Pool(use_threads=True) as pool:
-        def work(key):
-          self.dict[key] = self.dict[key].take(arg, axis=0)
-        pool.map(work, list(self.dict.keys()))
+      for comp in self.dict.keys:
+        # use sharemem.take, because it is faster
+        self.dict[comp] = sharedmem.take(self.dict[comp], arg)
 
       zorder = zorder[arg]
     if ztree:
