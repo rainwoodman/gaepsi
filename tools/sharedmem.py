@@ -165,6 +165,7 @@ class Pool:
     if __shmdebug__: 
       print 'shm debugging'
       return self.map_debug(work, sequence, chunksize, ordered, star)
+    L = len(sequence)
     if not hasattr(sequence, '__getitem__'):
       raise TypeError('can only take a slicable sequence')
 
@@ -201,9 +202,9 @@ class Pool:
     i = 0
 
     N = 0
-    while i < len(sequence):
+    while i < L:
       j = i + chunksize 
-      if j > len(sequence): j = len(sequence)
+      if j > L: j = L
       S.put((i, j))
       i = j
       N = N + 1
@@ -269,9 +270,6 @@ class Pool:
     else:
       chain = itertools.chain.from_iterable((r[1] for r in R ))
     return numpy.array(list(chain))
-
-  def starmap_debug(self, work, sequence, ordered=False, chunksize=1):
-    return self.map_debug(work, sequence, chunksize, ordered, star=True)
 
   def map_debug(self, work, sequence, chunksize=1, ordered=False, star=False):
     if star: return [work(*x) for x in sequence]
