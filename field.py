@@ -379,7 +379,7 @@ class Field(object):
     try:
       sml = self['sml']
     except KeyError:
-      self['sml'] = empty(self.numpoints, 'f4')
+      self['sml'] = zeros(self.numpoints, 'f4')
       sml = self['sml']
 
     from cython._field import solve_sml
