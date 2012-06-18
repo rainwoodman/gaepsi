@@ -1,5 +1,10 @@
-#include "defines.h"
-
+#include <Python.h>
+#define PY_ARRAY_UNIQUE_SYMBOL MERGESORT_ARRAY_API_20120101
+#define PY_UFUNC_UNIQUE_SYMBOL MERGESORT_UFUNC_API_20120101
+#include <numpy/arrayobject.h>
+#include <numpy/ufuncobject.h>
+#include <structmember.h>
+#define intp npy_intp
 /*************
  *
  * mergesort(data, A, B, out)
@@ -166,7 +171,11 @@ static PyMethodDef module_methods[] = {
     "permute(array, index) array = array[index] with O(1) storage. index has to be u8. array has to be 1d.\n"},
 	{NULL}
 };
-void HIDDEN gadget_initmergesort(PyObject * m) {
+static PyObject * m = NULL;
+void init_mergesort(void) {
+    import_array();
+    import_ufunc();
+	m = Py_InitModule3("_mergesort", module_methods, "mergesort module for parallel mergesort");
 	PyObject * mergefunc = PyCFunction_New(module_methods, NULL);
 	PyObject * permutefunc = PyCFunction_New(module_methods + 1, NULL);
 	PyModule_AddObject(m, "merge", mergefunc);

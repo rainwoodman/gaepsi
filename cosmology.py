@@ -1,26 +1,4 @@
-from numpy import ndarray
-from numpy import trapz
-from numpy import sqrt
-from numpy import zeros_like
-from numpy import empty_like
-from numpy import empty
-from numpy import diff
-from numpy import pi
-from numpy import log10
-from numpy import log
-from numpy import sin, cos
-from numpy import sinh
-from numpy import linspace
-from numpy import logspace
-from numpy import interp
-from numpy import cumsum, zeros
-from numpy import arccos
-from numpy import clip
-from numpy import subtract
-from numpy import multiply
-from numpy import add
-from numpy import broadcast
-
+import numpy
 from constant import SI
 from units import Units
 
@@ -29,6 +7,32 @@ import ccode._cosmology
 def sphdist(ra1, dec1, ra2, dec2, out=None):
   """ all in radians """
   return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
+def radec2vec(ra, dec):
+  c = numpy.cos(dec)
+  return numpy.asarray([c * numpy.cos(ra), c * numpy.sin(ra), numpy.sin(dec)])
+
+def sphrotate(ref, new, ra, dec):
+  """ rotate ra dec, according to ref -> new, where ref=(ra, dec), new=(ra,dec)"""
+  # modified from http://tir.astro.utoledo.edu/idl/spherical_coord_rotate.pro
+  vref = radec2vec(*ref)
+  vnew = radec2vec(*new)
+  X,Y,Z = radec2vec(ra, dec)
+  ex = vref
+  # old frame, ex -> ref, ez -> rotation axis
+  ez = numpy.cross(vnew, vref)
+  ez /= ez.dot(ez) ** 0.5
+  ey = numpy.cross(ez, ex)
+  ey /= ey.dot(ey) ** 0.5
+  # new frame, ex2 -> new
+  ex2 = vnew
+  ey2 = numpy.cross(ez, ex2)
+  ey2 /= ey2.dot(ey2) ** 0.5
+  V = numpy.array([X, Y, Z])
+  V = ex.dot(V) * ex2[:, None] + ey.dot(V) * ey2[:, None] + ez.dot(V) * ez[:, None]
+  dec = numpy.arcsin(V[2])
+  ra = numpy.arctan2(V[1], V[0])
+  ra[ra < 0] += 2 * numpy.pi
+  return ra, dec
 
 class Cosmology:
   def __init__(self, h, M, L, K=0):
@@ -37,11 +41,11 @@ class Cosmology:
     self.K = K
     self.h = h
     self.units = Units(h)
-    z = linspace(0, 1, 1024*1024)
+    z = numpy.linspace(0, 1, 1024*1024)
     z = z ** 6 * 255
     Ezinv = 1 / self.Ez(z)
-    dz = zeros_like(z)
-    dz[:-1] = diff(z)
+    dz = numpy.zeros_like(z)
+    dz[:-1] = numpy.diff(z)
     self._intEzinv_table = (Ezinv * dz).cumsum()[::256]
     self._z_table = z[::256]
     self._Ezinv_table = Ezinv[::256]
@@ -52,7 +56,7 @@ class Cosmology:
 
   def Ez(self, z):
     M,L,K = self.M, self.L, self.K
-    return sqrt(M*(1+z)**3 + K*(1+z)**2+L)
+    return numpy.sqrt(M*(1+z)**3 + K*(1+z)**2+L)
 
   def intEzinvdz(self, z1, z2, func):
     """integrate func(z) * 1 /Ez dz, always from the smaller z to the higher"""
@@ -63,9 +67,9 @@ class Cosmology:
     z = self._z_table[mask]
     Ezinv = self._Ezinv_table[mask]
     v = func(z)
-    return trapz(v * Ezinv, z)
+    return numpy.trapz(v * Ezinv, z)
   def intdV(self, z1, z2, func):
-    return self.intEzinvdz(z1, z2, lambda z: self.Dc(z) ** 2 * 4 * pi * self.DH * func(z))
+    return self.intEzinvdz(z1, z2, lambda z: self.Dc(z) ** 2 * 4 * numpy.pi * self.DH * func(z))
 
   def Vsky(self, z1, z2):
     return self.intdV(z1, z2, lambda z: 1.0)
@@ -77,9 +81,9 @@ class Cosmology:
     M,L,K = self.M, self.L, self.K
     if K!=0: raise ValueError("K has to be zero")
     aeq = (M / L) ** (1.0/3.0)
-    pre = 2.0 / (3.0 * sqrt(L))
-    arg = (a / aeq) ** (3.0 / 2.0) + sqrt(1.0 + (a / aeq) ** 3.0)
-    return pre * log(arg) / H0
+    pre = 2.0 / (3.0 * numpy.sqrt(L))
+    arg = (a / aeq) ** (3.0 / 2.0) + numpy.sqrt(1.0 + (a / aeq) ** 3.0)
+    return pre * numpy.log(arg) / H0
 
   def t2a(self, t):
     """ returns the scaling factor of the universe at given time(in GADGET unit)"""
@@ -87,8 +91,8 @@ class Cosmology:
     M,L,K = self.M, self.L, self.K
     if K!=0: raise ValueError("K has to be zero")
     aeq = (M / L) ** (1.0/3.0)
-    pre = 2.0 / (3.0 * sqrt(L))
-    return (sinh(H0 * t/ pre)) ** (2.0/3.0) * aeq
+    pre = 2.0 / (3.0 * numpy.sqrt(L))
+    return (numpy.sinh(H0 * t/ pre)) ** (2.0/3.0) * aeq
 
   def z2t(self, z):
     return self.a2t(1.0 / (1.0 + z))
@@ -116,9 +120,9 @@ class Cosmology:
     """
     if a is None: a = 1 / (1.+z)
     eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
-    agrid = linspace(1e-8, a, 100000)
+    agrid = numpy.linspace(1e-8, a, 100000)
     data = self.ddplus(agrid)
-    return eta / a * trapz(y=data, x=agrid)
+    return eta / a * numpy.trapz(y=data, x=agrid)
 
   def ddplus(self, a):
     eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
@@ -137,15 +141,15 @@ class Cosmology:
         along two light of sights of angle t. 
         out cannot be an alias of t. """
 
-    shape = broadcast(z1, z2, t).shape
+    shape = numpy.broadcast(z1, z2, t).shape
     DH = self.DH
     if z2 is None: 
       z2 = z1
       z1 = 0
-    D1 = interp(z1, self._z_table, self._intEzinv_table)
-    D2 = interp(z2, self._z_table, self._intEzinv_table)
+    D1 = numpy.interp(z1, self._z_table, self._intEzinv_table)
+    D2 = numpy.interp(z2, self._z_table, self._intEzinv_table)
     if t is None:
-      out = subtract(D2, D1, out)
+      out = numpy.subtract(D2, D1, out)
       out *= DH
       return out
     else:
@@ -155,8 +159,8 @@ class Cosmology:
 
   def D2z(self, z0, d):
     """returns the z satisfying Dc(z0, z) = d, and z > z0"""
-    d0 = interp(z0, self._z_table, self._intEzinv_table)
-    z = interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
+    d0 = numpy.interp(z0, self._z_table, self._intEzinv_table)
+    z = numpy.interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
     return z
 
   def radec2pos(self, ra, dec, z, out=None):
@@ -179,13 +183,13 @@ class Cosmology:
     M,L,K = self.M, self.L, self.K
     H0 = self.units.H0
     Omega0 = K + M + L
-    return H0 * sqrt(Omega0 / a**3 + (1 - Omega0 - L)/ a**2 + L)
+    return H0 * numpy.sqrt(Omega0 / a**3 + (1 - Omega0 - L)/ a**2 + L)
 
   def DtoZ(self, distance, z0):
     """ integrate the redshift on a sightline based on the distance taking GADGET, comoving. 
         REF transform 3.38) in Barbara Ryden. """
-    z = zeros_like(distance)
-    dd = diff(distance)
+    z = numpy.zeros_like(distance)
+    dd =numpy.diff(distance)
     z[0] = z0
     for i in range(z.size - 1):
       z[i+1] = z[i] - self.H(1.0 / (z[i] + 1)) / self.units.C * dd[i]
@@ -196,7 +200,7 @@ class Cosmology:
        REF Rennna Barkana astro-ph/0010468v3 eq (24) [proper in eq 24]"""
     M,L,K = self.M, self.L, self.K
     OmegaMz = M * (1 + z)**3 / self.Ez(z)
-    return 0.784 * (m * 100)**(0.33333) * (M / OmegaMz * Deltac / (18 * pi * pi))**-0.3333333 * 10
+    return 0.784 * (m * 100)**(0.33333) * (M / OmegaMz * Deltac / (18 * numpy.pi * numpy.pi))**-0.3333333 * 10
 
   def Vvir(self, m, z, Deltac=200):
     """ returns the physical virial circular velocity"""
@@ -218,14 +222,14 @@ class Cosmology:
   def Lblue(self, mdot):
     """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
         multiply by units.POWER to SI """
-    def f(x): return 0.80 - 0.067 * (log10(x) - 12) + 0.017 * (log10(x) - 12)**2 - 0.0023 * (log10(x) - 12)**3
+    def f(x): return 0.80 - 0.067 * (numpy.log10(x) - 12) + 0.017 * (numpy.log10(x) - 12)**2 - 0.0023 * (numpy.log10(x) - 12)**3
     # 0.1 is coded in gadget bh model.
     L = mdot * self.units.C ** 2 * 0.1
     return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
   def Lsoft(self, mdot):
     """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
         multiply by units.POWER to SI """
-    def f(x): return 1.65 + 0.22 * (log10(x) - 12) + 0.012 * (log10(x) - 12)**2 - 0.0015 * (log10(x) - 12)**3
+    def f(x): return 1.65 + 0.22 * (numpy.log10(x) - 12) + 0.012 * (numpy.log10(x) - 12)**2 - 0.0015 * (numpy.log10(x) - 12)**3
     # 0.1 is coded in gadget bh model.
     L = mdot * self.units.C ** 2 * 0.1
     return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L

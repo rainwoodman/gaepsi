@@ -44,6 +44,7 @@ def sphdist(ra1, dec1, ra2, dec2, out=None):
           DEC1 = (<double*>data[1])[0]
           RA2 = (<double*>data[2])[0]
           DEC2 = (<double*>data[3])[0]
+          # z = sin(dec), this is correct
           ANG = cos(RA1 - RA2) * cos(DEC1) * cos(DEC2) + sin(DEC1) * sin(DEC2)
           
           if ANG > 1.0: ANG = 1.0

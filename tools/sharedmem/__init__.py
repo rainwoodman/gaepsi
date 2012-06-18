@@ -9,7 +9,6 @@ Notice that Pool.map and Pool.star map do not return ordered results.
 
 import multiprocessing as mp
 import numpy
-import itertools
 import os
 import threading
 import Queue as queue
@@ -17,10 +16,11 @@ import ctypes
 import traceback
 import copy_reg
 import signal
+import itertools
 
 from numpy import ctypeslib
 from multiprocessing.sharedctypes import RawArray
-from itertools import cycle, izip, repeat
+from listtools import cycle, zip, repeat
 from warnings import warn
 import heapq
 
@@ -420,7 +420,7 @@ def argsort(data):
             http://keithschwarz.com/interesting/code/?dir=inplace-merge.
   """
 
-  from gaepsi.ccode import merge
+  from _mergesort import merge
 
   if len(data) < 64*65536: return data.argsort()
 

@@ -287,7 +287,7 @@ class GaplotContext(object):
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
     elif '%d' in self.snapname:
-      snapnames = [self.snapname % i for i in self.C['Nfiles']]
+      snapnames = [self.snapname % i for i in range(self.C['Nfiles'])]
     else:
       snapnames = [self.snapname]
     snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]

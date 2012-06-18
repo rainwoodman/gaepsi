@@ -66,17 +66,21 @@ cdef class cycle:
       if offset >= self.pool_length: offset -= self.pool_length
 
   def __getitem__(self, index):
+    cdef intptr_t i
     if isinstance(index, slice):
       start, stop, step = index.indices(INTPTR_MAX)
       return cycle(self.pool, offset=self.offset + start * self.step, step=self.step * step)
+    elif isinstance(index, int):
+      i = index
+      return self.pool[(i * self.step + self.offset) % self.pool_length]
     else:
-      return self.pool[(index * self.step + self.offset) % self.pool_length]
+      raise IndexError('index(%s) is neither a slice nor an Interger' % repr(type(index)))
   def __len__(self):
     return INTPTR_MAX
   def __repr__(self):
     return 'cycle(%s, %d, %d)' %(repr(self.pool), self.offset, self.step) 
 cdef class zip:
-  cdef size_t length
+  cdef intptr_t length
   cdef list sequences
   def __init__(self, *args):
     self.sequences = list(args)
@@ -88,10 +92,16 @@ cdef class zip:
       offset = offset + 1
 
   def __getitem__(self, index):
+    cdef intptr_t i
     if isinstance(index, slice):
       return zip(*[s[index] for s in self.sequences])
+    elif isinstance(index, int):
+      i = index
+      if i >= self.length or -i > self.length:
+        raise IndexError('index %d out of bounds' % i)
+      return tuple((s[i] for s in self.sequences))
     else:
-      return tuple((s[index] for s in self.sequences))
+      raise IndexError('index(%s) is neither a slice nor an Interger' % repr(type(index)))
 
   def __len__(self):
     return self.length

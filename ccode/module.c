@@ -10,7 +10,6 @@ extern HIDDEN void gadget_initrender(PyObject * m);
 extern HIDDEN void gadget_initpmin(PyObject * m);
 extern HIDDEN void gadget_initcamera(PyObject * m);
 extern HIDDEN void gadget_initpeano(PyObject * m);
-extern HIDDEN void gadget_initmergesort(PyObject * m);
 
 static PyMethodDef module_methods[] = {
 	{NULL}
@@ -31,5 +30,4 @@ void init_gaepsiccode (void) {
 	gadget_initpmin(m);
 	gadget_initcamera(m);
 	gadget_initpeano(m);
-	gadget_initmergesort(m);
 }
