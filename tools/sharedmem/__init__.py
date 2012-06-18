@@ -24,6 +24,8 @@ from listtools import cycle, zip, repeat
 from warnings import warn
 import heapq
 
+from gaepsi.tools import array_split
+
 __shmdebug__ = False
 __timeout__ = 10
 
@@ -124,7 +126,7 @@ class Pool:
     """ Split every item in the list into nchunks, and return a list of chunked items.
            - then used with p.starmap(work, zip(*p.split((xxx,xxx,xxxx), chunksize=1024))
         For non sequence items, tuples, and 0d arrays, constructs a repeated iterator,
-        For sequence items(but tuples), convert to numpy array then use nupy.array_split to split them.
+        For sequence items(but tuples), convert to numpy array then use array_split to split them.
         either give nchunks or chunksize. chunksize is only instructive, nchunk is estimated from chunksize
     """
     result = []
@@ -144,7 +146,7 @@ class Pool:
       else:
         aitem = numpy.asarray(item)
         if aitem.shape:
-          result += [numpy.array_split(aitem, nchunks)]
+          result += [array_split(aitem, nchunks)]
         else:
           result += [repeat(item)]
 

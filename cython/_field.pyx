@@ -79,8 +79,9 @@ cdef float solve_sml_one(float pos[3], float * r, float * w, int NGB, float mean
 
 @cython.boundscheck(False)
 def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
+    if len(pos) == 0: return
     iter = numpy.nditer(
-          [pos[:, 0], pos[:, 1], pos[:, 2], pweight, out], 
+          [pos[..., 0], pos[..., 1], pos[..., 2], pweight, out], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readwrite']], 
      op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4'],
@@ -125,9 +126,9 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
           if (<float*>data[4])[0] <= 0:
             for d in range(3):
               fpos[d] = (<float*>data[d])[0]
-            key = tree.scale.encode_float(fpos)
+            key = tree.zorder.encode_float(fpos)
             ib = tree.query_neighbours_estimate_radius(key, 1)
-            (<float*>data[4])[0] = ib / tree.scale._norm[0]
+            (<float*>data[4])[0] = ib / tree.zorder._norm[0]
           for iop in range(5):
             data[iop] += strides[iop]
           size = size - 1

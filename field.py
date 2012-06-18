@@ -7,7 +7,7 @@ from numpy import sin,cos, matrix
 from numpy import inner
 from numpy import newaxis
 from numpy import ndarray
-
+from numpy import repeat
 from cosmology import Cosmology
 from cosmology import WMAP7
 from tools import sharedmem
@@ -317,7 +317,7 @@ class Field(object):
   def __setitem__(self, index, value):
     if isinstance(index, basestring):
       if is_scalar_like(value):
-        value = ones(self.numpoints) * atleast_1d(value)
+        value = repeat(value, self.numpoints)
       if value.shape[0] != self.numpoints:
         raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
       self.dict[index] = value
@@ -367,6 +367,7 @@ class Field(object):
         a mass conserving smoothing length, the weight is used as the mass.
     """
     # important to first zorder the tree because it reorders the components.
+    print self['locations'].shape
     tree = self.zorder(ztree=True)
     if weight is not None:
       weight = self[weight]
@@ -375,13 +376,18 @@ class Field(object):
       weight = asarray(1.0, dtype='f4')
 
     points = self['locations']
-    sml = self['sml']
+    try:
+      sml = self['sml']
+    except KeyError:
+      self['sml'] = empty(self.numpoints, 'f4')
+      sml = self['sml']
+
     from cython._field import solve_sml
     
     def work(points, w, out): 
       solve_sml(points, w, self['locations'], atleast_1d(weight), out, tree, NGB)
     with sharedmem.Pool(use_threads=True) as pool:
-      pool.starmap(work, zip(*pool.split((points, weight, sml), nchunks=1024)))
+      pool.starmap(work, pool.zipsplit((points, weight, sml), nchunks=1024))
 
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
@@ -434,37 +440,39 @@ class Field(object):
     return newboxsize * boxsize
 
   def zorder(self, sort=True, ztree=False, thresh=128):
-    """ calculate zorder (morton key) and return it.
-        if sort is true, the field is sorted by zorder
-        if ztree is false, return zorder, scale 
-        if ztree is true, the field is permuted into the zorder,
+    """ calculate zkey (morton key) and return it.
+        if sort is true, the field is sorted by zkey
+        if ztree is false, return zkey, zorder, where zorder is
+        an object converting from zkey and coordinates.
+        if ztree is true, the field is permuted by zkey ordering,
         and a ZTree is returned.
-        scale object is used to convert pos to zorder and verse vica
+        zorder object is used to convert pos to zkey and verse vica
         Notice that if sort or ztree is true, all previous reference
         to the field's components are invalid.
     """
     from cython import ztree as zt
+    from cython import zorder as zo
     x, y, z = (self['locations'][:, 0],
               self['locations'][:, 1],
               self['locations'][:, 2])
 
-    scale = zt.Scale(x, y, z, bits=21)
-    zorder = empty(self.numpoints, dtype='i8')
+    zorder = zo.Zorder.from_points(x, y, z, bits=21)
+    zkey = empty(self.numpoints, dtype='i8')
     with sharedmem.Pool(use_threads=True) as pool:
-      def work(zorder, locations):
+      def work(zkey, locations):
         x, y, z = locations[:, 0], locations[:, 1], locations[:, 2]
-        zt.zorder(x, y, z, scale=scale, out=zorder)
-      pool.starmap(work, zip(*pool.split((zorder, self['locations']))))
+        zorder(x, y, z, out=zkey)
+      pool.starmap(work, pool.zipsplit((zkey, self['locations'])))
 
     if sort or ztree:
       # use sharemem.argsort, because it is faster
-      arg = sharedmem.argsort(zorder)
-      for comp in self.dict.keys:
+      arg = sharedmem.argsort(zkey)
+      for comp in self.dict:
         # use sharemem.take, because it is faster
-        self.dict[comp] = sharedmem.take(self.dict[comp], arg)
+        self.dict[comp] = sharedmem.take(self.dict[comp], arg, axis=0)
 
-      zorder = zorder[arg]
+      zkey = zkey[arg]
     if ztree:
-      return zt.Tree(zorder=zorder, scale=scale, thresh=thresh)
-    return zorder, scale
+      return zt.Tree(points=zkey, zorder=zorder, thresh=thresh)
+    return zkey, zorder
 
