@@ -1,5 +1,6 @@
 
 #include <Python.h>
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 
 #define KLINE_BINS (1024 * 16)
 #define KOVERLAP_BINS  64

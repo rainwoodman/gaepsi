@@ -2,11 +2,11 @@ import numpy
 from constant import SI
 from units import Units
 
-import ccode._cosmology
+import cython._cosmology
 
 def sphdist(ra1, dec1, ra2, dec2, out=None):
   """ all in radians """
-  return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
+  return cython._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
 def radec2vec(ra, dec):
   c = numpy.cos(dec)
   return numpy.asarray([c * numpy.cos(ra), c * numpy.sin(ra), numpy.sin(dec)])
@@ -155,7 +155,7 @@ class Cosmology:
     else:
       D1 *= DH
       D2 *= DH
-      return ccode._cosmology.thirdleg(D1, D2, t, out)
+      return cython._cosmology.thirdleg(D1, D2, t, out)
 
   def D2z(self, z0, d):
     """returns the z satisfying Dc(z0, z) = d, and z > z0"""
@@ -169,12 +169,12 @@ class Cosmology:
         dec cannot be an alias of out[:, 0]
         
     """
-    return ccode._cosmology.radec2pos(self, ra, dec, z, out)
+    return cython._cosmology.radec2pos(self, ra, dec, z, out)
 
   def sphdist(self, ra1, dec1, ra2, dec2, out=None):
     """ all in rad 
        out cannot be alias of dec1, dec2 """
-    return ccode._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
+    return cython._cosmology.sphdist(ra1, dec1, ra2, dec2, out)
 
   def H(self, a):
     """ return the hubble constant at the given z or a, 

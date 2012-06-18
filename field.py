@@ -376,7 +376,7 @@ class Field(object):
 
     points = self['locations']
     sml = self['sml']
-    from ccode._field import solve_sml
+    from cython._field import solve_sml
     
     def work(points, w, out): 
       solve_sml(points, w, self['locations'], atleast_1d(weight), out, tree, NGB)
@@ -443,7 +443,7 @@ class Field(object):
         Notice that if sort or ztree is true, all previous reference
         to the field's components are invalid.
     """
-    from ccode import ztree as zt
+    from cython import ztree as zt
     x, y, z = (self['locations'][:, 0],
               self['locations'][:, 1],
               self['locations'][:, 2])

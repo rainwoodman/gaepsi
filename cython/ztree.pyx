@@ -40,10 +40,10 @@ NodeInfoDtype = numpy.dtype([('key', 'i8'), ('order', 'i2'), ('child_length', 'i
 #    print signature, func.__signatures__
 #    raise
 
-cdef int insquare(int64_t sqkey, int order, int64_t k2) nogil:
+cdef inline int insquare(int64_t sqkey, int order, int64_t k2) nogil:
   return 0 == ((sqkey ^ k2) >> (order * 3))
 
-cdef float dist2(int64_t key1, int64_t key2, float norm[3], int bits) nogil:
+cdef inline float dist2(int64_t key1, int64_t key2, float norm[3], int bits) nogil:
     cdef int64_t key = key1 ^ key2
     cdef float x, y, z
     cdef int j

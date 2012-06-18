@@ -13,7 +13,7 @@ static double pmind(double v1, double v2) {
 	}
 }
 static PyUFuncGenericFunction generic_functions[] = {NULL, NULL};
-static char generic_signatures[] = {PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE};
+static char generic_signatures[] = {NPY_FLOAT, NPY_FLOAT, NPY_FLOAT, NPY_DOUBLE, NPY_DOUBLE, NPY_DOUBLE};
 static void * pmin_data[] = {(void*) pmind, (void*)pmind };
 
 void HIDDEN gadget_initpmin(PyObject * m) {

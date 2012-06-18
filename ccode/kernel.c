@@ -130,10 +130,10 @@ static void * koverlap_data[] = {(void*) koverlapf, (void *) koverlapd};
 
 static PyUFuncGenericFunction generic_functions[] = {NULL, NULL};
 static PyUFuncGenericFunction koverlap_functions[] = {NULL, NULL};
-static char generic_signatures[] = {PyArray_FLOAT, PyArray_FLOAT, PyArray_DOUBLE, PyArray_DOUBLE};
+static char generic_signatures[] = {NPY_FLOAT, NPY_FLOAT, NPY_DOUBLE, NPY_DOUBLE};
 static char koverlap_signatures[] = {
-	PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT, PyArray_FLOAT,
-	PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, PyArray_DOUBLE, };
+	NPY_FLOAT, NPY_FLOAT, NPY_FLOAT, NPY_FLOAT, NPY_FLOAT,
+	NPY_DOUBLE, NPY_DOUBLE, NPY_DOUBLE, NPY_DOUBLE, NPY_DOUBLE, };
 
 /*static PyMethodDef module_methods[] = {
 	{NULL}

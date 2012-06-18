@@ -889,7 +889,7 @@ class GaplotContext(object):
       #multiply(image[:, :, 0:3], weight[:, :, newaxis], image[:, :, 0:3])
       #image[:, :, 3] = 255
       #weight **= 0.33333333333
-      multiply(255.9999, weight[:, :], image[:,:,3])
+      multiply(255.9999, weight[:, :], out=image[:,:,3], casting='unsafe')
 #      print 'alpha', image[:, :, 3].ravel().min(), image[:,:,3].ravel().max()
     return image
 
