@@ -12,6 +12,7 @@ MYEAR = 3.1556926e13 # in seconds
 H0 = 100.0 / KPC # s^-1
 LYMAN_ALPHA_CROSSSECTION = 4.5e-22 # m^2
 G = 6.67259e-11 # s^-2 m^3 kg^-1
+PLANCK = 6.626068e-34 # m2 kg / s
 BOLTZMANN = 1.38065e-23 # m^2 kg s^-2 K^-1
 EV = 1.602e-19 # J
 J = 1
