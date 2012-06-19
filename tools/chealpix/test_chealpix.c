@@ -85,6 +85,7 @@ void test1(void) {
   printf("test completed\n\n");
 }
 
+#ifdef ENABLE_FITSIO
 void test2 (void) {
   float *map;
   long nside, npix, np, ns;
@@ -126,9 +127,12 @@ void test2 (void) {
 
   printf("test completed\n\n");
 }
+#endif
 
 int main(void) {
   test1();
+#ifdef ENABLE_FITSIO
   test2();
+#endif
   return 0;
 }

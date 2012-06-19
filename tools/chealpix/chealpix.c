@@ -30,7 +30,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#ifdef ENABLE_FITSIO
 #include "fitsio.h"
+#endif
 #include "chealpix.h"
 
 static const double twothird=2.0/3.0;
@@ -418,27 +420,6 @@ static void pix2ang_nest_z_phi (int nside_, int pix, double *z, double *phi)
   *phi = (jp-(kshift+1)*0.5)*(halfpi/nr);
   }
 
-static void printerror (int status)
-  {
-  if (status==0) return;
-
-  fits_report_error(stderr, status);
-  UTIL_FAIL("FITS error");
-  }
-
-static void setCoordSysHP(char coordsys,char *coordsys9)
-  {
-  strcpy(coordsys9,"C       ");
-  if (coordsys=='G')
-    strcpy (coordsys9,"G       ");
-  else if (coordsys=='E')
-    strcpy (coordsys9,"E       ");
-  else if ((coordsys!='C')&&(coordsys!='Q'))
-    fprintf(stderr, "%s (%d): System Cordinates are not correct"
-                    "(Galactic,Ecliptic,Celestial=Equatorial). "
-                    " Celestial system was set.\n", __FILE__, __LINE__);
-  }
-
 void ang2vec(double theta, double phi, double *vec)
   {
   double sz = sin(theta);
@@ -464,6 +445,28 @@ long npix2nside(long npix)
 long nside2npix(const long nside)
   { return 12*nside*nside; }
 
+#ifdef ENABLE_FITSIO
+
+static void printerror (int status)
+  {
+  if (status==0) return;
+
+  fits_report_error(stderr, status);
+  UTIL_FAIL("FITS error");
+  }
+
+static void setCoordSysHP(char coordsys,char *coordsys9)
+  {
+  strcpy(coordsys9,"C       ");
+  if (coordsys=='G')
+    strcpy (coordsys9,"G       ");
+  else if (coordsys=='E')
+    strcpy (coordsys9,"E       ");
+  else if ((coordsys!='C')&&(coordsys!='Q'))
+    fprintf(stderr, "%s (%d): System Cordinates are not correct"
+                    "(Galactic,Ecliptic,Celestial=Equatorial). "
+                    " Celestial system was set.\n", __FILE__, __LINE__);
+  }
 float *read_healpix_map(const char *infile, long *nside, char *coordsys,
   char *ordering)
   {
@@ -585,7 +588,7 @@ void write_healpix_map (const float *signal, long nside, const char *filename,
   fits_close_file(fptr, &status);
   printerror(status);
   }
-
+#endif
 void ang2pix_ring(long nside, double theta, double phi, long *ipix)
   {
   *ipix=ang2pix_ring_z_phi (nside,cos(theta),phi);
