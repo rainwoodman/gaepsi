@@ -1,4 +1,4 @@
-from constant import SI
+import SI
 class Units:
   def __init__(self, h):
     C = 2.99792458e5
@@ -32,6 +32,7 @@ class Units:
     J = SI.J / ENERGY
     W = SI.W / (ENERGY / TIME)
     EV = SI.EV / ENERGY
+    ERG = SI.ERG / ENERGY
     SECOND = SI.SECOND / TIME
     RYDBERG = SI.RYDBERG / ENERGY
     CRITICAL_DENSITY = 3 * H0 ** 2/ (8 * pi * G)

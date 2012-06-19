@@ -3,7 +3,7 @@ from numpy import get_include
 setup(name="gaepsi", version="1.0",
       package_dir = {'gaepsi': '.'},
       packages = [
-        'gaepsi', 'gaepsi.constant', 'gaepsi.ccode', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.tools.sharedmem', 'gaepsi.cython'
+        'gaepsi', 'gaepsi.cosmology', 'gaepsi.ccode', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.tools.sharedmem', 'gaepsi.cython'
       ],
       scripts = [ 'scripts/gadget-render.py', 
                   'scripts/gadget-mklayers.py', 
@@ -39,8 +39,8 @@ setup(name="gaepsi", version="1.0",
              libraries=[],
              include_dirs=[get_include()],
         ),
-        Extension("gaepsi.cython._cosmology", 
-             ["cython/_cosmology.c",],
+        Extension("gaepsi.cosmology._cosmology", 
+             ["cosmology/_cosmology.c",],
 #             extra_compile_args=['-g -O3'], 
              extra_compile_args=['-O3'],
              libraries=[],

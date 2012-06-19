@@ -1,8 +1,8 @@
 import numpy
-from constant import SI
+import SI
 from units import Units
 
-import cython._cosmology
+import _cosmology
 
 def sphdist(ra1, dec1, ra2, dec2, out=None):
   """ all in radians """
@@ -218,53 +218,6 @@ class Cosmology:
       return out
     else:
       return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
-
-  def Lblue(self, mdot):
-    """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
-        multiply by units.POWER to SI """
-    def f(x): return 0.80 - 0.067 * (numpy.log10(x) - 12) + 0.017 * (numpy.log10(x) - 12)**2 - 0.0023 * (numpy.log10(x) - 12)**3
-    # 0.1 is coded in gadget bh model.
-    L = mdot * self.units.C ** 2 * 0.1
-    return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
-  def Lsoft(self, mdot):
-    """ converts GADGET bh accretion rate to Blue band bolemetric luminosity taking GADGET return GADGET,
-        multiply by units.POWER to SI """
-    def f(x): return 1.65 + 0.22 * (numpy.log10(x) - 12) + 0.012 * (numpy.log10(x) - 12)**2 - 0.0015 * (numpy.log10(x) - 12)**3
-    # 0.1 is coded in gadget bh model.
-    L = mdot * self.units.C ** 2 * 0.1
-    return 10**(-f(L/self.units.SOLARLUMINOSITY)) * L
-
-  def QSObol(self, mdot, type):
-    """ Hopkins etal 2007, added UV (13.6ev -> 250.0 ev with index=1.76),
-        type can be 'blue', 'ir', 'soft', 'hard', or 'uv'. """
-    params = {
-      'blue': (6.25,-0.37,9.00,-0.012,),
-      'ir':   (7.40,-0.37, 10.66,-0.014,),
-      'soft':(17.87,0.28,10.03,-0.020,),
-      'hard':(10.83,0.28,6.08,-0.020,),
-    }
-
-    L = mdot * self.units.C ** 2 * 0.1
-    if type == 'bol': return L 
-
-    if type == 'uv': 
-      c1,k1,c2,k2 = params['blue']
-    else:
-      c1,k1,c2,k2 = params[type]
-    x = L / (1e10 * self.units.SOLARLUMINOSITY)
-    ratio = c1 * x ** k1 + c2 * x ** k2
-    if type == 'uv':
-      LB = L / ratio
-      fB = self.units.C / (445e-9 * self.units.NANOMETER)
-      fX = self.units.C / (120e-9 * self.units.NANOMETER)
-      fI = self.units.C / (91.1e-9 * self.units.NANOMETER)
-      lB = LB / fB
-      lX = lB * (fX / fB) ** -0.44
-      lI = lX * (fI / fX) ** -1.76
-      Lband = lI * fI / -0.76 * ((250.0 / 13.6) ** -0.76 - 1)
-    else:
-      Lband = L / ratio
-    return Lband
 
 WMAP7 = Cosmology(K=0.0, M=0.28, L=0.72, h=0.72)
 

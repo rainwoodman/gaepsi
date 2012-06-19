@@ -16,5 +16,6 @@ PLANCK = 6.626068e-34 # m2 kg / s
 BOLTZMANN = 1.38065e-23 # m^2 kg s^-2 K^-1
 EV = 1.602e-19 # J
 J = 1
+ERG = 1e-7 
 W = 1
 RYDBERG = 13.6 * EV # J
