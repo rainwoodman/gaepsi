@@ -111,11 +111,9 @@ cdef class Tree:
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
      cdef intptr_t j
      cdef int32_t r
-     cdef int64_t key
      cdef intptr_t tmp
      cdef int32_t min[3], max[3], center[3]
-     key = self.zorder.encode_float(pos)
-     r = self.query_neighbours_estimate_radius(key, result.limit)
+     r = self.query_neighbours_estimate_radius(pos, result.limit)
      cdef float max_weight = 0
      cdef int iteration = 0
      while iteration < 4:
@@ -145,46 +143,40 @@ cdef class Tree:
     out = numpy.empty_like(x, dtype=[('data', (numpy.intp, count))])
     iter = numpy.nditer([x, y, z, out], op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], flags=['buffered', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', out.dtype])
 
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
-    cdef intptr_t total = 0
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+
     cdef Result result = Result(count)
 
     with nogil:
-     while True:
-      size = size_ptr[0]
-      total += size
       while size > 0:
-        for d in range(3):
-          pos[d] = (<float*>data[d])[0]
-        result.truncate()
-        self.query_neighbours_one(result, pos)
-        for i in range(count):
-          (<intptr_t*>data[3])[i] = result._buffer[i]
+        while size > 0:
+          for d in range(3):
+            pos[d] = (<float*>citer.data[d])[0]
+          result.truncate()
+          self.query_neighbours_one(result, pos)
+          for i in range(count):
+            (<intptr_t*>citer.data[3])[i] = result._buffer[i]
 
-        for iop in range(4):
-          data[iop] += strides[iop]
-        size = size - 1
-      i = next(citer)
-      if i == 0: break
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
 
     out = out.view(dtype=(numpy.intp, count))
     return out
   
   @cython.boundscheck(False)
-  cdef int32_t query_neighbours_estimate_radius(Tree self, int64_t ckey, int count) nogil:
+  cdef int32_t query_neighbours_estimate_radius(Tree self, float pos[3], int count) nogil:
     cdef intptr_t this, child, next
     cdef float rt = 0, tmp = 0
+    cdef int64_t key
+    key = self.zorder.encode_float(pos)
     this = 0
     while this != -1 and self._buffer[this].child_length > 0:
       next = this
       for i in range(self._buffer[this].child_length):
         child = self._buffer[this].child[i]
-        if insquare(self._buffer[child].key, self._buffer[child].order, ckey):
+        if insquare(self._buffer[child].key, self._buffer[child].order, key):
           next = child
           break
       if next == this: break
@@ -215,32 +207,25 @@ cdef class Tree:
     ret = numpy.empty_like(x, dtype=numpy.dtype('object'))
     iter = numpy.nditer([x, y, z, radius, ret], op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], flags=['buffered', 'refs_ok', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
 
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
     cdef object a
     # this cannot be done with no gil.
 
-    while True:
-      size = size_ptr[0]
+    while size > 0:
       while size > 0:
         for d in range(3):
-          pos[d] = (<float*>data[d])[0]
-        r = (<float*> data[3])[0]
+          pos[d] = (<float*>citer.data[d])[0]
+        r = (<float*>citer.data[3])[0]
         self.zorder.BBint(pos, r, center, min, max)
         result = Result(limit)
         self.query_box_one(result, min, max, center)
         a = (result.harvest())
-        (<void**>data[4])[0] = <void*> a
+        (<void**>citer.data[4])[0] = <void*> a
         Py_INCREF(a)
-        for iop in range(5):
-          data[iop] += strides[iop]
+        npyiter.advance(&citer)
         size = size - 1
-      i = next(citer)
-      if i == 0: break
+      size = npyiter.next(&citer)
 
     return ret
 
@@ -261,39 +246,33 @@ cdef class Tree:
       flags=['buffered', 'refs_ok', 'external_loop'], 
       casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
 
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
     cdef object a
     # this cannot be done with no gil.
-    while True:
-      size = size_ptr[0]
+    while size > 0:
       while size > 0:
         for d in range(3):
-          pos[d] = (<float*>data[d])[0]
+          pos[d] = (<float*>citer.data[d])[0]
         self.zorder.float_to_int(pos, min)
         for d in range(3):
-          pos[d] = (<float*>data[3+d])[0]
+          pos[d] = (<float*>citer.data[3+d])[0]
         self.zorder.float_to_int(pos, max)
 
         for d in range(3):
-          pos[d] = (<float*>data[3+d])[0] + (<float*>data[d])[0] 
+          pos[d] = (<float*>citer.data[3+d])[0] + (<float*>citer.data[d])[0] 
           pos[d] *= 0.5
         self.zorder.float_to_int(pos, center)
 
         result = Result(limit)
         self.query_box_one(result, min, max, center)
         a = (result.harvest())
-        (<void**>data[6])[0] = <void*> a
+        (<void**>citer.data[6])[0] = <void*> a
         Py_INCREF(a)
-        for iop in range(7):
-          data[iop] += strides[iop]
+        npyiter.advance(&citer)
         size = size - 1
-      i = next(citer)
-      if i == 0: break
+
+      size = npyiter.next(&citer)
 
     return ret
 

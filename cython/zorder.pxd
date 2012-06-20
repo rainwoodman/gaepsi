@@ -4,8 +4,9 @@ import numpy
 cimport cpython
 cimport numpy
 from libc.stdint cimport *
-cdef extern int64_t xyz2ind (int32_t x, int32_t y, int32_t z) nogil
-cdef extern void ind2xyz (int64_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
+cdef extern from '_bittricks.c':
+  cdef int64_t xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
+  cdef void ind2xyz (int64_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
 
 cdef class Zorder:
   """Zorder scales x,y,z to 0 ~ (1<<bits) - 1 """

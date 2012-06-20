@@ -51,25 +51,20 @@ cdef class Zorder:
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
           op_dtypes=['f4', 'f4', 'f4', 'i8'])
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
+
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
     cdef float pos[3]
     with nogil:
-     while True:
-      size = size_ptr[0]
       while size > 0:
-        self.decode_float((<int64_t*>data[3])[0], pos)
-        (<float*>data[0])[0] = pos[0]
-        (<float*>data[1])[0] = pos[1]
-        (<float*>data[2])[0] = pos[2]
-        for iop in range(4):
-          data[iop] += strides[iop]
-        size = size - 1
-      if next(citer) == 0: break
+        while size > 0:
+          self.decode_float((<int64_t*>citer.data[3])[0], pos)
+          (<float*>citer.data[0])[0] = pos[0]
+          (<float*>citer.data[1])[0] = pos[1]
+          (<float*>citer.data[2])[0] = pos[2]
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
     
   def __call__(self, x, y, z, out=None):
     """ calculates the zorder of given points """
@@ -83,26 +78,21 @@ cdef class Zorder:
           casting='unsafe', 
           op_dtypes=['f4', 'f4', 'f4', 'i8'])
 
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+
     cdef float pos[3]
     with nogil:
-     while True:
-      size = size_ptr[0]
       while size > 0:
-        for d in range(3):
-          pos[d] = (<float*>data[d])[0]
+        while size > 0:
+          for d in range(3):
+            pos[d] = (<float*>citer.data[d])[0]
 
-        (<int64_t*>data[3])[0] = self.encode_float(pos)
+          (<int64_t*>citer.data[3])[0] = self.encode_float(pos)
 
-        for iop in range(4):
-          data[iop] += strides[iop]
-        size = size - 1
-      if next(citer) == 0: break
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
 
   def __str__(self):
     return str(dict(min=self.min, norm=self.norm, bits=self.bits))

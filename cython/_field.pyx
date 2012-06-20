@@ -101,13 +101,8 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
     cdef float[:, :] _locations = locations
     cdef float[:] _weights = weights
 
-    cdef npyiter.NpyIter * citer = npyiter.GetNpyIter(iter)
-    cdef npyiter.IterNextFunc next = npyiter.GetIterNext(citer, NULL)
-    cdef char ** data = npyiter.GetDataPtrArray(citer)
-    cdef numpy.npy_intp *strides = npyiter.GetInnerStrideArray(citer)
-    cdef numpy.npy_intp *size_ptr = npyiter.GetInnerLoopSizePtr(citer)
-    cdef intptr_t iop, size
-    cdef intptr_t total = 0
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
     cdef ztree.Result result
     cdef int32_t ib
     cdef uint64_t key
@@ -117,43 +112,39 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
       r_ptr = <float*>r.data
       w = numpy.empty(shape=NGB, dtype=numpy.float32)
       w_ptr = <float*>w.data
-    with nogil: 
-     while True:
-      size = size_ptr[0]
-      total += size
-      if NGB <= 0:
+      with nogil:
         while size > 0:
-          if (<float*>data[4])[0] <= 0:
-            for d in range(3):
-              fpos[d] = (<float*>data[d])[0]
-            key = tree.zorder.encode_float(fpos)
-            ib = tree.query_neighbours_estimate_radius(key, 1)
-            (<float*>data[4])[0] = ib / tree.zorder._norm[0]
-          for iop in range(5):
-            data[iop] += strides[iop]
-          size = size - 1
-      else:
-        while size > 0:
-          if (<float*>data[4])[0] <= 0:
-            for d in range(3):
-              fpos[d] = (<float*>data[d])[0]
-            w0 = NGB * (<float*>data[3])[0]
-            result.truncate()
-            tree.query_neighbours_one(result, fpos)
-            for i in range(NGB):
-              if _weights.shape[0] > 1:
-                w_ptr[i] = _weights[result._buffer[i]]
-              else:
-                w_ptr[i] = _weights[0]
-              r_ptr[i] = 0
+          while size > 0:
+            if (<float*>citer.data[4])[0] <= 0:
               for d in range(3):
-                x = _locations[result._buffer[i], d] - fpos[d]
-                r_ptr[i] = r_ptr[i] + x * x
-              r_ptr[i] = r_ptr[i] ** 0.5
-  
-            (<float*>data[4])[0] = solve_sml_one(fpos, r_ptr, w_ptr, NGB, w0 / (4 * 3.1416 / 3))
-          for iop in range(5):
-            data[iop] += strides[iop]
-          size = size - 1
-      if next(citer) == 0: break
+                fpos[d] = (<float*>citer.data[d])[0]
+              w0 = NGB * (<float*>citer.data[3])[0]
+              result.truncate()
+              tree.query_neighbours_one(result, fpos)
+              for i in range(NGB):
+                if _weights.shape[0] > 1:
+                  w_ptr[i] = _weights[result._buffer[i]]
+                else:
+                  w_ptr[i] = _weights[0]
+                r_ptr[i] = 0
+                for d in range(3):
+                  x = _locations[result._buffer[i], d] - fpos[d]
+                  r_ptr[i] = r_ptr[i] + x * x
+                r_ptr[i] = r_ptr[i] ** 0.5
+              (<float*>citer.data[4])[0] = solve_sml_one(fpos, r_ptr, w_ptr, NGB, w0 / (4 * 3.1416 / 3))
+            npyiter.advance(&citer)
+            size = size - 1
+        size = npyiter.next(&citer)
+    else:
+      with nogil: 
+        while size > 0:
+          while size > 0:
+            if (<float*>citer.data[4])[0] <= 0:
+              for d in range(3):
+                fpos[d] = (<float*>citer.data[d])[0]
+              ib = tree.query_neighbours_estimate_radius(fpos, 1)
+              (<float*>citer.data[4])[0] = ib / tree.zorder._norm[0]
+            npyiter.advance(&citer)
+            size = size - 1
+          size = npyiter.next(&citer)
 

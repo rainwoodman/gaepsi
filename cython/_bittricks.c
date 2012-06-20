@@ -151,7 +151,7 @@ static uint8_t ctab[256] = {
 0xf6,  0xf7,  0xfe,  0xff, 
 };
 
-int64_t xyz2ind (int32_t x, int32_t y, int32_t z) {
+static inline int64_t xyz2ind (int32_t x, int32_t y, int32_t z) {
     int64_t ind = 0;
     ind |= utab[(uint8_t) x];
     x >>= 8;
@@ -204,7 +204,7 @@ static int32_t inline ind2x(uint64_t ind) {
     return x;
 }
 
-void ind2xyz(int64_t ind, int32_t * x, int32_t * y, int32_t * z) {
+void inline ind2xyz(int64_t ind, int32_t * x, int32_t * y, int32_t * z) {
   *x = ind2x(ind);
   *y = ind2x(ind>>1);
   *z = ind2x(ind>>2);
