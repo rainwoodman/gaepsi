@@ -35,6 +35,8 @@ cdef class Zorder:
     )
 
   def __init__(self, min, norm, bits=21):
+    if bits > 21:
+      raise ValueError("bits cannnot be bigger than 21 with 64bit integer")
     self.min[:] = min
     self.norm[:] = norm
     self.bits = bits

@@ -4,6 +4,8 @@ import numpy
 cimport cpython
 cimport numpy
 from libc.stdint cimport *
+cdef extern int64_t xyz2ind (int32_t x, int32_t y, int32_t z) nogil
+cdef extern void ind2xyz (int64_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
 
 cdef class Zorder:
   """Zorder scales x,y,z to 0 ~ (1<<bits) - 1 """
@@ -26,16 +28,18 @@ cdef class Zorder:
     
   cdef inline void decode(Zorder self, int64_t key, int32_t point[3]) nogil:
     cdef int j
-    point[0] = 0
-    point[1] = 0
-    point[2] = 0
-    for j in range(0, self.bits) :
-      point[2] += ((key & 1) << j)
-      key >>= 1
-      point[1] += ((key & 1) << j)
-      key >>= 1
-      point[0] += ((key & 1) << j)
-      key >>= 1
+    ind2xyz(key, point, point+1, point+2)
+    return
+#    point[0] = 0
+#    point[1] = 0
+#    point[2] = 0
+#    for j in range(0, self.bits) :
+#      point[2] += ((key & 1) << j)
+#      key >>= 1
+#      point[1] += ((key & 1) << j)
+#      key >>= 1
+#      point[0] += ((key & 1) << j)
+#      key >>= 1
   cdef inline void decode_float(Zorder self, int64_t key, float pos[3]) nogil:
     cdef int32_t point[3]
     cdef int d
@@ -43,16 +47,17 @@ cdef class Zorder:
     for d in range(3):
       pos[d] = point[d] / self._norm[d] + self._min[d]
   cdef inline int64_t encode(Zorder self, int32_t point[3]) nogil:
-    cdef int64_t key = 0
-    cdef int j
-    for j in range(self.bits-1, -1, -1) :
-      key = key << 1
-      key = key + ((point[0] >> j) & 1)
-      key = key << 1
-      key = key + ((point[1] >> j) & 1)
-      key = key << 1
-      key = key + ((point[2] >> j) & 1)
-    return key
+    return xyz2ind(point[0], point[1], point[2])
+#    cdef int64_t key = 0
+#    cdef int j
+#    for j in range(self.bits-1, -1, -1) :
+#      key = key << 1
+#      key = key + ((point[0] >> j) & 1)
+#      key = key << 1
+#      key = key + ((point[1] >> j) & 1)
+#      key = key << 1
+#      key = key + ((point[2] >> j) & 1)
+#    return key
 
   cdef inline int64_t encode_float (Zorder self, float pos[3]) nogil:
     cdef int32_t point[3]

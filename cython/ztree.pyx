@@ -56,7 +56,7 @@ cdef class Tree:
     if zorder is None:
       if points.shape[-1] != 3:
         raise ValueError('points needs to be of shape = -1, 3 to construct Zorder')
-      zorder = Zorder.from_points(points[:, 0], points[:, 1], points[:, 2], bits=21)
+      zorder = Zorder.from_points(points[:, 0], points[:, 1], points[:, 2])
     else:
       if points.shape[-1] == 3:
         zkey = zorder(points[:, 0], points[:, 1], points[:, 2])

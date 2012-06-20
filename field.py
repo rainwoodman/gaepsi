@@ -456,7 +456,7 @@ class Field(object):
               self['locations'][:, 1],
               self['locations'][:, 2])
 
-    zorder = zo.Zorder.from_points(x, y, z, bits=21)
+    zorder = zo.Zorder.from_points(x, y, z)
     zkey = empty(self.numpoints, dtype='i8')
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
