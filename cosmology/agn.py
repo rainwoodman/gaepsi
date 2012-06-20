@@ -87,7 +87,7 @@ def bolemetric(units, mdot, band):
              piece(A1200, A4450 * 10, -0.44, l4450, A4450)]
 
       print res
-      return numpy.sum(res)
+      return reduce(numpy.add,res)
     else:
       Lband = L / ratio
     return Lband
