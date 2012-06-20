@@ -1,17 +1,9 @@
-from numpy import isscalar
-from numpy import ones,zeros, empty
-from numpy import append
-from numpy import asarray
-from numpy import atleast_1d
-from numpy import sin,cos, matrix
-from numpy import inner
+import numpy
+from numpy import sin, cos
 from numpy import newaxis
-from numpy import ndarray
-from numpy import repeat
 from cosmology import Cosmology
 from cosmology import WMAP7
 from tools import sharedmem
-from ccode import k0
 from warnings import warn
 
 def is_string_like(v):
@@ -19,28 +11,28 @@ def is_string_like(v):
   except: return False
   return True
 def is_scalar_like(v):
-  if isscalar(v): return True
-  if isinstance(v, ndarray):
+  if numpy.isscalar(v): return True
+  if isinstance(v, numpy.ndarray):
     if v.ndim == 0: return True
   return False
 
 class Cut:
   def __init__(self, xcut=None, ycut=None, zcut=None, center=None, size=None):
     if xcut is not None:
-      self.center = zeros(3)
-      self.size = zeros(3)
+      self.center = numpy.zeros(3)
+      self.size = numpy.zeros(3)
       self['x'] = xcut
       self['y'] = ycut
       self['z'] = zcut
       return
 
     if size is not None:
-      if is_scalar_like(size): size = ones(3) * atleast_1d(size)
+      if is_scalar_like(size): size = numpy.ones(3) * numpy.atleast_1d(size)
       if center is not None:
-        self.center = asarray(center[0:3])
+        self.center = numpy.asarray(center[0:3])
       else:
-        self.center = asarray(size) * 0.5
-      self.size = asarray(size[0:3])
+        self.center = numpy.asarray(size) * 0.5
+      self.size = numpy.asarray(size[0:3])
       return
     # uninitialized cut
     self.center = None
@@ -55,7 +47,7 @@ class Cut:
     return self.center - self.size * 0.5
   @origin.setter
   def origin(self, value):
-    value = asarray(value)
+    value = numpy.asarray(value)
     self.center[:] = value + self.size * 0.5
 
   def take(self, cut):
@@ -76,7 +68,7 @@ class Cut:
     if axis == 'x': axis = 0
     if axis == 'y': axis = 1
     if axis == 'z': axis = 2
-    return asarray([self.center[axis] - self.size[axis] * 0.5, 
+    return numpy.asarray([self.center[axis] - self.size[axis] * 0.5, 
                     self.center[axis] + self.size[axis] * 0.5])
 
   def __setitem__(self, axis, value):
@@ -93,7 +85,7 @@ class Cut:
     """return a mask of the locations in the cut"""
     if self.empty:
       return None
-    mask = ones(dtype='?', shape = locations.shape[0])
+    mask = numpy.ones(dtype='?', shape = locations.shape[0])
     for axis in range(3):
       mask[:] &= (locations[:, axis] >= self[axis][0])
       mask[:] &= (locations[:, axis] < self[axis][1])
@@ -111,10 +103,10 @@ class Field(object):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
     self.numpoints = numpoints
-    self['locations'] = zeros(shape = numpoints, dtype = ('f4', 3))
+    self['locations'] = numpy.zeros(shape = numpoints, dtype = ('f4', 3))
     if components is not None:
       for comp in components:
-        self.dict[comp] = zeros(shape = numpoints, dtype = components[comp])
+        self.dict[comp] = numpy.zeros(shape = numpoints, dtype = components[comp])
 
   def __len__(self):
     return self.numpoints
@@ -150,7 +142,7 @@ class Field(object):
         otherwise, leave the data in memory in snapshot object.
     """
     Nfile = len(snapshots)
-    starts = zeros(dtype = 'u8', shape = Nfile)
+    starts = numpy.zeros(dtype = 'u8', shape = Nfile)
     for i in range(Nfile):
       snapshot = snapshots[i]
       starts[i] = self.numpoints * i / Nfile
@@ -177,7 +169,7 @@ class Field(object):
         except KeyError:
           skipped_comps.update(set([comp]))
           continue
-        snapshot[ptype, block] = array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
+        snapshot[ptype, block] = numpy.array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
 
         if save_and_clear:
           snapshot.save([block], ptype=ptype)
@@ -193,7 +185,7 @@ class Field(object):
   def take_snapshots(self, snapshots, ptype, cut=None, nthreads=None):
     """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
     self.init_from_snapshot(snapshots[0])
-    if isscalar(ptype):
+    if numpy.isscalar(ptype):
        ptypes = [ptype]
     else:
        ptypes = ptype
@@ -203,7 +195,7 @@ class Field(object):
     self.numpoints = 0
 
       
-    lengths = zeros(dtype='u8', shape=(len(snapshots), len(ptypes)))
+    lengths = numpy.zeros(dtype='u8', shape=(len(snapshots), len(ptypes)))
     starts  = lengths.copy()
 
     with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
@@ -229,7 +221,7 @@ class Field(object):
     def resize(comp):
       shape = list(self[comp].shape)
       shape[0] = self.numpoints
-      self.dict[comp] = zeros(shape = shape,
+      self.dict[comp] = numpy.zeros(shape = shape,
          dtype = self.dict[comp].dtype)
 
     if (ptypes[0], 'pos') in snapshots[0]:
@@ -317,7 +309,7 @@ class Field(object):
   def __setitem__(self, index, value):
     if isinstance(index, basestring):
       if is_scalar_like(value):
-        value = repeat(value, self.numpoints)
+        value = numpy.repeat(value, self.numpoints)
       if value.shape[0] != self.numpoints:
         raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
       self.dict[index] = value
@@ -373,19 +365,19 @@ class Field(object):
       weight = self[weight]
     else:
       # an 0d array is not chunked by the pool. 
-      weight = asarray(1.0, dtype='f4')
+      weight = numpy.asarray(1.0, dtype='f4')
 
     points = self['locations']
     try:
       sml = self['sml']
     except KeyError:
-      self['sml'] = zeros(self.numpoints, 'f4')
+      self['sml'] = numpy.zeros(self.numpoints, 'f4')
       sml = self['sml']
 
     from cython._field import solve_sml
     
     def work(points, w, out): 
-      solve_sml(points, w, self['locations'], atleast_1d(weight), out, tree, NGB)
+      solve_sml(points, w, self['locations'], numpy.atleast_1d(weight), out, tree, NGB)
     with sharedmem.Pool(use_threads=True) as pool:
       pool.starmap(work, pool.zipsplit((points, weight, sml), nchunks=1024))
 
@@ -393,25 +385,25 @@ class Field(object):
     """angle is in degrees"""
     angle *= (3.14159/180)
     if axis == 2 or axis == 'z':
-      M = matrix([[ cos(angle), -sin(angle), 0],
+      M = numpy.matrix([[ cos(angle), -sin(angle), 0],
                   [ sin(angle), cos(angle), 0],
                   [ 0         ,          0, 1]], dtype='f4')
     if axis == 1 or axis == 'y':
-      M = matrix([[ cos(angle), 0, -sin(angle)],
+      M = numpy.matrix([[ cos(angle), 0, -sin(angle)],
                   [ 0         ,          1, 0],
                   [ sin(angle), 0, cos(angle)]], dtype='f4')
     if axis == 0 or axis == 'x':
-      M = matrix([[ 1, 0         ,          0],
+      M = numpy.matrix([[ 1, 0         ,          0],
                   [ 0, cos(angle), -sin(angle)],
                   [ 0, sin(angle), cos(angle)]], dtype='f4')
 
     self['locations'] -= origin
-    self['locations'] = inner(self['locations'], M)
+    self['locations'] = numpy.inner(self['locations'], M)
     self['locations'] += origin
     for comp in self.names:
       if comp != 'locations':
         if len(self[comp].shape) > 1:
-          self[comp] = inner(self[comp], M)
+          self[comp] = numpy.inner(self[comp], M)
 
   def redshift_distort(self, dir, vel=None):
     """ perform redshift distortion along direction dir, needs 'vel' and 'pos'
@@ -420,7 +412,7 @@ class Field(object):
     a = self.a
     if vel is None: vel = sqrt(a) * self['vel']
     H = self.cosmology.H(a = a)
-    v = inner(vel, dir) / H
+    v = numpy.inner(vel, dir) / H
     self['locations'] += dir[newaxis,:] * v[:, newaxis] / a
 
   def unfold(self, M, boxsize):
@@ -457,7 +449,7 @@ class Field(object):
               self['locations'][:, 2])
 
     zorder = zo.Zorder.from_points(x, y, z)
-    zkey = empty(self.numpoints, dtype='i8')
+    zkey = numpy.empty(self.numpoints, dtype='i8')
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
         x, y, z = locations[:, 0], locations[:, 1], locations[:, 2]
