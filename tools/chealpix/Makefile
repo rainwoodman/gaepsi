@@ -13,8 +13,8 @@
 # where
 #  CC     is the C compiler you want to use (default: gcc)
 #  OPT    compilation option
-#  CFITSIO_INCDIR is where the header files for the 'cfitsio' library is kept, if not set
-#                 cfitsio integration will not be built
+#  WITHOUT_CFITSIO if set cfitsio integration will not be built
+#  CFITSIO_INCDIR is where the header files for the 'cfitsio' library is kept
 #  CFITSIO_LIBDIR is where the 'cfitsio' library archive is kept
 #  AR is the command to create the archive with its index table
 #      default = ar -rsv
@@ -60,12 +60,17 @@
 #
 #
 OPT =
-CFITSIO_LIBS =
 AR = ar -rsv
 
-ifdef CFITSIO_INCDIR
-OPT += -DENABLE_FITSIO -I$(CFITSIO_INCDIR)
-CFITSIO_LIBS = -L$(CFITSIO_LIBDIR) -lcfitsio
+ifndef WITHOUT_CFITSIO
+  OPT += -DENABLE_FITSIO 
+  ifdef CFITSIO_INCDIR
+    OPT += -I$(CFITSIO_INCDIR)
+  endif
+  ifdef CFITSIO_LIBDIR
+    CFITSIO_LIBS += -L$(CFITSIO_LIBDIR) 
+  endif
+  CFITSIO_LIBS += -lcfitsio
 endif
 
 PIC = -fPIC
