@@ -3,7 +3,6 @@ from numpy import asarray, newaxis
 from numpy import multiply, divide, add, array
 from numpy import max, min, isscalar
 from matplotlib.pyplot import *
-from gaepsi.constant import GADGET
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 from gaepsi.tools.keyframes import KeyFrames
