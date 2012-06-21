@@ -107,6 +107,13 @@ cdef class Tree:
        rt.update(dict(first=0, last=-1))
     return rt
     
+  cdef void get_node_pos_size(Tree self, intptr_t index, float pos[3], float size[3]) nogil:
+    self.zroder.decode_float(self._buffer[index].key, pos)
+    cdef int64_t r = ((1<<self._buffer[index].order) - 1)
+    size[0] = r * self.zorder._Inorm[0]
+    size[1] = r * self.zorder._Inorm[1]
+    size[2] = r * self.zorder._Inorm[2]
+
   @cython.boundscheck(False)
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
      cdef intptr_t j

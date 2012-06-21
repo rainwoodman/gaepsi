@@ -78,6 +78,8 @@ cdef class Tree:
   cdef readonly numpy.ndarray zkey
   cdef readonly Zorder zorder
 
+  cdef void get_node_pos_size(Tree self, intptr_t index, float pos[3], float size[3]) nogil
+
   cdef inline void _grow(Tree self) nogil:
     if self.size < 1024576 * 16:
       self.size *= 2
