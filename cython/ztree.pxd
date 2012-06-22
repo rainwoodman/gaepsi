@@ -81,6 +81,7 @@ cdef class Tree:
   cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil
   cdef float get_node_size(Tree self, intptr_t index) nogil
   cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil
+  cdef intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil
 
   cdef inline void _grow(Tree self) nogil:
     if self.size < 1024576 * 16:
@@ -96,3 +97,7 @@ cdef class Tree:
   cdef int _tree_build(Tree self) nogil
   cdef intptr_t _create_child(self, intptr_t first_par, intptr_t parent) nogil
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil
+
+cdef inline int insquare(int64_t sqkey, int order, int64_t k2) nogil:
+  return 0 == ((sqkey ^ k2) >> (order * 3))
+

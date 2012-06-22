@@ -19,9 +19,6 @@ numpy.import_array()
 
 NodeInfoDtype = numpy.dtype([('key', 'i8'), ('order', 'i2'), ('child_length', 'i2'), ('parent', 'i4'), ('first', 'i8'), ('npar', 'i8'), ('child', ('i4', 8))])
 
-cdef inline int insquare(int64_t sqkey, int order, int64_t k2) nogil:
-  return 0 == ((sqkey ^ k2) >> (order * 3))
-
 cdef class Result:
   def __cinit__(Result self, int limit = 0):
     if limit > 0:
@@ -180,10 +177,13 @@ cdef class Tree:
     return out
   
   cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil:
-    cdef intptr_t this, child, next
-    cdef float rt = 0, tmp = 0
     cdef int64_t key
     key = self.zorder.encode_float(pos)
+    return self.get_container_key(key, atleast)
+
+  cdef intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil:
+    cdef intptr_t this, child, next
+    cdef float rt = 0, tmp = 0
     this = 0
     while this != -1 and self._buffer[this].child_length > 0:
       next = this

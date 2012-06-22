@@ -25,47 +25,50 @@ cdef class VisTree:
   cdef numpy.ndarray node_lum
   cdef float * _node_lum
   cdef float Inorm
-  cdef float [:] _lum_f
-  cdef double [:] _lum_d
-  cdef int d_or_f
   cdef numpy.ndarray luminosity
   def __cinit__(self, ztree.Tree tree, numpy.ndarray luminosity):
     self.tree = tree
-    self.node_lum = numpy.empty(shape=tree.used, dtype='f4')
+    self.node_lum = numpy.zeros(shape=tree.used, dtype='f4')
     self._node_lum = <float*> self.node_lum.data
     self._nodes = tree._buffer
-    self.node_lum[:] = nan
+#    self.node_lum[:] = nan
+    self.luminosity = luminosity
     self.Inorm = self.tree.zorder._Inorm
-    if luminosity.dtype == numpy.dtype('f4'):
-      self._lum_f = luminosity
-      self.d_or_f = 0
-    elif luminosity.dtype == numpy.dtype('f8'):
-      self._lum_d = luminosity
-      self.d_or_f = 1
-    else:
-      raise TypeError('luminosity type error')
-    self.ensure_node_lum(0)
+    self.ensure_node_lum()
 
   @cython.boundscheck(False)
-  cdef float ensure_node_lum(self, intptr_t index) nogil:
-    cdef double s = 0
-    cdef int k
+  cdef void ensure_node_lum(self):
+    iter = numpy.nditer(
+          [self.luminosity, self.tree.zkey], 
+      op_flags=[['readonly'], ['readonly']],
+     op_dtypes=['f4', 'i8'],
+         flags=['buffered', 'external_loop'], 
+       casting='unsafe')
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef intptr_t ind = -1, i
+    cdef int64_t key
+    with nogil:
+      while size > 0:
+        while size > 0:
+          key = (<int64_t*>citer.data[1])[0]
+          if ind == -1 or \
+             not ztree.insquare(self._nodes[ind].key, self._nodes[ind].order, key):
+            ind = self.tree.get_container_key(key, 0)
+          self._node_lum[ind] += (<float*>citer.data[0])[0]
+          npyiter.advance(&citer)
+          i = i + 1
+          size = size - 1
+        size = npyiter.next(&citer)
+      self.ensure_node_lum_r(0)
 
-    if isnan(self._node_lum[index]):
-      if self._nodes[index].child_length > 0:
-        for k in range(self._nodes[index].child_length):
-          s += self.ensure_node_lum(self._nodes[index].child[k])
-      else:
-        if self.d_or_f == 0:
-          for k in range(self._nodes[index].npar):
-            s += self._lum_f[self._nodes[index].first + k]
-        else:
-          for k in range(self._nodes[index].npar):
-            s += self._lum_d[self._nodes[index].first + k]
-      self._node_lum[index] = s
-      return s
-    else:
-      return self._node_lum[index]
+  cdef float ensure_node_lum_r(self, intptr_t ind) nogil:
+    if self._node_lum[ind] != 0:
+      return self._node_lum[ind]
+    for k in range(self._nodes[ind].child_length):
+      child = self._nodes[ind].child[k]
+      self._node_lum[ind] += self.ensure_node_lum_r(child)
+    return self._node_lum[ind]
 
   cdef void paint_node(self, Camera camera, intptr_t index, double * ccd):
     cdef float pos[3]
