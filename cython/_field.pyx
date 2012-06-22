@@ -104,7 +104,6 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef ztree.Result result
-    cdef int32_t ib
     cdef uint64_t key
     if NGB > 0:
       result = ztree.Result(NGB)
@@ -142,8 +141,8 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
             if (<float*>citer.data[4])[0] <= 0:
               for d in range(3):
                 fpos[d] = (<float*>citer.data[d])[0]
-              ib = tree.query_neighbours_estimate_radius(fpos, 1)
-              (<float*>citer.data[4])[0] = ib / tree.zorder._norm[0]
+              (<float*>citer.data[4])[0] = \
+                  tree.get_node_size(tree.get_container(fpos, 0))
             npyiter.advance(&citer)
             size = size - 1
           size = npyiter.next(&citer)

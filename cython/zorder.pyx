@@ -21,26 +21,25 @@ cdef class Zorder:
   def __cinit__(self):
     self.min = numpy.empty(3)
     self._min = <double*>self.min.data
-    self.norm = numpy.empty(3)
-    self._norm = <double*>self.norm.data
-    self.Inorm = numpy.empty(3)
-    self._Inorm = <double*>self.Inorm.data
+    self.scale = numpy.empty(3)
 
   @classmethod
   def from_points(klass, x, y, z, bits=21):
     return klass(
       min=numpy.array([x.min(), y.min(), z.min()]),
-      norm=numpy.array([ 1 / x.ptp(), 1 / y.ptp(), 1 / z.ptp()]) * ((1 << bits) -1),
+      scale=numpy.array([ x.ptp(), y.ptp(), z.ptp()]),
       bits = bits
     )
 
-  def __init__(self, min, norm, bits=21):
+  def __init__(self, min, scale, bits=21):
     if bits > 21:
       raise ValueError("bits cannnot be bigger than 21 with 64bit integer")
     self.min[:] = min
-    self.norm[:] = norm
+    self.scale[:] = scale
     self.bits = bits
-    self.Inorm[:] = 1.0 / norm
+    self._norm = 1.0 / self.scale.max() * ((1 << bits) -1)
+    self._Inorm = 1.0 / self._norm
+
   def invert(self, index, out=None):
     """ revert from zorder indices to floating points """
     if out is None:
@@ -95,13 +94,15 @@ cdef class Zorder:
         size = npyiter.next(&citer)
 
   def __str__(self):
-    return str(dict(min=self.min, norm=self.norm, bits=self.bits))
+    return str(dict(min=self.min, scale=self.scale, bits=self.bits))
+  def __repr__(self):
+    return str(dict(min=self.min, scale=self.scale, bits=self.bits))
 
   cdef void BBint(self, float pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil:
     cdef float rf, f
     for d in range(3):
-      center[d] = <int32_t> ((pos[d] - self._min[d] ) * self._norm[d])
-      rf = r * self._norm[d]
+      center[d] = <int32_t> ((pos[d] - self._min[d] ) * self._norm)
+      rf = r * self._norm
       f = center[d] - rf
       if f > INT_MAX: min[d] = INT_MAX
       elif f < INT_MIN: min[d] = INT_MIN

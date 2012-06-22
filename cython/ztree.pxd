@@ -78,7 +78,9 @@ cdef class Tree:
   cdef readonly numpy.ndarray zkey
   cdef readonly Zorder zorder
 
-  cdef void get_node_pos_size(Tree self, intptr_t index, float pos[3], float size[3]) nogil
+  cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil
+  cdef float get_node_size(Tree self, intptr_t index) nogil
+  cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil
 
   cdef inline void _grow(Tree self) nogil:
     if self.size < 1024576 * 16:
@@ -86,7 +88,7 @@ cdef class Tree:
     else:
       self.size += 1024576 * 16
     self._buffer = <NodeInfo * >realloc(self._buffer, sizeof(NodeInfo) * self.size)
-  cdef int32_t query_neighbours_estimate_radius(Tree self, float pos[3], int count) nogil
+  cdef int32_t _estimate_radius(Tree self, float pos[3], int count) nogil
   cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t node) nogil
   cdef int __goodness(Tree self, intptr_t node, int32_t min[3], int32_t max[3]) nogil
   cdef void __query_box_one_from(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t root) nogil

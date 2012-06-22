@@ -100,6 +100,13 @@ cdef class Tree:
             index=ind,
          children=arr)
 
+    cdef numpy.ndarray pos, size
+    pos = numpy.empty(3, dtype='f4')
+    self.get_node_pos(ind, <float*>pos.data)
+    size = self.get_node_size(ind)
+
+    rt.update(dict(pos=pos, size=size))
+
     if self._buffer[ind].child_length == 0:
        rt.update(dict(first=self._buffer[ind].first, 
                       last=self._buffer[ind].first + self._buffer[ind].npar))
@@ -107,12 +114,12 @@ cdef class Tree:
        rt.update(dict(first=0, last=-1))
     return rt
     
-  cdef void get_node_pos_size(Tree self, intptr_t index, float pos[3], float size[3]) nogil:
-    self.zroder.decode_float(self._buffer[index].key, pos)
-    cdef int64_t r = ((1<<self._buffer[index].order) - 1)
-    size[0] = r * self.zorder._Inorm[0]
-    size[1] = r * self.zorder._Inorm[1]
-    size[2] = r * self.zorder._Inorm[2]
+  cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil:
+    self.zorder.decode_float(self._buffer[index].key, pos)
+
+  cdef float get_node_size(Tree self, intptr_t index) nogil:
+    cdef int32_t intr = ((1<<self._buffer[index].order) - 1)
+    return intr * self.zorder._Inorm
 
   @cython.boundscheck(False)
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
@@ -120,12 +127,12 @@ cdef class Tree:
      cdef int32_t r
      cdef intptr_t tmp
      cdef int32_t min[3], max[3], center[3]
-     r = self.query_neighbours_estimate_radius(pos, result.limit)
+     r = self._estimate_radius(pos, result.limit)
      cdef float max_weight = 0
      cdef int iteration = 0
      while iteration < 4:
        result.truncate()
-       self.zorder.BBint(pos, r / self.zorder._norm[0], center, min, max)
+       self.zorder.BBint(pos, r * self.zorder._Inorm, center, min, max)
        self.query_box_one(result, min, max, center)
        r = (r << 1)
        iteration = iteration + 1
@@ -172,8 +179,7 @@ cdef class Tree:
     out = out.view(dtype=(numpy.intp, count))
     return out
   
-  @cython.boundscheck(False)
-  cdef int32_t query_neighbours_estimate_radius(Tree self, float pos[3], int count) nogil:
+  cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil:
     cdef intptr_t this, child, next
     cdef float rt = 0, tmp = 0
     cdef int64_t key
@@ -188,11 +194,17 @@ cdef class Tree:
           break
       if next == this: break
       else:
-        if self._buffer[next].npar < count: break
+        if self._buffer[next].npar < atleast: break
         this = next
         continue
+    return this
 
-    while this != -1 and self._buffer[this].npar < count:
+  @cython.boundscheck(False)
+  cdef int32_t _estimate_radius(Tree self, float pos[3], int atleast) nogil:
+    cdef intptr_t this
+
+    this = self.get_container(pos, atleast)
+    while this != -1 and self._buffer[this].npar < atleast:
       this = self._buffer[this].parent
 
     if this == -1: this = 0
