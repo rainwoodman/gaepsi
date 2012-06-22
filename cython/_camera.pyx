@@ -1,5 +1,6 @@
 #cython: embedsignature=True
 #cython: cdivision=True
+# cython: profile=True
 import numpy
 cimport cpython
 cimport numpy
@@ -43,6 +44,7 @@ cdef class VisTree:
       self.d_or_f = 1
     else:
       raise TypeError('luminosity type error')
+    self.ensure_node_lum(0)
 
   @cython.boundscheck(False)
   cdef float ensure_node_lum(self, intptr_t index) nogil:
@@ -65,20 +67,26 @@ cdef class VisTree:
     else:
       return self._node_lum[index]
 
-  cdef void paint_node(self, Camera camera, intptr_t index, double * ccd) nogil:
+  cdef void paint_node(self, Camera camera, intptr_t index, double * ccd):
     cdef float pos[3]
     cdef float uvt[3], whl[3]
     cdef float r
+    cdef float c3inv
+    cdef int d
     self.tree.get_node_pos(index, pos)
-    r = self.tree.get_node_size(index) * 0.5 
-    camera.transform_object_one(pos[0], pos[1], pos[2], r, uvt, whl)
+    r = self.tree.get_node_size(index)
+    c3inv = camera.transform_one(pos, uvt)
+    camera.transform_size_one(r, c3inv, whl)
+    for d in range(3):
+      if uvt[d] - whl[d] > 1.0: return
+      if uvt[d] + whl[d] < -1.0: return
 
-    if (whl[0] < 1 and whl[1] < 1):
-      camera.paint_object_one(pos[0], pos[1], pos[2], 
-            uvt, whl, self.ensure_node_lum(index), ccd)
+    if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
+      camera.paint_object_one(pos, 
+            uvt, whl, self._node_lum[index], ccd)
     elif self._nodes[index].child_length == 0:
-      camera.paint_object_one(pos[0], pos[1], pos[2], 
-            uvt, whl, self.ensure_node_lum(index), ccd)
+      camera.paint_object_one(pos, 
+            uvt, whl, self._node_lum[index], ccd)
     else:
       for k in range(self._nodes[index].child_length):
         self.paint_node(camera, self._nodes[index].child[k], ccd)
@@ -87,8 +95,7 @@ cdef class VisTree:
     if out is None:
       out = numpy.zeros(camera.shape, dtype='f8')
     assert out.dtype == numpy.dtype('f8')
-    assert out.shape[0] == camera.width
-    assert out.shape[1] == camera.height
+    assert (<object>out).shape == camera.shape
     self.paint_node(camera, 0, <double*> out.data)
     return out
 
@@ -99,16 +106,21 @@ cdef class Camera:
   cdef readonly numpy.ndarray up
   cdef numpy.ndarray eyem
   cdef numpy.ndarray cameram
-  cdef size_t width
-  cdef size_t height
+  cdef size_t _shape[2]
+  cdef float _hshape[2]
   cdef readonly numpy.ndarray matrix
   cdef double * _matrix
   cdef double * _cameram
   cdef double * _pos
   # tainted by shape.set and set_camera_matrix
-  cdef float _uscale  
-  cdef float _vscale
-  cdef float _tscale
+  # w = scale[0] * r
+  # h = scale[1] * r
+  # l = scale[2] * r + scale[3] * c3inv * c3inv
+  # scale[0] = cm[0,0], scale[1] = cm[1,1] 
+  # only one of scale[2] or scale[3] is nonzero.
+  # scale[2] = cm[2,2] * cm[3,3]
+  # scale[3] = cm[3,2] * cm[2,3]
+  cdef float _scale[4]
 
   def __cinit__(self):
     self.target = numpy.array([0, 1, 0])
@@ -117,20 +129,22 @@ cdef class Camera:
     self.eyem = numpy.eye(4)
     self.cameram = numpy.eye(4)
     self.matrix = numpy.eye(4)
-    self.width = 200
-    self.height = 200
+    self._shape[0] = 200
+    self._shape[1] = 200
+    self._hshape[0] = 100
+    self._hshape[1] = 100
     self._matrix = <double*>self.matrix.data
     self._pos = <double*>self.pos.data
     self._cameram = <double*>self.cameram.data
 
   property shape:
     def __get__(self):
-      return (self.width, self.height)
+      return (self._shape[0], self._shape[1])
     def __set__(self, value):
-      self.width = value[0]
-      self.height = value[1]
-      self._uscale = fabs(self.cameram[0, 0] * self.width)
-      self._vscale = fabs(self.cameram[1, 1] * self.height)
+      self._shape[0] = value[0]
+      self._shape[1] = value[1]
+      self._hshape[0] = value[0] * 0.5
+      self._hshape[1] = value[1] * 0.5
 
   def __init__(self, width, height):
     self.shape = (width, height)
@@ -141,9 +155,10 @@ cdef class Camera:
 
   def set_camera_matrix(self, matrix):
     self.cameram[...] = matrix[...]
-    self._uscale = fabs(self.cameram[0, 0] * self.width)
-    self._vscale = fabs(self.cameram[1, 1] * self.height)
-    self._tscale = fabs(self.cameram[2, 2])
+    self._scale[0] = fabs(self.cameram[0, 0])
+    self._scale[1] = fabs(self.cameram[1, 1])
+    self._scale[2] = fabs(self.cameram[2, 2] * self.cameram[3, 3])
+    self._scale[3] = fabs(self.cameram[2, 3] * self.cameram[3, 2])
     self.matrix[...] = numpy.dot(self.cameram, self.eyem)
 
   def __call__(self, x, y, z, out=None):
@@ -153,8 +168,7 @@ cdef class Camera:
     if out is None:
       out = numpy.zeros(self.shape, dtype='f8')
     assert out.dtype == numpy.dtype('f8')
-    assert out.shape[0] == self.width
-    assert out.shape[1] == self.height
+    assert (<object>out).shape == self.shape
 
     iter = numpy.nditer(
           [x, y, z, r, luminosity], 
@@ -166,21 +180,20 @@ cdef class Camera:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double * ccd = <double*> out.data
-    cdef float uvt[3], whl[3]
+    cdef float pos[3], uvt[3], whl[3], c3inv
 
-    with nogil:
-      while size > 0:
+#    with nogil:
+    while size > 0:
         while size > 0:
-          self.transform_object_one(
-              (<float*>citer.data[0])[0],
-              (<float*>citer.data[1])[0],
-              (<float*>citer.data[2])[0],
+          pos[0] = (<float*>citer.data[0])[0],
+          pos[1] = (<float*>citer.data[1])[0],
+          pos[2] = (<float*>citer.data[2])[0],
+          c3inv = self.transform_one(pos, uvt)
+          self.transform_size_one(
               (<float*>citer.data[3])[0],
-              uvt, whl)
-          self.paint_object_one(
-              (<float*>citer.data[0])[0],
-              (<float*>citer.data[1])[0],
-              (<float*>citer.data[2])[0],
+              c3inv,
+              whl)
+          self.paint_object_one(pos,
               uvt, whl,
               (<float*>citer.data[4])[0],
               ccd)
@@ -221,21 +234,21 @@ cdef class Camera:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float c3inv, R, uvt[3]
-    with nogil: 
-      while size > 0:
+    cdef float c3inv, R, uvt[3], pos[3]
+#    with nogil: 
+    while size > 0:
         while size > 0:
-          c3inv = self.transform_one(
-                (<float*>citer.data[0])[0],
-                (<float*>citer.data[1])[0],
-                (<float*>citer.data[2])[0],
+          pos[0] = (<float*>citer.data[0])[0],
+          pos[1] = (<float*>citer.data[1])[0],
+          pos[2] = (<float*>citer.data[2])[0],
+          c3inv = self.transform_one(pos,
                 (<float*>citer.data[3]))
           if Nout == 6:
             R = (<float*>citer.data[4])[0] 
             R *= c3inv
-            (<float*>citer.data[3])[3] = R * self._uscale
-            (<float*>citer.data[3])[4] = R * self._vscale
-            (<float*>citer.data[3])[5] = R * self._tscale
+            (<float*>citer.data[3])[3] = R * self._scale[0]
+            (<float*>citer.data[3])[4] = R * self._scale[1]
+            (<float*>citer.data[3])[5] = R * (self._scale[2] + self._scale[3] * c3inv)
  
           npyiter.advance(&citer)
           size = size - 1
@@ -269,43 +282,47 @@ cdef class Camera:
     self.eyem[...] = m2[...]
     self.matrix[...] = numpy.dot(self.cameram, self.eyem)
 
-  cdef void transform_object_one(self, float x, float y, float z, float r, float uvt[3], float whl[3]) nogil:
-    cdef float c3inv = self.transform_one(x, y, z, uvt)
+  cdef inline void transform_size_one(self, float r, float c3inv, float whl[3]) nogil:
     r *= c3inv
-    whl[0] = r * self._uscale
-    whl[1] = r * self._vscale
-    whl[2] = r * self._tscale
-  
-  cdef void paint_object_one(self, float x, float y, float z, float uvt[3], float whl[3], float luminosity, double * ccd) nogil:
-    if whl[0] > self.width or whl[1] > self.height:
+    whl[0] = r * self._scale[0]
+    whl[1] = r * self._scale[1]
+    whl[2] = r * (self._scale[2] + self._scale[3] * c3inv)
+    
+  cdef void paint_object_one(self, float pos[3], float uvt[3], float whl[3], float luminosity, double * ccd) nogil:
+
+    if whl[0] > 2 or whl[1] > 2:
       # over resolved
       return
+    cdef int d
 
-    if uvt[3] + whl[2] < -1 or uvt[3] - whl[2] > 1: return
+    for d in range(3):
+      if uvt[d] - whl[d] > 1.0: return
+      if uvt[d] + whl[d] < -1.0: return
 
     cdef float zfac 
+    cdef float xy[2]
+    cdef float dxy[2]
 
-    if uvt[3] + whl[2] > 1:
-      if uvt[3] - whl[2] < -1:
+    for d in range(2):
+      xy[d] = (uvt[d] + 1.0) * self._hshape[d]
+      dxy[d] = whl[d] * self._hshape[d]
+
+    if uvt[2] + whl[2] > 1:
+      if uvt[2] - whl[2] < -1:
         zfac = 1 / whl[2]  # 2 / (whl[2] + whl[2]) is inside
       else:
-        zfac = (1 - uvt[3] - whl[2]) / (whl[2] + whl[2])
+        zfac = (1 - uvt[2] + whl[2]) / (whl[2] + whl[2])
     else:
-      if uvt[3] - whl[2] < -1:
-        zfac = (uvt[3] + whl[2] - (-1 )) / (whl[2]+whl[2])
+      if uvt[2] - whl[2] < -1:
+        zfac = (uvt[2] + whl[2] - (-1 )) / (whl[2]+whl[2])
       else:
         zfac = 1
 
-    zfac = 1
-    cdef double D = 0
-    cdef double d = 0
-
-    d = x - self._pos[0]
-    D += d * d
-    d = y - self._pos[1]
-    D += d * d
-    d = z - self._pos[2]
-    D += d * d
+    cdef float D = 0
+    cdef float DD = 0
+    for d in range(3):
+      DD = pos[d] - self._pos[d]
+      D += DD * DD
 
     # the brightness decedes with inverse square, 
     # times physical size of a pixel, assuming unit size
@@ -316,64 +333,67 @@ cdef class Camera:
     # too far or too near.
 
     brightness *= zfac
-    cdef int ix, iy, ixmax, iymax, ixmin, iymin
+    cdef int ix, iy, imax[2], imin[2], di[2]
 
-    if whl[0] < 1 and whl[1] < 1:
-      # unresolved
-      if uvt[0] < 0: return
-      if uvt[1] < 0: return
+    for d in range(2):
+      imin[d] = <int>(xy[d] - dxy[d])
+      imax[d] = <int>(xy[d] + dxy[d])
+      di[d] = imax[d] - imin[d] + 1
+      if imin[d] < 0: imin[d] = 0
+      if imin[d] >= self._shape[d]: imin[d] = self._shape[d] - 1
+      if imax[d] < 0: imax[d] = 0
+      if imax[d] >= self._shape[d]: imax[d] = self._shape[d] - 1
 
-      if uvt[0] >= self.width: return
-      if uvt[1] >= self.height: return
-      ix = <int>uvt[0]
-      iy = <int>uvt[1]
-      ccd[ix * self.height + iy] += brightness
-      return 
+    # normfac is the average luminosity of a pixel
+    cdef float normfac = 1. / ( dxy[0] * dxy[1])
+    # bit is the base light on a pixel. adjusted by
+    # the kernel intergration factor
+    # 4 - integrate(tmp1 in [-1, 1], tmp2 in [-1, 1], tmp3)
+    # it is 2 for the diamond kernel:
+    #   tmp3 = 0.5 * (|tmp1| + |tmp2|)
+    # it is 3 for the cross kernel:
+    #   tmp3 = |tmp1| * |tmp2|
+    # cross kernel gives vertical and horizontal
+    # lines.
 
-    if uvt[0] - whl[0] < 0: ixmin = 0
-    elif uvt[0] - whl[0] >= self.width: ixmin = self.width
-    else: ixmin = <int>(uvt[0] - whl[0])
-    if uvt[1] - whl[1] < 0: iymin = 0
-    elif uvt[1] - whl[1] >= self.height: iymin = self.height
-    else: iymin = <int>(uvt[1] - whl[1])
+    cdef float bit = brightness * normfac / 2
+    cdef float tmp1, tmp2, tmp3 # always in -1 and 1, distance to center
+    cdef float tmp1fac = 2.0 / di[0]
+    cdef float tmp2fac = 2.0 / di[1]
+    cdef intptr_t p, q
 
-    if uvt[0] + whl[0] < 0: ixmax = 0
-    elif uvt[0] + whl[0] >= self.width: ixmax = self.width
-    else: ixmax = <int>(uvt[0] + whl[0])
-    if uvt[1] + whl[1] < 0: iymax = 0
-    elif uvt[1] + whl[1] >= self.height: iymax = self.height
-    else: iymax = <int>(uvt[1] + whl[1])
-    cdef float r2
-    cdef double normfac = 0
-    cdef double bit = 0
-
-    # the parenthesis are important
-    normfac = 4. / (nearbyint(whl[0]*2) * nearbyint(whl[1]*2))
-    ix = ixmin
-    while ix < ixmax:
-      iy = iymin
-      while iy < iymax:
-        r2 = 0.75
-        if r2 > 1: continue
-        bit = (1 - r2) * normfac
-        ccd[ix * self.height + iy] += brightness * bit
-         
+    tmp1 = (imin[0] - xy[0]) * tmp1fac
+    ix = imin[0]
+    p = imin[0] * self._shape[1] + imin[1]
+    while ix <= imax[0]:
+      tmp2 = (imin[1] - xy[1]) * tmp2fac
+      iy = imin[1]
+      q = p
+      while iy <= imax[1]:
+        # diamond kernel
+        tmp3 = 0.5 * (fabs(tmp1) + fabs(tmp2))
+        if tmp3 < 1 and tmp3 > 0: 
+          ccd[q] += bit * (1 - tmp3)
         iy = iy + 1
+        tmp2 += tmp2fac
+        q += 1
+      tmp1 += tmp1fac
+      p += self._shape[1]
       ix = ix + 1
 
-  cdef float transform_one(self, float x, float y, float z, float uvt[3]) nogil:
+  cdef inline float transform_one(self, float pos[3], float uvt[3]) nogil:
     cdef int k
     cdef float coord[4]
     cdef float D
     for k in range(4):
-      coord[k] = x * self._matrix[4*k+0] \
-               + y * self._matrix[4*k+1] \
-               + z * self._matrix[4*k+2] \
+      coord[k] = pos[0] * self._matrix[4*k+0] \
+               + pos[1] * self._matrix[4*k+1] \
+               + pos[2] * self._matrix[4*k+2] \
                     + self._matrix[4*k+3]
        
     cdef float c3inv = 1.0 / coord[3]
-    uvt[0] = (coord[0] * c3inv + 1.0) * 0.5 * self.width
-    uvt[1] = (coord[1] * c3inv + 1.0) * 0.5 * self.height
+    uvt[0] = coord[0] * c3inv
+    uvt[1] = coord[1] * c3inv
     uvt[2] = coord[2] * c3inv
     return c3inv;
 
