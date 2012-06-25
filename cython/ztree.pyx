@@ -97,18 +97,16 @@ cdef class Tree:
             index=ind,
          children=arr)
 
-    cdef numpy.ndarray pos, size
+    cdef numpy.ndarray pos
+    cdef float size
     pos = numpy.empty(3, dtype='f4')
     self.get_node_pos(ind, <float*>pos.data)
     size = self.get_node_size(ind)
 
     rt.update(dict(pos=pos, size=size))
 
-    if self._buffer[ind].child_length == 0:
-       rt.update(dict(first=self._buffer[ind].first, 
+    rt.update(dict(first=self._buffer[ind].first, 
                       last=self._buffer[ind].first + self._buffer[ind].npar))
-    else:
-       rt.update(dict(first=0, last=-1))
     return rt
     
   cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil:

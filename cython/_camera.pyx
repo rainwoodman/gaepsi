@@ -1,6 +1,5 @@
 #cython: embedsignature=True
 #cython: cdivision=True
-# cython: profile=True
 import numpy
 cimport cpython
 cimport numpy
@@ -8,6 +7,7 @@ cimport npyiter
 cimport ztree
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
+from libc.string cimport memcpy
 from warnings import warn
 cimport cython
 import cython
@@ -15,6 +15,19 @@ import cython
 numpy.import_array()
 cdef float inf = numpy.inf
 cdef float nan = numpy.nan
+cdef numpy.ndarray AABBshifting = (numpy.array(
+       [
+         [0, 0, 0],
+         [0, 0, 1],
+         [0, 1, 0],
+         [1, 0, 0],
+         [0, 1, 1],
+         [1, 0, 1],
+         [1, 1, 0],
+         [1, 1, 1],
+       ], 'f8') - 0.5) * 2
+cdef double (*_AABBshifting)[3] 
+_AABBshifting = <double[3]*>AABBshifting.data
 
 cdef extern from "math.h":
   int isnan(double d) nogil
@@ -22,45 +35,56 @@ cdef extern from "math.h":
 cdef class VisTree:
   cdef ztree.Tree tree
   cdef ztree.NodeInfo * _nodes
-  cdef numpy.ndarray node_lum
+  cdef readonly numpy.ndarray node_lum
+  cdef readonly numpy.ndarray node_color
   cdef float * _node_lum
+  cdef float * _node_color
   cdef float Inorm
-  cdef numpy.ndarray luminosity
-  def __cinit__(self, ztree.Tree tree, numpy.ndarray luminosity):
+  cdef readonly numpy.ndarray luminosity
+  cdef readonly numpy.ndarray color
+  def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
     self.tree = tree
     self.node_lum = numpy.zeros(shape=tree.used, dtype='f4')
+    self.node_color = numpy.zeros(shape=tree.used, dtype='f4')
     self._node_lum = <float*> self.node_lum.data
+    self._node_color = <float*> self.node_color.data
     self._nodes = tree._buffer
-#    self.node_lum[:] = nan
     self.luminosity = luminosity
+    self.color = color
     self.Inorm = self.tree.zorder._Inorm
     self.ensure_node_lum()
 
   @cython.boundscheck(False)
   cdef void ensure_node_lum(self):
     iter = numpy.nditer(
-          [self.luminosity, self.tree.zkey], 
-      op_flags=[['readonly'], ['readonly']],
-     op_dtypes=['f4', 'i8'],
+          [self.luminosity, self.color, self.tree.zkey], 
+      op_flags=[['readonly'], ['readonly'], ['readonly']],
+     op_dtypes=['f4', 'f4', 'i8'],
          flags=['buffered', 'external_loop'], 
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef intptr_t ind = -1, i
     cdef int64_t key
+    cdef float lum
     with nogil:
       while size > 0:
         while size > 0:
-          key = (<int64_t*>citer.data[1])[0]
+          key = (<int64_t*>citer.data[2])[0]
           if ind == -1 or \
              not ztree.insquare(self._nodes[ind].key, self._nodes[ind].order, key):
             ind = self.tree.get_container_key(key, 0)
-          self._node_lum[ind] += (<float*>citer.data[0])[0]
+          lum = (<float*>citer.data[0])[0]
+          self._node_lum[ind] += lum
+          self._node_color[ind] += (<float*>citer.data[1])[0] * lum
           npyiter.advance(&citer)
           i = i + 1
           size = size - 1
         size = npyiter.next(&citer)
       self.ensure_node_lum_r(0)
+      self.ensure_node_color_r(0)
+      for i in range(self.tree.used):
+        self._node_color[i] = self._node_color[i] / self._node_lum[i]
 
   cdef float ensure_node_lum_r(self, intptr_t ind) nogil:
     if self._node_lum[ind] != 0:
@@ -70,51 +94,96 @@ cdef class VisTree:
       self._node_lum[ind] += self.ensure_node_lum_r(child)
     return self._node_lum[ind]
 
-  cdef void paint_node(self, Camera camera, intptr_t index, double * ccd):
-    cdef float pos[3]
+  cdef float ensure_node_color_r(self, intptr_t ind) nogil:
+    if self._node_color[ind] != 0:
+      return self._node_color[ind]
+    for k in range(self._nodes[ind].child_length):
+      child = self._nodes[ind].child[k]
+      self._node_color[ind] += self.ensure_node_color_r(child)
+    return self._node_color[ind]
+
+  cdef size_t paint_node(self, Camera camera, intptr_t index, double * ccd) nogil:
     cdef float uvt[3], whl[3]
     cdef float r
     cdef float c3inv
     cdef int d
+    cdef size_t rt = 0
+    cdef float AABB[8][3]
+    cdef float * pos = AABB[0]
+    
     self.tree.get_node_pos(index, pos)
     r = self.tree.get_node_size(index)
-    c3inv = camera.transform_one(pos, uvt)
-    camera.transform_size_one(r, c3inv, whl)
-    for d in range(3):
-      if uvt[d] - whl[d] > 1.0: return
-      if uvt[d] + whl[d] < -1.0: return
 
-    if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
-      camera.paint_object_one(pos, 
-            uvt, whl, self._node_lum[index], ccd)
-    elif self._nodes[index].child_length == 0:
-      camera.paint_object_one(pos, 
-            uvt, whl, self._node_lum[index], ccd)
+    r *= 0.5
+    for d in range(3):
+      pos[d] += r
+
+    if 0 == camera.mask_object_one(pos, r):
+      return 0
+
+    r *= 2
+    if (r / (camera.far - camera.near) > 0.1):
+      if self._nodes[index].child_length == 0:
+        c3inv = camera.transform_one(pos, uvt)
+        camera.transform_size_one(r, c3inv, whl)
+        camera.paint_object_one(pos, 
+            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
+        return 1
+      else:
+        for k in range(self._nodes[index].child_length):
+          rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
+        return rt
     else:
-      for k in range(self._nodes[index].child_length):
-        self.paint_node(camera, self._nodes[index].child[k], ccd)
+      c3inv = camera.transform_one(pos, uvt)
+      camera.transform_size_one(r, c3inv, whl)
+      if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
+        camera.paint_object_one(pos, 
+            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
+        return 1
+      elif self._nodes[index].child_length == 0:
+        camera.paint_object_one(pos, 
+            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
+        return 1
+      else:
+        for k in range(self._nodes[index].child_length):
+          rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
+        return rt
 
   def paint(self, Camera camera, numpy.ndarray out=None):
     if out is None:
-      out = numpy.zeros(camera.shape, dtype='f8')
+      out = numpy.zeros(camera.shape, dtype=('f8', 2))
     assert out.dtype == numpy.dtype('f8')
-    assert (<object>out).shape == camera.shape
-    self.paint_node(camera, 0, <double*> out.data)
+    assert (<object>out).shape[0] == camera.shape[0]
+    assert (<object>out).shape[1] == camera.shape[1]
+    assert (<object>out).shape[2] == 2
+    cdef size_t total = 0
+    with nogil:
+      total = self.paint_node(camera, 0, <double*> out.data)
+    print 'total nodes painted:', total
     return out
 
 
 cdef class Camera:
+  """ One big catch is that 
+      we use C arrays whilst OpenGL uses
+      Fortran arrays. Arrays still look the same on
+      the paper, but the indexing is different. """
   cdef readonly numpy.ndarray target
   cdef readonly numpy.ndarray pos
   cdef readonly numpy.ndarray up
-  cdef numpy.ndarray eyem
-  cdef numpy.ndarray cameram
+  cdef readonly numpy.ndarray model
+  cdef readonly numpy.ndarray proj
   cdef size_t _shape[2]
   cdef float _hshape[2]
+  cdef readonly float near
+  cdef readonly float far
   cdef readonly numpy.ndarray matrix
+  cdef readonly numpy.ndarray frustum
   cdef double * _matrix
-  cdef double * _cameram
+  cdef double * _proj
+  cdef double * _target
   cdef double * _pos
+  cdef double (*_frustum)[4]
   # tainted by shape.set and set_camera_matrix
   # w = scale[0] * r
   # h = scale[1] * r
@@ -126,20 +195,22 @@ cdef class Camera:
   cdef float _scale[4]
 
   def __cinit__(self):
-    self.target = numpy.array([0, 1, 0])
+    self.target = numpy.array([0, 1, 0], 'f8')
     self.pos = numpy.zeros(3)
     self.up = numpy.zeros(3)
-    self.eyem = numpy.eye(4)
-    self.cameram = numpy.eye(4)
+    self.model = numpy.eye(4)
+    self.proj = numpy.eye(4)
     self.matrix = numpy.eye(4)
+    self.frustum = numpy.zeros((6,4), 'f8')
     self._shape[0] = 200
     self._shape[1] = 200
     self._hshape[0] = 100
     self._hshape[1] = 100
+    self._target = <double*>self.target.data
     self._matrix = <double*>self.matrix.data
     self._pos = <double*>self.pos.data
-    self._cameram = <double*>self.cameram.data
-
+    self._proj = <double*>self.proj.data
+    self._frustum = <double[4]*>self.frustum.data
   property shape:
     def __get__(self):
       return (self._shape[0], self._shape[1])
@@ -157,27 +228,80 @@ cdef class Camera:
     raise NotImplemented('this is abstract')
 
   def set_camera_matrix(self, matrix):
-    self.cameram[...] = matrix[...]
-    self._scale[0] = fabs(self.cameram[0, 0])
-    self._scale[1] = fabs(self.cameram[1, 1])
-    self._scale[2] = fabs(self.cameram[2, 2] * self.cameram[3, 3])
-    self._scale[3] = fabs(self.cameram[2, 3] * self.cameram[3, 2])
-    self.matrix[...] = numpy.dot(self.cameram, self.eyem)
+    self.proj[...] = matrix[...]
+    self._scale[0] = fabs(self.proj[0, 0])
+    self._scale[1] = fabs(self.proj[1, 1])
+    self._scale[2] = fabs(self.proj[2, 2] * self.proj[3, 3])
+    self._scale[3] = fabs(self.proj[2, 3] * self.proj[3, 2])
+    self.matrix[...] = numpy.dot(self.proj, self.model)
+    self.extract_frustum()
 
+  def extract_frustum(self):
+    """by -=sinuswutz=- from glTerrian"""
+
+    self.frustum[0,:] = self.matrix[3,:] - self.matrix[0,:] #rechte plane berechnen
+    self.frustum[1,:] = self.matrix[3,:] + self.matrix[0,:] #linke plane berechnen
+    self.frustum[2,:] = self.matrix[3,:] + self.matrix[1,:] #unten plane berechnen
+    self.frustum[3,:] = self.matrix[3,:] - self.matrix[1,:] #oben plane berechnen
+    self.frustum[4,:] = self.matrix[3,:] - self.matrix[2,:] #ferne plane berechnen
+    self.frustum[5,:] = self.matrix[3,:] + self.matrix[2,:] #nahe plane berechnen
+    self.frustum[...] /= ((self.frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
+  
+  cdef int mask_object_one(self, float center[3], float r) nogil:
+    cdef int j
+    cdef float AABB[8][3]
+    for j in range(8):
+      AABB[j][0] = center[0] + r * _AABBshifting[j][0]
+      AABB[j][1] = center[1] + r * _AABBshifting[j][1]
+      AABB[j][2] = center[2] + r * _AABBshifting[j][2]
+    return self.mask_object_one_AABB(AABB)
+
+  cdef inline int mask_object_one_AABB(self, float AABB[8][3]) nogil:
+    """ Diese Funktion liefert 
+        0 zurück, wenn die geprüften coordinaten nicht sichtbar sind,
+        1 zurück, wenn die coords teilweise sichtbar sind und 
+        2 zurück, wenn alle coords sichtbar sind  
+        by -=sinuswutz=- from glTerrian
+    """
+    cdef int cnt=0, vor=0, i, j
+    #cnt : zählt, bei wie vielen ebenen alle punkte davor liegen, 
+    #vor: zählt für jede ebene, wieviele punkte davor liegen
+    for i in range(6):  #für alle ebenen...
+      vor = 0 
+      for j in range(8):   #für alle punkte...
+        if AABB[j][0] * self._frustum[i][0] \
+         + AABB[j][1] * self._frustum[i][1] \
+         + AABB[j][2] * self._frustum[i][2] \
+         + self._frustum[i][3] > 0: 
+          vor = vor + 1
+
+      # alle ecken hinter der ebene, ist nicht sichtbar!
+      if vor == 0: return 0 
+      # alle vor der ebene, merken und weitermachen    
+      if vor == 8: cnt = cnt + 1 
+
+    #liegt komplett im frustum
+    if cnt == 6: return 2  
+  
+    # liegt teilweise im frustum;
+    return 1  
+  
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
 
-  def paint(self, x, y, z, r, luminosity, numpy.ndarray out=None):
+  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None):
     if out is None:
-      out = numpy.zeros(self.shape, dtype='f8')
+      out = numpy.zeros(self.shape, dtype=('f8', 2))
     assert out.dtype == numpy.dtype('f8')
-    assert (<object>out).shape == self.shape
+    assert (<object>out).shape[0] == self.shape[0]
+    assert (<object>out).shape[1] == self.shape[1]
+    assert (<object>out).shape[2] == 2
 
     iter = numpy.nditer(
-          [x, y, z, r, luminosity], 
+          [x, y, z, r, color, luminosity], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
-                ['readonly'], ['readonly']], 
-     op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4'],
+                ['readonly'], ['readonly'], ['readonly']], 
+     op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4', 'f4'],
          flags=['buffered', 'external_loop'], 
        casting='unsafe')
     cdef npyiter.CIter citer
@@ -185,12 +309,12 @@ cdef class Camera:
     cdef double * ccd = <double*> out.data
     cdef float pos[3], uvt[3], whl[3], c3inv
 
-#    with nogil:
-    while size > 0:
+    with nogil:
+      while size > 0:
         while size > 0:
-          pos[0] = (<float*>citer.data[0])[0],
-          pos[1] = (<float*>citer.data[1])[0],
-          pos[2] = (<float*>citer.data[2])[0],
+          pos[0] = (<float*>citer.data[0])[0]
+          pos[1] = (<float*>citer.data[1])[0]
+          pos[2] = (<float*>citer.data[2])[0]
           c3inv = self.transform_one(pos, uvt)
           self.transform_size_one(
               (<float*>citer.data[3])[0],
@@ -199,6 +323,7 @@ cdef class Camera:
           self.paint_object_one(pos,
               uvt, whl,
               (<float*>citer.data[4])[0],
+              (<float*>citer.data[5])[0],
               ccd)
           npyiter.advance(&citer)
           size = size - 1
@@ -238,12 +363,12 @@ cdef class Camera:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef float c3inv, R, uvt[3], pos[3]
-#    with nogil: 
-    while size > 0:
+    with nogil: 
+      while size > 0:
         while size > 0:
-          pos[0] = (<float*>citer.data[0])[0],
-          pos[1] = (<float*>citer.data[1])[0],
-          pos[2] = (<float*>citer.data[2])[0],
+          pos[0] = (<float*>citer.data[0])[0]
+          pos[1] = (<float*>citer.data[1])[0]
+          pos[2] = (<float*>citer.data[2])[0]
           c3inv = self.transform_one(pos,
                 (<float*>citer.data[3]))
           if Nout == 6:
@@ -257,20 +382,55 @@ cdef class Camera:
           size = size - 1
         size = npyiter.next(&citer)
     return out
+
+  def mask(self, x, y, z, r, out=None):
+    """ return a mask for objects within the camera frustum.
+        out is integer:
+        0 invisible,
+        1 partially visible,
+        2 fully visible.
+    """
+    if out is None:
+      out = numpy.empty(numpy.broadcast(x,y,z).shape, dtype='u1')
+
+    arrays    = [x, y, z, r, out]
+    op_flags  = [['readonly'], ['readonly'], ['readonly'], ['readonly'], ['writeonly']]
+    op_dtypes = ['f4', 'f4', 'f4', 'f4', 'u1']
+
+    iter = numpy.nditer(
+          arrays, op_flags=op_flags, op_dtypes=op_dtypes,
+          flags=['buffered', 'external_loop'], 
+          casting='unsafe')
+
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef float pos[3]
+    with nogil: 
+      while size > 0:
+        while size > 0:
+          pos[0] = (<float*> citer.data[0])[0]
+          pos[1] = (<float*> citer.data[1])[0]
+          pos[2] = (<float*> citer.data[2])[0]
+          (<uint8_t *> citer.data[4])[0] \
+          = self.mask_object_one(pos,
+            (<float*> citer.data[3])[0])
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+    return out
  
   def lookat(self, pos, target, up):
     pos = numpy.asarray(pos)
-    self.pos[:] = pos[:]
+    self.pos[...] = pos[:]
     target = numpy.asarray(target)
-    self.target[:] = target[:]
-    self.up[:] = numpy.asarray(up)
-
+    self.target[...] = target[...]
+    self.up[...] = numpy.asarray(up)
     dir = target - pos
     dir[:] = dir / (dir **2).sum() ** 0.5
     side = numpy.cross(dir, up)
     side[:] = side / (side **2).sum() ** 0.5
-    self.up[:] = numpy.cross(side, dir)
-    self.up[:] = self.up / (self.up **2).sum() ** 0.5
+    self.up[...] = numpy.cross(side, dir)
+    self.up[...] = self.up / (self.up **2).sum() ** 0.5
     
     m1 = numpy.zeros((4,4))
     m1[0, 0:3] = side
@@ -282,8 +442,9 @@ cdef class Camera:
     tran[0:3, 3] = -pos
     m2 = numpy.dot(m1, tran)
 
-    self.eyem[...] = m2[...]
-    self.matrix[...] = numpy.dot(self.cameram, self.eyem)
+    self.model[...] = m2[...]
+    self.matrix[...] = numpy.dot(self.proj, self.model)
+    self.extract_frustum()
 
   cdef inline void transform_size_one(self, float r, float c3inv, float whl[3]) nogil:
     r *= c3inv
@@ -291,7 +452,7 @@ cdef class Camera:
     whl[1] = r * self._scale[1]
     whl[2] = r * (self._scale[2] + self._scale[3] * c3inv)
     
-  cdef void paint_object_one(self, float pos[3], float uvt[3], float whl[3], float luminosity, double * ccd) nogil:
+  cdef void paint_object_one(self, float pos[3], float uvt[3], float whl[3], float color, float luminosity, double * ccd) nogil:
 
     if whl[0] > 2 or whl[1] > 2:
       # over resolved
@@ -367,7 +528,7 @@ cdef class Camera:
 
     tmp1 = (imin[0] - xy[0]) * tmp1fac
     ix = imin[0]
-    p = imin[0] * self._shape[1] + imin[1]
+    p = (imin[0] * self._shape[1] + imin[1]) * 2
     while ix <= imax[0]:
       tmp2 = (imin[1] - xy[1]) * tmp2fac
       iy = imin[1]
@@ -376,12 +537,13 @@ cdef class Camera:
         # diamond kernel
         tmp3 = 0.5 * (fabs(tmp1) + fabs(tmp2))
         if tmp3 < 1 and tmp3 > 0: 
-          ccd[q] += bit * (1 - tmp3)
+          ccd[q] += color * bit * (1 - tmp3)
+          ccd[q + 1] += bit * (1 - tmp3)
         iy = iy + 1
         tmp2 += tmp2fac
-        q += 1
+        q += 2
       tmp1 += tmp1fac
-      p += self._shape[1]
+      p += self._shape[1] * 2
       ix = ix + 1
 
   cdef inline float transform_one(self, float pos[3], float uvt[3]) nogil:
@@ -401,8 +563,6 @@ cdef class Camera:
     return c3inv;
 
 cdef class PCamera(Camera):
-  cdef float near
-  cdef float far
   cdef float fov
   cdef float aspect
 
@@ -429,8 +589,6 @@ cdef class OCamera(Camera):
   cdef readonly float r
   cdef readonly float b
   cdef readonly float t
-  cdef readonly float near
-  cdef readonly float far
   def __init__(self, width, height):
     super(OCamera, self).__init__(width, height)
   def zoom(self, near, far, extent):
