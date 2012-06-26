@@ -2,7 +2,7 @@ cimport numpy
 
 from cpython.ref cimport PyObject
 
-ctypedef void * NpyIter
+ctypedef void NpyIter
 ctypedef int (*IterNextFunc)(NpyIter * iter) nogil
 ctypedef void (*GetMultiIndexFunc)(NpyIter * iter, numpy.npy_intp *outcoords) nogil
 
@@ -38,7 +38,7 @@ cdef inline size_t next(CIter* self) nogil:
 
 cdef inline size_t init(CIter * self, iter):
     self.npyiter = GetNpyIter(iter)
-    self._next = GetIterNext(self.npyiter, NULL)
+    self._next = <IterNextFunc>GetIterNext(self.npyiter, NULL)
     self.data = GetDataPtrArray(self.npyiter)
     self.strides = GetInnerStrideArray(self.npyiter)
     self.size_ptr = GetInnerLoopSizePtr(self.npyiter)

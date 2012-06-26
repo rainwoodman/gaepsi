@@ -111,10 +111,12 @@ cdef class Tree:
     
   cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil:
     self.zorder.decode_float(self._buffer[index].key, pos)
+  cdef void get_leaf_pos(Tree self, intptr_t index, float pos[3]) nogil:
+    self.zorder.decode_float(self._zkey[index], pos)
 
   cdef float get_node_size(Tree self, intptr_t index) nogil:
-    cdef int32_t intr = ((1<<self._buffer[index].order) - 1)
-    return intr * self.zorder._Inorm
+    cdef int32_t intr = ((1<<(self._buffer[index].order+1)) - 1)
+    return intr * self.zorder._Inorm * 0.5
 
   @cython.boundscheck(False)
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
@@ -380,7 +382,7 @@ cdef class Tree:
         if self._buffer[j].child_length > 0:
           # already not a leaf, create new child
           j = self._create_child(i, j) 
-        elif (self._buffer[j].npar >= self.thresh and self._buffer[j].order > 0):
+        elif (self._buffer[j].npar > self.thresh and self._buffer[j].order > 0):
           # too many points in the leaf, split it
           # NOTE: i is rewinded, because now some of the particles are no longer
           # in the new node.

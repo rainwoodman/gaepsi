@@ -42,6 +42,12 @@ cdef class VisTree:
   cdef float Inorm
   cdef readonly numpy.ndarray luminosity
   cdef readonly numpy.ndarray color
+  cdef float [:] l_f
+  cdef double [:] l_d
+  cdef float [:] c_f
+  cdef double [:] c_d
+  cdef int fd[2]
+
   def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
     self.tree = tree
     self.node_lum = numpy.zeros(shape=tree.used, dtype='f4')
@@ -49,10 +55,52 @@ cdef class VisTree:
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
     self._nodes = tree._buffer
-    self.luminosity = luminosity
-    self.color = color
     self.Inorm = self.tree.zorder._Inorm
+    if luminosity is None:
+      self.fd[0] = -1
+      self.luminosity = numpy.array(1.0)
+    elif luminosity.dtype == numpy.dtype('f4'):
+      self.luminosity = luminosity
+      self.l_f = luminosity
+      self.fd[0] = 0
+    else:
+      self.luminosity = luminosity
+      self.fd[0] = 1
+      self.l_d = luminosity
+
+    if color is None:
+      self.fd[1] = -1
+      self.color = numpy.array(1.0)
+    elif color.dtype == numpy.dtype('f4'):
+      self.color = color
+      self.fd[1] = 0
+      self.c_f = color
+    else:
+      self.color = color
+      self.fd[1] = 1
+      self.c_d = color
+
     self.ensure_node_lum()
+
+    self.ensure_node_lum_r(0)
+    self.ensure_node_color_r(0)
+    self.node_color[...] /= self.node_lum
+      
+  @cython.boundscheck(False)
+  cdef void get_color_and_luminosity(self, intptr_t index, float *color, float * luminosity) nogil :
+    if self.fd[0] == 0: 
+      luminosity[0] = self.l_f[index]
+    elif self.fd[1] == 1:
+      luminosity[0] = self.l_d[index]
+    else:
+      luminosity[0] = 1.0
+
+    if self.fd[1] == 0: 
+      color[0] = self.c_f[index]
+    elif self.fd[1] == 1:
+      color[0] = self.c_d[index]
+    else:
+      color[0] = 1.0
 
   @cython.boundscheck(False)
   cdef void ensure_node_lum(self):
@@ -81,10 +129,6 @@ cdef class VisTree:
           i = i + 1
           size = size - 1
         size = npyiter.next(&citer)
-      self.ensure_node_lum_r(0)
-      self.ensure_node_color_r(0)
-      for i in range(self.tree.used):
-        self._node_color[i] = self._node_color[i] / self._node_lum[i]
 
   cdef float ensure_node_lum_r(self, intptr_t ind) nogil:
     if self._node_lum[ind] != 0:
@@ -102,15 +146,36 @@ cdef class VisTree:
       self._node_color[ind] += self.ensure_node_color_r(child)
     return self._node_color[ind]
 
+  def find_large_nodes(self, Camera camera, intptr_t root, size_t thresh):
+    cdef float pos[3], r
+    cdef int d, k
+    self.tree.get_node_pos(root, pos)
+    r = self.tree.get_node_size(root)
+
+    r *= 0.5
+    for d in range(3):
+      pos[d] += r
+
+    if 0 == camera.mask_object_one(pos, r):
+      return []
+    else:
+      if self._nodes[root].child_length > 0 \
+      and self._nodes[root].npar > thresh:
+        rt = []
+        for k in range(self._nodes[root].child_length):
+          rt += self.find_large_nodes(camera, self._nodes[root].child[k], thresh)
+        return rt
+      else:
+        return [ root ]
+
   cdef size_t paint_node(self, Camera camera, intptr_t index, double * ccd) nogil:
     cdef float uvt[3], whl[3]
-    cdef float r
+    cdef float r, luminosity, color
     cdef float c3inv
     cdef int d
     cdef size_t rt = 0
-    cdef float AABB[8][3]
-    cdef float * pos = AABB[0]
-    
+    cdef float pos[3]
+    cdef int k 
     self.tree.get_node_pos(index, pos)
     r = self.tree.get_node_size(index)
 
@@ -121,35 +186,29 @@ cdef class VisTree:
     if 0 == camera.mask_object_one(pos, r):
       return 0
 
-    r *= 2
-    if (r / (camera.far - camera.near) > 0.1):
-      if self._nodes[index].child_length == 0:
+    r *= 1.733
+    if self._nodes[index].child_length == 0:
+      for k in range(self._nodes[index].npar):
+        self.tree.get_leaf_pos(self._nodes[index].first+k, pos)
+        c3inv = camera.transform_one(pos, uvt)
+        camera.transform_size_one(r , c3inv, whl)
+        self.get_color_and_luminosity(self._nodes[index].first + k, &color, &luminosity)
+        camera.paint_object_one(pos, 
+          uvt, whl, color, luminosity, ccd)
+      return self._nodes[index].npar
+    else:
+      if (r / (camera.far - camera.near) < 0.1):
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r, c3inv, whl)
-        camera.paint_object_one(pos, 
+        if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
+          camera.paint_object_one(pos, 
             uvt, whl, self._node_color[index], self._node_lum[index], ccd)
-        return 1
-      else:
-        for k in range(self._nodes[index].child_length):
-          rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
-        return rt
-    else:
-      c3inv = camera.transform_one(pos, uvt)
-      camera.transform_size_one(r, c3inv, whl)
-      if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
-        camera.paint_object_one(pos, 
-            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
-        return 1
-      elif self._nodes[index].child_length == 0:
-        camera.paint_object_one(pos, 
-            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
-        return 1
-      else:
-        for k in range(self._nodes[index].child_length):
-          rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
-        return rt
+          return 1
+      for k in range(self._nodes[index].child_length):
+        rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
+      return rt
 
-  def paint(self, Camera camera, numpy.ndarray out=None):
+  def paint(self, Camera camera, intptr_t root=0, numpy.ndarray out=None):
     if out is None:
       out = numpy.zeros(camera.shape, dtype=('f8', 2))
     assert out.dtype == numpy.dtype('f8')
@@ -158,7 +217,7 @@ cdef class VisTree:
     assert (<object>out).shape[2] == 2
     cdef size_t total = 0
     with nogil:
-      total = self.paint_node(camera, 0, <double*> out.data)
+      total = self.paint_node(camera, root, <double*> out.data)
     print 'total nodes painted:', total
     return out
 
@@ -170,6 +229,7 @@ cdef class Camera:
       the paper, but the indexing is different. """
   cdef readonly numpy.ndarray target
   cdef readonly numpy.ndarray pos
+  cdef readonly numpy.ndarray dir
   cdef readonly numpy.ndarray up
   cdef readonly numpy.ndarray model
   cdef readonly numpy.ndarray proj
@@ -184,6 +244,7 @@ cdef class Camera:
   cdef double * _target
   cdef double * _pos
   cdef double (*_frustum)[4]
+  cdef int _fade
   # tainted by shape.set and set_camera_matrix
   # w = scale[0] * r
   # h = scale[1] * r
@@ -198,6 +259,7 @@ cdef class Camera:
     self.target = numpy.array([0, 1, 0], 'f8')
     self.pos = numpy.zeros(3)
     self.up = numpy.zeros(3)
+    self.dir = numpy.zeros(3)
     self.model = numpy.eye(4)
     self.proj = numpy.eye(4)
     self.matrix = numpy.eye(4)
@@ -211,6 +273,18 @@ cdef class Camera:
     self._pos = <double*>self.pos.data
     self._proj = <double*>self.proj.data
     self._frustum = <double[4]*>self.frustum.data
+    self._fade = 1
+
+  property fade:
+    def __get__(self):
+      """ whether the luminosity will fade """
+      return self._fade != 0
+    def __set__(self, value):
+      if value:
+        self._fade = 1
+      else:
+        self._fade = 0
+
   property shape:
     def __get__(self):
       return (self._shape[0], self._shape[1])
@@ -224,6 +298,16 @@ cdef class Camera:
     self.shape = (width, height)
     self.lookat(up=[0,0,1], target=[0, 1, 0], pos=[0,0,0])
 
+  def rotate(self, angle, axis=None):
+    if axis is None: axis = self.up
+    d = self.target - self.pos
+    dot = d.dot(axis) 
+    cross = d.cross(axis)
+    cos = numpy.cos(angle)
+    sin = numpy.sin(angle)
+    d = - axis * dot * (1 - cos) + d * cos + cross * sin
+    self.lookat(pos=self.camera.target - d)
+    
   def zoom(self, *args, **kwargs):
     raise NotImplemented('this is abstract')
 
@@ -297,6 +381,8 @@ cdef class Camera:
     assert (<object>out).shape[1] == self.shape[1]
     assert (<object>out).shape[2] == 2
 
+    if color is None: color = 1
+    if luminosity is None: luminosity = 1
     iter = numpy.nditer(
           [x, y, z, r, color, luminosity], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
@@ -419,23 +505,27 @@ cdef class Camera:
         size = npyiter.next(&citer)
     return out
  
-  def lookat(self, pos, target, up):
+  def lookat(self, pos=None, target=None, up=None):
+    if pos is None: pos = self.pos
+    if target is None: target = self.target
+    if up is None: up = self.up
+
     pos = numpy.asarray(pos)
-    self.pos[...] = pos[:]
+    self.pos[...] = pos[...]
     target = numpy.asarray(target)
     self.target[...] = target[...]
     self.up[...] = numpy.asarray(up)
-    dir = target - pos
-    dir[:] = dir / (dir **2).sum() ** 0.5
-    side = numpy.cross(dir, up)
+    self.dir[...] = target - pos
+    self.dir[...] = self.dir / (self.dir **2).sum() ** 0.5
+    side = numpy.cross(self.dir, up)
     side[:] = side / (side **2).sum() ** 0.5
-    self.up[...] = numpy.cross(side, dir)
+    self.up[...] = numpy.cross(side, self.dir)
     self.up[...] = self.up / (self.up **2).sum() ** 0.5
     
     m1 = numpy.zeros((4,4))
     m1[0, 0:3] = side
     m1[1, 0:3] = self.up
-    m1[2, 0:3] = -dir
+    m1[2, 0:3] = -self.dir
     m1[3, 3] = 1
     
     tran = numpy.eye(4)
@@ -482,16 +572,18 @@ cdef class Camera:
       else:
         zfac = 1
 
-    cdef float D = 0
-    cdef float DD = 0
-    for d in range(3):
-      DD = pos[d] - self._pos[d]
-      D += DD * DD
+    cdef float D = 0.
+    cdef float DD
+    # the brightness decedes with inverse square, if self.fade is True
+    if self._fade != 0:
+      for d in range(3):
+        DD = pos[d] - self._pos[d]
+        D += DD * DD
+      D = D * 3.1416
+    else: D = 1.0
 
-    # the brightness decedes with inverse square, 
     # times physical size of a pixel, assuming unit size
-    # FIXME: do this!
-    cdef float brightness = luminosity / (3.14 * D) 
+    cdef float brightness = luminosity / D 
     #cdef float brightness = luminosity
     # then we reduce the brightness because some portion of the particle is
     # too far or too near.
@@ -549,7 +641,6 @@ cdef class Camera:
   cdef inline float transform_one(self, float pos[3], float uvt[3]) nogil:
     cdef int k
     cdef float coord[4]
-    cdef float D
     for k in range(4):
       coord[k] = pos[0] * self._matrix[4*k+0] \
                + pos[1] * self._matrix[4*k+1] \
@@ -589,6 +680,15 @@ cdef class OCamera(Camera):
   cdef readonly float r
   cdef readonly float b
   cdef readonly float t
+  property extent:
+    def __get__(self):
+      return numpy.array([self.l, self.r, self.b, self.t])
+    def __set__(self, value):
+      self.l = value[0]
+      self.r = value[1]
+      self.b = value[2]
+      self.t = value[3]
+
   def __init__(self, width, height):
     super(OCamera, self).__init__(width, height)
   def zoom(self, near, far, extent):

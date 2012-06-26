@@ -79,6 +79,7 @@ cdef class Tree:
   cdef readonly Zorder zorder
 
   cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil
+  cdef void get_leaf_pos(Tree self, intptr_t index, float pos[3]) nogil
   cdef float get_node_size(Tree self, intptr_t index) nogil
   cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil
   cdef intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil
