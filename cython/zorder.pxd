@@ -16,6 +16,10 @@ cdef class Zorder:
   cdef readonly int bits
   cdef readonly numpy.ndarray min
   cdef readonly numpy.ndarray scale
+
+  cdef void decode(Zorder self, int64_t key, int32_t point[3]) nogil
+  cdef int64_t encode(Zorder self, int32_t point[3]) nogil
+
   cdef inline float dist2(Zorder self, int32_t center[3], int32_t point[3]) nogil:
     """ returns the floating distance ** 2 of integer point from center """
     cdef float x, dx
@@ -26,20 +30,12 @@ cdef class Zorder:
        x += dx * dx
     return x
     
-  cdef inline void decode(Zorder self, int64_t key, int32_t point[3]) nogil:
-    cdef int j
-    ind2xyz(key, point, point+1, point+2)
-    return
-
   cdef inline void decode_float(Zorder self, int64_t key, float pos[3]) nogil:
     cdef int32_t point[3]
     cdef int d
     self.decode(key, point)
     for d in range(3):
       pos[d] = point[d] * self._Inorm + self._min[d]
-  cdef inline int64_t encode(Zorder self, int32_t point[3]) nogil:
-    return xyz2ind(point[0], point[1], point[2])
-
   cdef inline int64_t encode_float (Zorder self, float pos[3]) nogil:
     cdef int32_t point[3]
     cdef int d

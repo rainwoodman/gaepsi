@@ -24,6 +24,7 @@ cdef class Result:
   cdef readonly size_t used
   cdef readonly size_t size
   cdef readonly size_t limit
+
   cdef inline void grow(Result self) nogil:
     if self.size < 1024576:
       self.size *= 2
@@ -78,11 +79,38 @@ cdef class Tree:
   cdef readonly numpy.ndarray zkey
   cdef readonly Zorder zorder
 
-  cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil
-  cdef void get_leaf_pos(Tree self, intptr_t index, float pos[3]) nogil
-  cdef float get_node_size(Tree self, intptr_t index) nogil
-  cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil
-  cdef intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil
+  cdef inline void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil:
+    self.zorder.decode_float(self._buffer[index].key, pos)
+  cdef inline void get_leaf_pos(Tree self, intptr_t index, float pos[3]) nogil:
+    self.zorder.decode_float(self._zkey[index], pos)
+
+  cdef inline float get_node_size(Tree self, intptr_t index) nogil:
+    cdef int32_t intr = ((1<<(self._buffer[index].order+1)) - 1)
+    return intr * self.zorder._Inorm * 0.5
+
+
+  cdef inline intptr_t get_container(Tree self, float pos[3], int atleast) nogil:
+    cdef int64_t key
+    key = self.zorder.encode_float(pos)
+    return self.get_container_key(key, atleast)
+
+  cdef inline intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil:
+    cdef intptr_t this, child, next
+    cdef float rt = 0, tmp = 0
+    this = 0
+    while this != -1 and self._buffer[this].child_length > 0:
+      next = this
+      for i in range(self._buffer[this].child_length):
+        child = self._buffer[this].child[i]
+        if insquare(self._buffer[child].key, self._buffer[child].order, key):
+          next = child
+          break
+      if next == this: break
+      else:
+        if self._buffer[next].npar < atleast: break
+        this = next
+        continue
+    return this
 
   cdef inline void _grow(Tree self) nogil:
     if self.size < 1024576 * 16:
@@ -90,8 +118,8 @@ cdef class Tree:
     else:
       self.size += 1024576 * 16
     self._buffer = <NodeInfo * >realloc(self._buffer, sizeof(NodeInfo) * self.size)
-  cdef int32_t _estimate_radius(Tree self, float pos[3], int count) nogil
   cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t node) nogil
+  cdef inline int32_t _estimate_radius(Tree self, float pos[3], int atleast) nogil
   cdef int __goodness(Tree self, intptr_t node, int32_t min[3], int32_t max[3]) nogil
   cdef void __query_box_one_from(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t root) nogil
   cdef void query_box_one(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3]) nogil

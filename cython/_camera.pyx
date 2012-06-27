@@ -147,14 +147,16 @@ cdef class VisTree:
     return self._node_color[ind]
 
   def find_large_nodes(self, Camera camera, intptr_t root, size_t thresh):
-    cdef float pos[3], r
+    cdef float pos[3], r[3]
     cdef int d, k
     self.tree.get_node_pos(root, pos)
-    r = self.tree.get_node_size(root)
-
-    r *= 0.5
+    r[0] = self.tree.get_node_size(root)
+    
+    r[0] *= 0.5
+    r[1] = r[0]
+    r[2] = r[0]
     for d in range(3):
-      pos[d] += r
+      pos[d] += r[d]
 
     if 0 == camera.mask_object_one(pos, r):
       return []
@@ -170,23 +172,27 @@ cdef class VisTree:
 
   cdef size_t paint_node(self, Camera camera, intptr_t index, double * ccd) nogil:
     cdef float uvt[3], whl[3]
-    cdef float r, luminosity, color
+    cdef float luminosity, color
     cdef float c3inv
     cdef int d
     cdef size_t rt = 0
-    cdef float pos[3]
+    cdef float pos[3], r[3]
     cdef int k 
     self.tree.get_node_pos(index, pos)
-    r = self.tree.get_node_size(index)
+    r[0] = self.tree.get_node_size(index)
 
-    r *= 0.5
+    r[0] *= 0.5
+    r[1] = r[0]
+    r[2] = r[0]
     for d in range(3):
-      pos[d] += r
+      pos[d] += r[d]
 
     if 0 == camera.mask_object_one(pos, r):
       return 0
 
-    r *= 1.733
+    r[0] *= 1.733
+    r[1] *= 1.733
+    r[2] *= 1.733
     if self._nodes[index].child_length == 0:
       for k in range(self._nodes[index].npar):
         self.tree.get_leaf_pos(self._nodes[index].first+k, pos)
@@ -197,10 +203,11 @@ cdef class VisTree:
           uvt, whl, color, luminosity, ccd)
       return self._nodes[index].npar
     else:
-      if (r / (camera.far - camera.near) < 0.1):
+      # FIXME:  when r becomes anisotropic
+      if (r[0] / (camera.far - camera.near) < 0.1):
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r, c3inv, whl)
-        if (whl[0] * camera._hshape[0] < 0.5 and whl[1] * camera._hshape[1] < 0.5):
+        if (whl[0] * camera._hshape[0] < 0.1 and whl[1] * camera._hshape[1] < 0.1):
           camera.paint_object_one(pos, 
             uvt, whl, self._node_color[index], self._node_lum[index], ccd)
           return 1
@@ -237,6 +244,9 @@ cdef class Camera:
   cdef float _hshape[2]
   cdef readonly float near
   cdef readonly float far
+  cdef readonly float fov
+  cdef readonly float aspect
+  cdef float l, r, b, t
   cdef readonly numpy.ndarray matrix
   cdef readonly numpy.ndarray frustum
   cdef double * _matrix
@@ -245,7 +255,7 @@ cdef class Camera:
   cdef double * _pos
   cdef double (*_frustum)[4]
   cdef int _fade
-  # tainted by shape.set and set_camera_matrix
+  # tainted by shape.set and set_proj
   # w = scale[0] * r
   # h = scale[1] * r
   # l = scale[2] * r + scale[3] * c3inv * c3inv
@@ -298,6 +308,21 @@ cdef class Camera:
     self.shape = (width, height)
     self.lookat(up=[0,0,1], target=[0, 1, 0], pos=[0,0,0])
 
+  def copy(self):
+    a = Camera(self.shape[0], self.shape[1])
+    a.lookat(up=self.up, target=self.target, pos=self.pos)
+    a.l = self.l
+    a.r = self.r
+    a.b = self.b
+    a.t = self.t
+    a.far = self.far
+    a.near = self.near
+    a.fov = self.fov
+    a.aspect = self.aspect
+    a.fade = self.fade
+    a.set_proj(self.proj)
+    return a
+
   def rotate(self, angle, axis=None):
     if axis is None: axis = self.up
     d = self.target - self.pos
@@ -308,10 +333,53 @@ cdef class Camera:
     d = - axis * dot * (1 - cos) + d * cos + cross * sin
     self.lookat(pos=self.camera.target - d)
     
-  def zoom(self, *args, **kwargs):
-    raise NotImplemented('this is abstract')
+  property extent:
+    def __get__(self):
+      return (self.l, self.r, self.b, self.t)
+      
+  def persp(self, near, far, fov, aspect=1.0):
+    """ fov is in radian """
+    self.near = near
+    self.far = far
+    self.fov = fov
+    self.aspect = aspect
+    D = ((self.target - self.pos) ** 2).sum() ** 0.5
+    self.l = - numpy.tan(fov * 0.5) * aspect * D
+    self.r = - self.l
+    self.b = - numpy.tan(fov * 0.5) * D
+    self.t = - self.b
+    persp = numpy.zeros((4,4))
+    persp[0, 0] = 1.0 / numpy.tan(fov * 0.5) / aspect
+    persp[1, 1] = 1.0 / numpy.tan(fov * 0.5)
+    persp[2, 2] = - (1. *(far + near)) / (far - near)
+    persp[2, 3] = - (2. * far * near) / (far - near)
+    persp[3, 2] = -1
+    persp[3, 3] = 0
+    self.set_proj(persp)
 
-  def set_camera_matrix(self, matrix):
+  def ortho(self, near, far, extent):
+    """ set up the zoom by extent=(left, right, top, bottom """
+    self.near = near
+    self.far = far
+    l, r, b, t = extent
+    self.l = l
+    self.r = r
+    self.b = b
+    self.t = t
+    self.aspect = (r - l) / (t - b)
+    D = ((self.target - self.pos) ** 2).sum() ** 0.5
+    self.fov = numpy.arctan2(0.5 * (t - b), D) * 2
+    ortho = numpy.zeros((4,4))
+    ortho[0, 0] = 2.0 / (r - l)
+    ortho[1, 1] = 2.0 / (t - b)
+    ortho[2, 2] = -2.0 / (far - near)
+    ortho[3, 3] = 1
+    ortho[0, 3] = - (1. * r + l) / (r - l)
+    ortho[1, 3] = - (1. * t + b) / (t - b)
+    ortho[2, 3] = - (1. * far + near) / (far - near)
+    self.set_proj(ortho)
+
+  def set_proj(self, matrix):
     self.proj[...] = matrix[...]
     self._scale[0] = fabs(self.proj[0, 0])
     self._scale[1] = fabs(self.proj[1, 1])
@@ -331,13 +399,13 @@ cdef class Camera:
     self.frustum[5,:] = self.matrix[3,:] + self.matrix[2,:] #nahe plane berechnen
     self.frustum[...] /= ((self.frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
   
-  cdef int mask_object_one(self, float center[3], float r) nogil:
+  cdef int mask_object_one(self, float center[3], float r[3]) nogil:
     cdef int j
     cdef float AABB[8][3]
     for j in range(8):
-      AABB[j][0] = center[0] + r * _AABBshifting[j][0]
-      AABB[j][1] = center[1] + r * _AABBshifting[j][1]
-      AABB[j][2] = center[2] + r * _AABBshifting[j][2]
+      AABB[j][0] = center[0] + r[0] * _AABBshifting[j][0]
+      AABB[j][1] = center[1] + r[1] * _AABBshifting[j][1]
+      AABB[j][2] = center[2] + r[2] * _AABBshifting[j][2]
     return self.mask_object_one_AABB(AABB)
 
   cdef inline int mask_object_one_AABB(self, float AABB[8][3]) nogil:
@@ -393,18 +461,20 @@ cdef class Camera:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double * ccd = <double*> out.data
-    cdef float pos[3], uvt[3], whl[3], c3inv
-
+    cdef float pos[3], uvt[3], whl[3], c3inv, R[3]
+   
     with nogil:
       while size > 0:
         while size > 0:
           pos[0] = (<float*>citer.data[0])[0]
           pos[1] = (<float*>citer.data[1])[0]
           pos[2] = (<float*>citer.data[2])[0]
+          R[0] = (<float*>citer.data[3])[0]
+          R[1] = (<float*>citer.data[3])[0]
+          R[2] = (<float*>citer.data[3])[0]
           c3inv = self.transform_one(pos, uvt)
-          self.transform_size_one(
-              (<float*>citer.data[3])[0],
-              c3inv,
+          self.transform_size_one(R,
+              c3inv, 
               whl)
           self.paint_object_one(pos,
               uvt, whl,
@@ -479,9 +549,21 @@ cdef class Camera:
     if out is None:
       out = numpy.empty(numpy.broadcast(x,y,z).shape, dtype='u1')
 
-    arrays    = [x, y, z, r, out]
-    op_flags  = [['readonly'], ['readonly'], ['readonly'], ['readonly'], ['writeonly']]
-    op_dtypes = ['f4', 'f4', 'f4', 'f4', 'u1']
+    cdef int rdim
+    arrays    = [x, y, z, out]
+    op_flags  = [['readonly'], ['readonly'], ['readonly'], ['writeonly']]
+    op_dtypes = ['f4', 'f4', 'f4', 'u1']
+
+    if isinstance(r, tuple):
+      rdim = 3
+      arrays += [r[0], r[1], r[2]]
+      op_flags += [['readonly']] * 3
+      op_dtypes += ['f4'] * 3
+    else:
+      rdim = 1
+      arrays += [r]
+      op_flags += [['readonly']]
+      op_dtypes += ['f4']
 
     iter = numpy.nditer(
           arrays, op_flags=op_flags, op_dtypes=op_dtypes,
@@ -490,16 +572,23 @@ cdef class Camera:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float pos[3]
+    cdef float pos[3], R[3]
     with nogil: 
       while size > 0:
         while size > 0:
           pos[0] = (<float*> citer.data[0])[0]
           pos[1] = (<float*> citer.data[1])[0]
           pos[2] = (<float*> citer.data[2])[0]
-          (<uint8_t *> citer.data[4])[0] \
-          = self.mask_object_one(pos,
-            (<float*> citer.data[3])[0])
+          if rdim == 1:
+            R[0] = (<float*> citer.data[4])[0]
+            R[1] = (<float*> citer.data[4])[0]
+            R[2] = (<float*> citer.data[4])[0]
+          else:
+            R[0] = (<float*> citer.data[4])[0]
+            R[1] = (<float*> citer.data[5])[0]
+            R[2] = (<float*> citer.data[6])[0]
+          (<uint8_t *> citer.data[3])[0] = self.mask_object_one(pos, R)
+
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
@@ -536,11 +625,10 @@ cdef class Camera:
     self.matrix[...] = numpy.dot(self.proj, self.model)
     self.extract_frustum()
 
-  cdef inline void transform_size_one(self, float r, float c3inv, float whl[3]) nogil:
-    r *= c3inv
-    whl[0] = r * self._scale[0]
-    whl[1] = r * self._scale[1]
-    whl[2] = r * (self._scale[2] + self._scale[3] * c3inv)
+  cdef inline void transform_size_one(self, float r[3], float c3inv, float whl[3]) nogil:
+    whl[0] = r[0] * self._scale[0] * c3inv
+    whl[1] = r[1] * self._scale[1] * c3inv
+    whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)
     
   cdef void paint_object_one(self, float pos[3], float uvt[3], float whl[3], float color, float luminosity, double * ccd) nogil:
 
@@ -602,9 +690,12 @@ cdef class Camera:
 
     # normfac is the average luminosity of a pixel
     cdef float normfac = 1. / ( dxy[0] * dxy[1])
+
     # bit is the base light on a pixel. adjusted by
     # the kernel intergration factor
     # 4 - integrate(tmp1 in [-1, 1], tmp2 in [-1, 1], tmp3)
+    # it is pi / 2 for the spheric kernel:
+    #   tmp3 = tmp1 ** 2 + tmp2 ** 2
     # it is 2 for the diamond kernel:
     #   tmp3 = 0.5 * (|tmp1| + |tmp2|)
     # it is 3 for the cross kernel:
@@ -612,7 +703,7 @@ cdef class Camera:
     # cross kernel gives vertical and horizontal
     # lines.
 
-    cdef float bit = brightness * normfac / 2
+    cdef float bit = brightness * normfac / (3.1416 / 2.0)
     cdef float tmp1, tmp2, tmp3 # always in -1 and 1, distance to center
     cdef float tmp1fac = 2.0 / di[0]
     cdef float tmp2fac = 2.0 / di[1]
@@ -626,8 +717,7 @@ cdef class Camera:
       iy = imin[1]
       q = p
       while iy <= imax[1]:
-        # diamond kernel
-        tmp3 = 0.5 * (fabs(tmp1) + fabs(tmp2))
+        tmp3 = (tmp1 ** 2 + tmp2 **2)
         if tmp3 < 1 and tmp3 > 0: 
           ccd[q] += color * bit * (1 - tmp3)
           ccd[q + 1] += bit * (1 - tmp3)
@@ -652,54 +742,3 @@ cdef class Camera:
     uvt[1] = coord[1] * c3inv
     uvt[2] = coord[2] * c3inv
     return c3inv;
-
-cdef class PCamera(Camera):
-  cdef float fov
-  cdef float aspect
-
-  def __init__(self, width, height):
-    super(PCamera, self).__init__(width, height)
-
-  def zoom(self, near, far, fov, aspect=1.0):
-    """ fov is in radian """
-    self.near = near
-    self.far = far
-    self.fov = fov
-    self.aspect = aspect
-    persp = numpy.zeros((4,4))
-    persp[0, 0] = 1.0 / numpy.tan(fov) / aspect
-    persp[1, 1] = 1.0 / numpy.tan(fov)
-    persp[2, 2] = - (1. *(far + near)) / (far - near)
-    persp[2, 3] = - (2. * far * near) / (far - near)
-    persp[3, 2] = -1
-    persp[3, 3] = 0
-    self.set_camera_matrix(persp)
-
-cdef class OCamera(Camera):
-  cdef readonly float l
-  cdef readonly float r
-  cdef readonly float b
-  cdef readonly float t
-  property extent:
-    def __get__(self):
-      return numpy.array([self.l, self.r, self.b, self.t])
-    def __set__(self, value):
-      self.l = value[0]
-      self.r = value[1]
-      self.b = value[2]
-      self.t = value[3]
-
-  def __init__(self, width, height):
-    super(OCamera, self).__init__(width, height)
-  def zoom(self, near, far, extent):
-    """ set up the zoom by extent=(left, right, top, bottom """
-    l, r, b, t = extent
-    ortho = numpy.zeros((4,4))
-    ortho[0, 0] = 2.0 / (r - l)
-    ortho[1, 1] = 2.0 / (t - b)
-    ortho[2, 2] = -2.0 / (far - near)
-    ortho[3, 3] = 1
-    ortho[0, 3] = - (1. * r + l) / (r - l)
-    ortho[1, 3] = - (1. * t + b) / (t - b)
-    ortho[2, 3] = - (1. * far + near) / (far - near)
-    self.set_camera_matrix(ortho)

@@ -1,5 +1,27 @@
 cimport numpy
-
+"""
+  Example:
+  cdef void unit_of_work(float * in, float * out) nogil:
+    out[0] = in[0] * 2
+   
+  def work(in, out):
+    iter = numpy.nditer(
+          [in, out, ], 
+      op_flags=[['readonly'], ['writeonly']],
+     op_dtypes=['f4', 'f4'],
+         flags=['buffered', 'external_loop'], 
+       casting='unsafe')
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    with nogil:
+      while size > 0:
+        while size > 0:
+          unit_of_work(<float*>citer.data[0],
+             <float*>citer.data.data[1])
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+"""
 from cpython.ref cimport PyObject
 
 ctypedef void NpyIter

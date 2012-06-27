@@ -1,6 +1,3 @@
-import numpy as np
-import itertools
-
 def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=False, squeeze=True,
                 subplot_kw=None, **fig_kw):
     """Create a figure with a set of subplots already made.
@@ -60,6 +57,9 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
 
     **Examples:**
     """
+    import numpy as np
+    import itertools
+
 
     if subplot_kw is None: subplot_kw = {}
     if sharex == 'none': sharex = None
@@ -127,9 +127,9 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
 
     return ret
 
-from scipy.optimize import curve_fit
-
 def plot_with_fit(ax, x, y, symbol, color, label, fitfunc, p0=None):
+  from scipy.optimize import curve_fit
+
   ax.plot(x, y, symbol, label=label, color=color)
   s = x.argsort()
   try: 

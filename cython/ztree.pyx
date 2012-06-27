@@ -109,15 +109,6 @@ cdef class Tree:
                       last=self._buffer[ind].first + self._buffer[ind].npar))
     return rt
     
-  cdef void get_node_pos(Tree self, intptr_t index, float pos[3]) nogil:
-    self.zorder.decode_float(self._buffer[index].key, pos)
-  cdef void get_leaf_pos(Tree self, intptr_t index, float pos[3]) nogil:
-    self.zorder.decode_float(self._zkey[index], pos)
-
-  cdef float get_node_size(Tree self, intptr_t index) nogil:
-    cdef int32_t intr = ((1<<(self._buffer[index].order+1)) - 1)
-    return intr * self.zorder._Inorm * 0.5
-
   @cython.boundscheck(False)
   cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
      cdef intptr_t j
@@ -176,41 +167,6 @@ cdef class Tree:
     out = out.view(dtype=(numpy.intp, count))
     return out
   
-  cdef intptr_t get_container(Tree self, float pos[3], int atleast) nogil:
-    cdef int64_t key
-    key = self.zorder.encode_float(pos)
-    return self.get_container_key(key, atleast)
-
-  cdef intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil:
-    cdef intptr_t this, child, next
-    cdef float rt = 0, tmp = 0
-    this = 0
-    while this != -1 and self._buffer[this].child_length > 0:
-      next = this
-      for i in range(self._buffer[this].child_length):
-        child = self._buffer[this].child[i]
-        if insquare(self._buffer[child].key, self._buffer[child].order, key):
-          next = child
-          break
-      if next == this: break
-      else:
-        if self._buffer[next].npar < atleast: break
-        this = next
-        continue
-    return this
-
-  @cython.boundscheck(False)
-  cdef int32_t _estimate_radius(Tree self, float pos[3], int atleast) nogil:
-    cdef intptr_t this
-
-    this = self.get_container(pos, atleast)
-    while this != -1 and self._buffer[this].npar < atleast:
-      this = self._buffer[this].parent
-
-    if this == -1: this = 0
-    return ((1 << self._buffer[this].order) - 1)
-    
-
   @cython.boundscheck(False)
   def query_box(Tree self, x, y, z, radius, int limit = 0):
     oshape = numpy.asarray(x).shape
@@ -323,6 +279,16 @@ cdef class Tree:
           else: 
             x = self.zorder.dist2(ipos, center)
             result.append_one_with_weight(i, x)
+    
+  cdef inline int32_t _estimate_radius(Tree self, float pos[3], int atleast) nogil:
+    cdef intptr_t this
+
+    this = self.get_container(pos, atleast)
+    while this != -1 and self._buffer[this].npar < atleast:
+      this = self._buffer[this].parent
+
+    if this == -1: this = 0
+    return ((1 << self._buffer[this].order) - 1)
     
   cdef int __goodness(Tree self, intptr_t node, int32_t min[3], int32_t max[3]) nogil:
     """ -1 is not overlapping at all, 0 is partially overlapping, 1 is fully inside """

@@ -40,6 +40,13 @@ cdef class Zorder:
     self._norm = 1.0 / self.scale.max() * ((1 << bits) -1)
     self._Inorm = 1.0 / self._norm
 
+  cdef void decode(Zorder self, int64_t key, int32_t point[3]) nogil:
+    cdef int j
+    ind2xyz(key, point, point+1, point+2)
+    return
+  cdef int64_t encode(Zorder self, int32_t point[3]) nogil:
+    return xyz2ind(point[0], point[1], point[2])
+
   def invert(self, index, out=None):
     """ revert from zorder indices to floating points """
     if out is None:

@@ -17,26 +17,18 @@ def is_scalar_like(v):
   return False
 
 class Cut:
-  def __init__(self, xcut=None, ycut=None, zcut=None, center=None, size=None):
-    if xcut is not None:
-      self.center = numpy.zeros(3)
-      self.size = numpy.zeros(3)
-      self['x'] = xcut
-      self['y'] = ycut
-      self['z'] = zcut
-      return
-
+  def __init__(self, origin=None, center=None, size=None):
     if size is not None:
-      if is_scalar_like(size): size = numpy.ones(3) * numpy.atleast_1d(size)
-      if center is not None:
-        self.center = numpy.asarray(center[0:3])
+      self.size = numpy.ones(3) * size
+      if origin is not None:
+        self.center = self.size * 0.5 + origin
+      elif center is not None:
+        self.center = numpy.ones(3) * center
       else:
-        self.center = numpy.asarray(size) * 0.5
-      self.size = numpy.asarray(size[0:3])
-      return
-    # uninitialized cut
-    self.center = None
-    self.size = None
+        self.center = self.size * 0.5
+    else:
+      self.center = None
+      self.size = None
 
   @property
   def empty(self):
@@ -45,10 +37,6 @@ class Cut:
   @property
   def origin(self):
     return self.center - self.size * 0.5
-  @origin.setter
-  def origin(self, value):
-    value = numpy.asarray(value)
-    self.center[:] = value + self.size * 0.5
 
   def take(self, cut):
     if cut is not None:
