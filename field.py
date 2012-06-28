@@ -288,12 +288,25 @@ class Field(object):
       for comp in self.names:
         subfield[comp] = self[comp][index]
       return subfield
+    elif isinstance(index, numpy.ndarray) \
+       and index.dtype == numpy.dtype('?'):
+        subfield = Field()
+        subfield.numpoints = index.sum()
+        for comp in self.names:
+          subfield[comp] = self[comp][index]
+        return subfield
+    elif not numpy.isscalar(index):
+      subfield = Field()
+      subfield.numpoints = len(index)
+      for comp in self.names:
+        subfield[comp] = self[comp][index]
+      return subfield
     else:
       result = {}
       for comp in self.names:
         result[comp] = self[comp][index]
       return result
-    
+ 
   def __setitem__(self, index, value):
     if isinstance(index, basestring):
       if is_scalar_like(value):

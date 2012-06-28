@@ -8,6 +8,7 @@ from gaepsi.cython import _fast
 from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools.spikes import SpikeCollection
 from gaepsi.tools import sharedmem
+from gaepsi.cosmology import Cosmology
 
 def _ensurelist(a):
   if numpy.isscalar(a):
@@ -91,17 +92,29 @@ class GaplotContext(object):
     self.schema('halo', 1, {'mass':'f4'})
     self.schema('star', 4, {'mass':'f4', 'sft':'f4'})
     self.view(center=[0, 0, 0], size=[1, 1, 1])
+    from gaepsi.cosmology import default
+    self.cosmology = default
+    self.units = self.cosmology.units
+    
+  def __getitem__(self, ftype):
+    return self.F[ftype]
+
+  def __setitem__(self, ftype, value):
+    if not isinstance(value, Field):
+      raise TypeError('need a Field')
+    self.F[ftype] = value
+    self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=32)
 
   def invalidate(self):
     pass
 
   @property
   def extent(self):
-    l = -self.size[0] * 0.5 + self.center[0]
-    r = self.size[0] * 0.5 + self.center[0]
-    b = -self.size[1] * 0.5 + self.center[1]
-    t = self.size[1] * 0.5 + self.center[1]
-    return numpy.array([l, r, b , t])
+    l = -self.size[0] * 0.5
+    r = self.size[0] * 0.5
+    b = -self.size[1] * 0.5
+    t = self.size[1] * 0.5
+    return l, r, b , t
 
   def view(self, center=None, size=None, up=[0,1,0], dir=[0,0,-1], method='ortho', fade=True):
     if center == 'auto':
@@ -256,18 +269,18 @@ class GaplotContext(object):
       I = numpy.concatenate(I)
       return X, Y, I
 
-  def imshow(self, image, ax=None):
+  def imshow(self, image, ax=None, **kwargs):
     if ax is None: ax=pyplot.gca()
-    ax.imshow(image.swapaxes(0,1), origin='lower', extent=self.extent)
+    ax.imshow(image.swapaxes(0,1), origin='lower', extent=self.extent, **kwargs)
 
-  def scatter(self, x, y, s, ax=None):
+  def scatter(self, x, y, s, ax=None, **kwargs):
     if ax is None: ax=pyplot.gca()
     x = x
     y = y
     l, r, b, t =self.extent
     x = x / self.shape[0] * (r - l) + l
     y = y / self.shape[1] * (t - b) + b
-    ax.scatter(x, y, s) 
+    ax.scatter(x, y, s, ** kwargs)
     
   def schema(self, ftype, types, components):
     self.F[ftype] = Field(components=components)
@@ -302,6 +315,8 @@ class GaplotContext(object):
     else:
       self.boxsize = numpy.ones(3)
     self.periodic = periodic
+    self.cosmology = Cosmology(M=self.C['OmegaM'], L=self.C['OmegaL'], h=self.C['h'])
+    self.units = self.cosmology.units
     self.invalidate()
  
   def read(self, ftypes, fids=None, numthreads=None):
@@ -322,23 +337,53 @@ class GaplotContext(object):
       self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=32)
     self.invalidate()
 
-  def reset_view(self, ax, camera=False):
+  def frame(self, off=None, bgcolor=None, ax=None):
+    from matplotlib.ticker import Formatter
+    class MyFormatter(Formatter):
+      def __init__(self, size, units, unit=None):
+        if unit is None:
+          MPC_h = size / units.MPC_h
+          KPC_h = size / units.KPC_h
+          if numpy.abs(MPC_h) > 1:
+            self.unit = 'MPC/h'
+            self.scale = 1 / units.MPC_h
+          else:
+            self.unit = 'KPC/h'
+            self.scale = 1 / units.KPC_h
+      def __call__(self, data, pos=None):
+        value = data
+        if pos == 'label':
+          return '%.10g %s' % (value * self.scale, self.unit)
+        else:
+          return '%.10g' % (value * self.scale)
+
+    if ax is None: ax = pyplot.gca()
+
     l,r,b,t = self.extent
+    if off is None:
+      off = not ax.axison
+    formatter = MyFormatter(self.size[0], self.units)
+    if not off:
+      if bgcolor is not None:
+        ax.set_axis_bgcolor(bgcolor)
+      ax.xaxis.set_major_formatter(formatter)
+      ax.yaxis.set_major_formatter(formatter)
+      ax.set_xticks(numpy.linspace(l, r, 5, endpoint=True))
+      ax.set_yticks(numpy.linspace(b, t, 5, endpoint=True))
+    else :
+      if bgcolor is not None:
+        ax.figure.set_facecolor(color)
+      if not hasattr('scale', ax):
+        ax.scale = self.drawscale(ax)
+    ax.axison = not off
+    xoffset = formatter(self.center[0], 'label')
+    yoffset = formatter(self.center[1], 'label')
+    zoffset = formatter(self.center[2], 'label')
+    if not hasattr(ax, 'offsetlabel'):
+      ax.offsetlabel = ax.text(0.1, 0.1, '', transform=ax.transAxes)
+    ax.offsetlabel.set_text('%s %s %s' % (xoffset, yoffset, zoffset))
     ax.set_xlim(l, r)
     ax.set_ylim(b, t)
-
-  def frame(self, ax, off=False, bgcolor='k'):
-    if not off:
-      ax.set_axis_bgcolor(bgcolor)
-      l,r,b,t = self.extent
-      ax.ticklabel_format(axis='x', useOffset=self.center[0])
-      ax.ticklabel_format(axis='y', useOffset=self.center[1])
-      ax.set_xticks(numpy.linspace(l, r, 5))
-      ax.set_yticks(numpy.linspace(b, t, 5))
-    else :
-      ax.axison = False
-      ax.figure.set_facecolor(color)
-
   def drawscale(self, ax, color='white', fontsize=None):
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     from matplotlib.patches import Rectangle
@@ -364,7 +409,7 @@ class GaplotContext(object):
         t.set_fontsize(fontsize)
 
     ax.add_artist(b)
-
+    return b
   def makeT(self, ftype, Xh = 0.76):
     """T will be in Kelvin"""
     gas =self.F[ftype]
@@ -416,4 +461,6 @@ if False:
 
     bh.numpoints = len(ind)
     for comp in bh.names: bh[comp] = bh[comp][ind]
+
+
 
