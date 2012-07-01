@@ -7,14 +7,15 @@ def is_string_like(v):
   return True
 
 def get_reader(reader):
-  if is_string_like(reader) :
-    try:
-      _temp = __import__('gaepsi.readers.%s' % reader, globals(), locals(),
-            ['Reader'],  -1)
-    except ImportError:
-      _temp = __import__(reader, globals(), locals(), ['Reader'], -1) 
+  return Reader(reader)
 
-    reader = _temp.Reader()
+def Reader(reader):
+  if is_string_like(reader) :
+    module = __import__('gaepsi.readers.%s' % reader, globals(), {}, [''], 0)
+    if not hasattr(module, 'Reader'):
+      raise ImportError('Reader class not found in %s', reader)
+    reader = module.Reader
+  reader = ReaderMeta(reader.__name__, (reader, object), dict(reader.__dict__))
   return reader
 
 class Constants:
@@ -82,148 +83,170 @@ class Constants:
     else:
       raise Exception("constant[%s] has action %s and is readonly", index, action)
 
-#  def __getattr__(self, index):
-#    return self.__getitem__(index)
-#  def __setattr__(self, index, value):
-#    self.__setitem__(index, value)
 
-class ReaderBase:
-  def __init__(self, file_class, header, schemas, defaults={}, constants={}, endian='<'):
-    """file_class is either F77File or CFile,
-       header is a numpy dtype describing the header block
-       schemas is a list of blocks, (name, dtype, [ptypes], [conditions]),
-          for example ('pos', ('f4', 3), [0, 1, 4, 5], []), 
-          or ('met', 'f4', [4], ['flags_hasmet'])
-       defaults is a dictionary containing the default values used in the header, when a new snapshot file is created.
-       constants is a dictionary of constant values/ corresponding header fields.
-          for example, {'N': 'N', 'OmegaB': 0.044}
-       endian is either '<'(intel) or '>' (ibm).
-    """
+class Schema:
+  from collections import namedtuple
+  Entry = namedtuple("Entry", ['name', 'dtype', 'ptypes', 'conditions'])
+  def __init__(self, list):
+    self.dict = {}
+    self.list = []
+    for entry in list:
+      self.dict[entry[0]] = Schema.Entry._make((entry[0], numpy.dtype(entry[1]), entry[2], entry[3]))
+      self.list += [entry[0]]
+  def __contains__(self, index):
+    return index in self.dict
+  def __getitem__(self, index):
+    return self.dict[index]
+  def __iter__(self):
+    return iter(self.list)
 
-    self.header_dtype = numpy.dtype(header)
-    self.constants = constants
-    self.schemas = [dict(name = sch[0], 
-                    dtype=numpy.dtype(sch[1]),
-                    ptypes=sch[2], 
-                    conditions=sch[3]) for sch in schemas]
-    self.file_class = file_class
-    self.endian = endian
-    self.hash = {}
-    self.defaults = defaults
-    for s in self.schemas:
-      self.hash[s['name']] = s
+class ReaderMeta(type):
+  def __new__(meta, name, base, dict):
+    properties = {
+      'format': 'F',
+      'header': None,
+      'schema': None,
+      'defaults': {},
+      'constants': {},
+      'endian': '<'}
 
-  def open(self, snapshot):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
-    snapshot.reader = self
+    missing = []
+    dirs = []
+    for x in base:
+      dirs += dir(x)
 
+    for p in properties:
+      if not p in dict and not p in dirs:
+        if properties[p] is not None:
+          dict[p] = properties[p]
+        else:
+          missing += [p]
+
+    if missing:
+      raise ValueError("missing class properties in %s: %s" %
+       (name, ', '.join(missing)))
+
+    def _do_not_instantiate(cls):
+      raise TypeError('%s is not instantiatable' % repr(cls))
+    dict['__init__'] = _do_not_instantiate
+    return type.__new__(meta, name, base, dict)
+
+  def __init__(cls, name, base, dict):
+    filedict = {'F': F77File, 'C': CFile }
+    cls.file_class = filedict[cls.format]
+    cls.header = numpy.dtype(cls.header)
+    cls.schema = Schema(cls.schema)
+
+
+  def __str__(cls):
+    return str(cls.__dict__)
+
+  def open(cls, snapshot):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
+    snapshot.reader = cls
     file.seek(0)
-    snapshot.header = file.read_record(self.header_dtype, 1).squeeze()
+    snapshot.header = file.read_record(cls.header, 1).squeeze()
+    snapshot.C = Constants(snapshot.header, cls.constants)
+    cls.update_offsets(snapshot)
 
-    snapshot.C = Constants(snapshot.header, self.constants)
-    self.update_offsets(snapshot)
-
-  def create(self, snapshot, overwrite=True):
+  def create(cls, snapshot, overwrite=True):
     if not overwrite:
-      file = self.file_class(snapshot.file, endian=self.endian, mode='wx+')
+      file = cls.file_class(snapshot.file, endian=cls.endian, mode='wx+')
     else:
-      file = self.file_class(snapshot.file, endian=self.endian, mode='w+')
-    snapshot.reader = self
-    snapshot.header = numpy.zeros(dtype=self.header_dtype, shape=None)
-    for f in self.defaults:
-      snapshot.header[f] = self.defaults[f]
+      file = cls.file_class(snapshot.file, endian=cls.endian, mode='w+')
+    snapshot.reader = cls
+    snapshot.header = numpy.zeros(dtype=cls.header, shape=None)
+    for f in cls.defaults:
+      snapshot.header[f] = cls.defaults[f]
+    snapshot.C = Constants(snapshot.header, cls.constants)
 
-    snapshot.C = Constants(snapshot.header, self.constants)
+  def __getitem__(cls, key):
+    return cls.schema[key]
+  def __contains__(cls, key):
+    return key in cls.schema
+  def __iter__(cls):
+    for n in cls.schema:
+      yield cls.schema[n]
 
-  def __getitem__(self, key):
-    return self.hash[key]
-  def __contains__(self, key):
-    return key in self.hash
-
-  def has_block(self, snapshot, ptype, block):
-    if not block in self.hash: return False
-    s = self.hash[block]
-    for cond in s['conditions']:
+  def has_block(cls, snapshot, ptype, block):
+    if not block in cls: return False
+    s = cls[block]
+    for cond in s.conditions:
       if snapshot.header[cond] == 0 : return False
-    if ptype in s['ptypes']: return True
+    if ptype in s.ptypes: return True
     return False
 
-  def update_offsets(self, snapshot):
-    blockpos = self.file_class.get_size(self.header_dtype.itemsize);
-    for s in self.schemas:
-      name = s['name']
-      cease_existing = False
-      for cond in s['conditions']:
-        if snapshot.header[cond] == 0 : cease_existing = True
+  def update_offsets(cls, snapshot):
+    blockpos = cls.file_class.get_size(cls.header.itemsize);
+    for s in cls:
+      skip = False
+      for cond in s.conditions:
+        if snapshot.header[cond] == 0 : skip = True
 
-      if cease_existing :
-        snapshot.sizes[name] = None
-        snapshot.offsets[name] = None
+      if skip :
+        snapshot.sizes[s.name] = None
+        snapshot.offsets[s.name] = None
         continue
-      N = 0
-      for ptype in s['ptypes']:
-        N += snapshot.C['N'][ptype]
-      blocksize = N * s['dtype'].itemsize
 
-      snapshot.sizes[name] = blocksize
-      snapshot.offsets[name] = blockpos
-      if blocksize != 0 : 
-        blockpos += self.file_class.get_size(blocksize);
+      N = 0
+      for ptype in s.ptypes:
+        N += snapshot.C['N'][ptype]
+      blocksize = N * s.dtype.itemsize
+
+      snapshot.sizes[s.name] = blocksize
+      snapshot.offsets[s.name] = blockpos
+      if blocksize != 0: 
+        blockpos += cls.file_class.get_size(blocksize);
 
     return blockpos
 
-
-  def create_structure(self, snapshot):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='r+')
-    self.update_offsets(snapshot)
-    for s in self.schemas:
-        name = s['name']
-        if not snapshot.sizes[name] == None:
-          file.seek(snapshot.offsets[name])
-    # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
-          file.create_record(s['dtype'].base, snapshot.sizes[name] // s['dtype'].base.itemsize)
+  def create_structure(cls, snapshot):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
+    cls.update_offsets(snapshot)
+    for s in cls:
+        if not snapshot.sizes[s.name] == None:
+          file.seek(snapshot.offsets[s.name])
+          file.create_record(s.dtype.base, snapshot.sizes[s.name] // s.dtype.base.itemsize)
     file.seek(0)
     file.write_record(snapshot.header)
 
-  def save(self, snapshot, ptype, name):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='r+')
+  def save(cls, snapshot, ptype, name):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
 
-    sch = self.hash[name]
-    file.seek(snapshot.offsets[name])
-    # NOTE: for writing, because write_record sees only the base type of the dtype, we use the length from the basetype
-    length = snapshot.sizes[name] // sch['dtype'].base.itemsize
-    if not ptype in sch['ptypes'] : 
+    s = cls[name]
+    if not ptype in s.ptypes: 
+      return
+    file.seek(snapshot.offsets[s.name])
+
+    length = snapshot.sizes[s.name] // s.dtype.base.itemsize
+    offset = 0
+    for i in range(len(snapshot.C['N'])):
+      if i in s.ptypes and i < ptype :
+        offset += snapshot.C['N'][i]
+    offset *= s.dtype.itemsize / s.dtype.base.itemsize
+    file.write_record(snapshot.P[ptype][s.name], length, offset)
+   
+  def check(cls, snapshot):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
+    for s in cls:
+      file.seek(snapshot.offsets[s.name])
+      length = snapshot.sizes[s.name] // s.dtype.itemsize
+      file.skip_record(s.dtype, length)
+
+  def load(cls, snapshot, ptype, name):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
+
+    s = cls[name]
+    file.seek(snapshot.offsets[s.name])
+    length = snapshot.sizes[s.name] // s.dtype.itemsize
+    if not ptype in s.ptypes : 
+      snapshot.P[ptype][s.name] = None
       return
     offset = 0
     for i in range(len(snapshot.C['N'])):
-      if i in sch['ptypes'] and i < ptype :
+      if i in s.ptypes and i < ptype :
         offset += snapshot.C['N'][i]
-    offset *= sch['dtype'].itemsize / sch['dtype'].base.itemsize
-    file.write_record(snapshot.P[ptype][name], length, offset)
-   
-  def check(self, snapshot):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
-    for sch in self.schemas:
-      name = sch['name']
-      file.seek(snapshot.offsets[name])
-      length = snapshot.sizes[name] // sch['dtype'].itemsize
-      file.skip_record(sch['dtype'], length)
-   
-
-  def load(self, snapshot, ptype, name):
-    file = self.file_class(snapshot.file, endian=self.endian, mode='r')
-
-    sch = self.hash[name]
-    file.seek(snapshot.offsets[name])
-    length = snapshot.sizes[name] // sch['dtype'].itemsize
-    if not ptype in sch['ptypes'] : 
-      snapshot.P[ptype][name] = None
-      return
-    offset = 0
-    for i in range(len(snapshot.C['N'])):
-      if i in sch['ptypes'] and i < ptype :
-        offset += snapshot.C['N'][i]
-    snapshot.P[ptype][name] = file.read_record(sch['dtype'], length, offset, snapshot.C['N'][ptype])
+    snapshot.P[ptype][s.name] = file.read_record(s.dtype, length, offset, snapshot.C['N'][ptype])
 
 class CFile(file):
   def get_size(size):

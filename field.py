@@ -87,11 +87,11 @@ class Field(object):
       field[name] = recarray[name]
     return field
 
-  def __init__(self, components=None, numpoints = 0):
+  def __init__(self, components=None, numpoints = 0, dtype='f4'):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
     self.numpoints = numpoints
-    self['locations'] = numpy.zeros(shape = numpoints, dtype = ('f4', 3))
+    self['locations'] = numpy.zeros(shape = numpoints, dtype = (dtype, 3))
     if components is not None:
       for comp in components:
         self.dict[comp] = numpy.zeros(shape = numpoints, dtype = components[comp])
@@ -280,6 +280,12 @@ class Field(object):
 
   def __getitem__(self, index):
     if isinstance(index, basestring):
+      if index == 'x':
+        return self.dict['locations'][:, 0]
+      elif index == 'y':
+        return self.dict['locations'][:, 1]
+      elif index == 'z':
+        return self.dict['locations'][:, 2]
       return self.dict[index]
     elif isinstance(index, slice):
       subfield = Field()

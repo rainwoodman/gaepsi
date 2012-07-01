@@ -168,6 +168,9 @@ static inline int64_t xyz2ind (int32_t x, int32_t y, int32_t z) {
     ind |= (uint64_t) utab[(uint8_t) z] << 26;
     z >>= 8;
     ind |= (uint64_t) utab[(uint8_t) z] << 50;
+    if( ind < 0) {
+          abort();
+    }
     return ind;
 }
 static int32_t inline ind2x(uint64_t ind) {

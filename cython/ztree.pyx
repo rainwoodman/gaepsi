@@ -7,9 +7,6 @@ cimport numpy
 cimport npyiter
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
-from libc.float cimport FLT_MAX
-from libc.limits cimport INT_MAX, INT_MIN
-from libc.math cimport fmin
 cimport cython
 import cython
 from warnings import warn
@@ -99,8 +96,8 @@ cdef class Tree:
 
     cdef numpy.ndarray pos
     cdef float size
-    pos = numpy.empty(3, dtype='f4')
-    self.get_node_pos(ind, <float*>pos.data)
+    pos = numpy.empty(3, dtype='f8')
+    self.get_node_pos(ind, <double*>pos.data)
     size = self.get_node_size(ind)
 
     rt.update(dict(pos=pos, size=size))
@@ -110,7 +107,7 @@ cdef class Tree:
     return rt
     
   @cython.boundscheck(False)
-  cdef void query_neighbours_one(Tree self, Result result, float pos[3]) nogil:
+  cdef void query_neighbours_one(Tree self, Result result, double pos[3]) nogil:
      cdef intptr_t j
      cdef int32_t r
      cdef intptr_t tmp
@@ -140,10 +137,10 @@ cdef class Tree:
   def query_neighbours(Tree self, x, y, z, int32_t count):
     cdef intptr_t i, d, j, k
     cdef int64_t [:] queryzkey
-    cdef float pos[3]
+    cdef double pos[3]
 
     out = numpy.empty_like(x, dtype=[('data', (numpy.intp, count))])
-    iter = numpy.nditer([x, y, z, out], op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], flags=['buffered', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', out.dtype])
+    iter = numpy.nditer([x, y, z, out], op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], flags=['buffered', 'external_loop'], casting='unsafe', op_dtypes=['f8', 'f8', 'f8', out.dtype])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -154,7 +151,7 @@ cdef class Tree:
       while size > 0:
         while size > 0:
           for d in range(3):
-            pos[d] = (<float*>citer.data[d])[0]
+            pos[d] = (<double*>citer.data[d])[0]
           result.truncate()
           self.query_neighbours_one(result, pos)
           for i in range(count):
@@ -176,11 +173,15 @@ cdef class Tree:
     cdef int32_t center[3]
     cdef Result result
     cdef intptr_t i
-    cdef float pos[3]
+    cdef double pos[3]
     cdef numpy.ndarray ret 
 
     ret = numpy.empty_like(x, dtype=numpy.dtype('object'))
-    iter = numpy.nditer([x, y, z, radius, ret], op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], flags=['buffered', 'refs_ok', 'external_loop'], casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
+    iter = numpy.nditer([x, y, z, radius, ret], 
+              op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], 
+            flags=['buffered', 'refs_ok', 'external_loop'], 
+             casting='unsafe', 
+           op_dtypes=['f8', 'f8', 'f8', 'f4', numpy.dtype('object')])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -190,7 +191,7 @@ cdef class Tree:
     while size > 0:
       while size > 0:
         for d in range(3):
-          pos[d] = (<float*>citer.data[d])[0]
+          pos[d] = (<double*>citer.data[d])[0]
         r = (<float*>citer.data[3])[0]
         self.zorder.BBint(pos, r, center, min, max)
         result = Result(limit)
@@ -212,14 +213,15 @@ cdef class Tree:
     cdef int32_t center[3]
     cdef Result result
     cdef intptr_t i
-    cdef float pos[3]
+    cdef double pos[3]
     cdef numpy.ndarray ret 
 
     ret = numpy.empty_like(x, dtype=numpy.dtype('object'))
     iter = numpy.nditer([x, y, z, x1, y1, z1, ret], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readonly'], ['readwrite']], 
       flags=['buffered', 'refs_ok', 'external_loop'], 
-      casting='unsafe', op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4', 'f4', numpy.dtype('object')])
+      casting='unsafe', 
+      op_dtypes=['f8', 'f8', 'f8', 'f8', 'f8', 'f8', numpy.dtype('object')])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -228,14 +230,14 @@ cdef class Tree:
     while size > 0:
       while size > 0:
         for d in range(3):
-          pos[d] = (<float*>citer.data[d])[0]
+          pos[d] = (<double*>citer.data[d])[0]
         self.zorder.float_to_int(pos, min)
         for d in range(3):
-          pos[d] = (<float*>citer.data[3+d])[0]
+          pos[d] = (<double*>citer.data[3+d])[0]
         self.zorder.float_to_int(pos, max)
 
         for d in range(3):
-          pos[d] = (<float*>citer.data[3+d])[0] + (<float*>citer.data[d])[0] 
+          pos[d] = (<double*>citer.data[3+d])[0] + (<double*>citer.data[d])[0] 
           pos[d] *= 0.5
         self.zorder.float_to_int(pos, center)
 
@@ -254,8 +256,8 @@ cdef class Tree:
   @cython.boundscheck(False)
   cdef void __add_node(Tree self, Result result, int32_t min[3], int32_t max[3], int32_t center[3], intptr_t node) nogil:
     """ add the pars in a node into result, use the distance if result.limit > 0"""
-    cdef float dx, x
     cdef int64_t key
+    cdef float x
     cdef intptr_t i, d, j
     cdef int32_t ipos[3]
     cdef int good 
@@ -280,7 +282,7 @@ cdef class Tree:
             x = self.zorder.dist2(ipos, center)
             result.append_one_with_weight(i, x)
     
-  cdef inline int32_t _estimate_radius(Tree self, float pos[3], int atleast) nogil:
+  cdef inline int32_t _estimate_radius(Tree self, double pos[3], int atleast) nogil:
     cdef intptr_t this
 
     this = self.get_container(pos, atleast)

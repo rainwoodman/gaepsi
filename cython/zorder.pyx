@@ -60,7 +60,7 @@ cdef class Zorder:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float pos[3]
+    cdef double pos[3]
     with nogil:
       while size > 0:
         while size > 0:
@@ -82,17 +82,17 @@ cdef class Zorder:
           op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], 
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
-          op_dtypes=['f4', 'f4', 'f4', 'i8'])
+          op_dtypes=['f8', 'f8', 'f8', 'i8'])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
 
-    cdef float pos[3]
+    cdef double pos[3]
     with nogil:
       while size > 0:
         while size > 0:
           for d in range(3):
-            pos[d] = (<float*>citer.data[d])[0]
+            pos[d] = (<double*>citer.data[d])[0]
 
           (<int64_t*>citer.data[3])[0] = self.encode_float(pos)
 
@@ -105,17 +105,10 @@ cdef class Zorder:
   def __repr__(self):
     return str(dict(min=self.min, scale=self.scale, bits=self.bits))
 
-  cdef void BBint(self, float pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil:
-    cdef float rf, f
+  cdef void BBint(self, double pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil:
+    cdef double rf
     for d in range(3):
       center[d] = <int32_t> ((pos[d] - self._min[d] ) * self._norm)
       rf = r * self._norm
-      f = center[d] - rf
-      if f > INT_MAX: min[d] = INT_MAX
-      elif f < INT_MIN: min[d] = INT_MIN
-      else: min[d] = <int32_t>f
-
-      f = center[d] + rf
-      if f > INT_MAX: max[d] = INT_MAX
-      elif f < INT_MIN: max[d] = INT_MIN
-      else: max[d] = <int32_t>f
+      min[d] = <int32_t>(<double>center[d] - rf)
+      max[d] = <int32_t>(<double>center[d] + rf)

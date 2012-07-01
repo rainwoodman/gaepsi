@@ -3,6 +3,7 @@ import numpy
 import matplotlib.pyplot as pyplot
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
+from gaepsi.readers import Reader
 from gaepsi.cython import _camera
 from gaepsi.cython import _fast
 from gaepsi.tools.meshmap import Meshmap
@@ -15,18 +16,26 @@ def _ensurelist(a):
     return (a,)
   return a
 
+def _fr10(n):
+  """ base 10 frexp """
+  exp = numpy.floor(numpy.log10(n))
+  return n * 10 ** -exp, exp
+
 def n_(value, vmin=None, vmax=None):
   return normalize(value, vmin, vmax, logscale=False)
 
 def nl_(value, vmin=None, vmax=None):
   return normalize(value, vmin, vmax, logscale=True)
 
-def normalize(value, vmin=None, vmax=None, logscale=False, out=None):
+class normalize(numpy.ndarray):
+  def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):
     """normalize an array to 0 and 1, value is returned.
        if logscale is True, and vmin is in format 'nn db', then
        vmin = vmax - nn * 0.1
-       NaNs are neglected. INFs are not.
+       NaNs and INFs are neglected
        safe for in-place operation
+       returns normalized_value, vmin, vmax
+         where vmin, vmax are the real vmin vmax used
     """
     if out is None:
       out = value.copy()
@@ -35,7 +44,8 @@ def normalize(value, vmin=None, vmax=None, logscale=False, out=None):
       numpy.log10(value, out)
     if vmax is None:
       vmax = _fast.finitemax(out)
-    elif '%' == vmax[:-1]:
+    elif isinstance(vmax, basestring) \
+        and '%' == vmax[:-1]:
       vmax = numpy.percentile(out, float(vmax[:-1]))
 
     if vmin is None:
@@ -49,14 +59,23 @@ def normalize(value, vmin=None, vmax=None, logscale=False, out=None):
     out[...] -= vmin
     out[...] /= (vmax - vmin)
     out.clip(0, 1, out=out)
-    return out
+    self = out.view(type=normalize)
+    self.vmin = vmin
+    self.vmax = vmax
+    self.logscale = logscale
+    return self
+
+  def __repr__(self):
+    return 'normed values = %s, vmin=%s, vmax=%s, logscale=%s' % \
+          (repr(self.view(type=numpy.ndarray)), 
+           repr(self.vmin), repr(self.vmax), repr(self.logscale))
 
 def image(color, cmap, luminosity=None, composite=False):
     """converts (color, luminosity) to an rgba image,
        if composite is False, directly reduce luminosity
        on the RGBA channel by luminosity,
        if composite is True, reduce the alpha channel.
-       color and luminosity needs to be within (0, 1) range
+       color and luminosity needs to be normalized
     """
     image = cmap(color, bytes=True)
     if luminosity is not None:
@@ -72,8 +91,6 @@ def image(color, cmap, luminosity=None, composite=False):
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
     self.format = None
-    self.shape = shape
-
     # fields
     self.F = {}
     # ptypes
@@ -87,14 +104,22 @@ class GaplotContext(object):
     self.origin = numpy.array([0, 0, 0.])
     self.boxsize = numpy.array([1, 1, 1.])
 
-    self.schema('gas', 0, {'sml':'f4', 'mass':'f4'})
-    self.schema('bh', 5, {'bhmass':'f4', 'bhmdot':'f4'})
-    self.schema('halo', 1, {'mass':'f4'})
-    self.schema('star', 4, {'mass':'f4', 'sft':'f4'})
-    self.view(center=[0, 0, 0], size=[1, 1, 1])
+    self._shape = shape
+    self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, 1], fade=True, method='ortho')
     from gaepsi.cosmology import default
     self.cosmology = default
     self.units = self.cosmology.units
+    
+    # used to save the last state of plotting routines
+    self.last = {}
+
+  @property
+  def shape(self):
+    return self._shape
+  @shape.setter
+  def shape(self, shape):
+    self._shape = (shape[0], shape[1])
+    self.view()
     
   def __getitem__(self, ftype):
     return self.F[ftype]
@@ -116,23 +141,39 @@ class GaplotContext(object):
     t = self.size[1] * 0.5
     return l, r, b , t
 
-  def view(self, center=None, size=None, up=[0,1,0], dir=[0,0,-1], method='ortho', fade=True):
-    if center == 'auto':
-      for ftype in self.F:
-        if self.F[ftype].numpoints > 0:
-          min=self.F[ftype]['locations'].min(axis=0)
-          max=self.F[ftype]['locations'].max(axis=0)
-          center = (min + max) * 0.5
-          size = (max - min) 
-          break
+  def view(self, center=None, size=None, up=None, dir=None, method=None, fade=None):
+    """ 
+       if center is a field type, 
+         center will be calcualted from that field type
+         if size is None, size will be derived, too
+
+       in all othercases, anything non-none will be overwritten,
+
+       A new default camera is always made:w
+    """
+    if isinstance(center, basestring):
+      ftype = center
+      if self.F[ftype].numpoints > 0:
+        min=self.F[ftype]['locations'].min(axis=0)
+        max=self.F[ftype]['locations'].max(axis=0)
+        center = (min + max) * 0.5
+      if size is None:
+        size = (max - min)
 
     if center is not None:
-      self.center= numpy.ones(3) * center
+      self.center = numpy.ones(3) * center
     if size is not None:
-      self.size= numpy.ones(3) * size
-    self.up = numpy.ones(3) * up
-    self.dir = numpy.ones(3) * dir
-    self.default_camera = self._mkcamera(method, fade)
+      self.size = numpy.ones(3) * size
+    if up is not None:
+      self.up = numpy.ones(3) * up
+    if dir is not None:
+      self.dir = numpy.ones(3) * dir
+    if method is not None:
+      self.method = method
+    if fade is not None:
+      self.fade = fade
+
+    self.default_camera = self._mkcamera(self.method, self.fade)
 
   def _mkcamera(self, method, fade):
     """ make a camera in the given class,
@@ -183,6 +224,16 @@ class GaplotContext(object):
 
 
   def paint(self, ftype, color, luminosity, sml=None, camera=None):
+    """ paint field to CCD, returns
+        C, L where
+          C is the color of the pixel
+          L is the exposure of the pixel
+        Notice that if color is None, 
+          C will be undefined,
+          L will still be the exposure.
+        the return values can be normalized by
+        nl_ or n_, then feed to imshow
+    """
     if color is not None:
       acolor = self.F[ftype][color]
     else:
@@ -219,11 +270,11 @@ class GaplotContext(object):
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
     
-  def transform(self, ftype, luminosity=None, radius=0, camera=None, return_index=False):
+  def transform(self, ftype, luminosity=None, radius=0, camera=None):
     """ Find the CCD coordinate of objects inside the field of view. Objects are of 0 size, 
         r is the bounding radius of radius of the plotted object.
         The actually range used is 
-        [-r, width+bleeding] x [-bledding, height+bleeding]
+        [-r, width+radius] x [-bledding, height+radius]
         If luminosity is given
           returns X, Y, B, where B is the apparent brightness according to the Camera [ depending fade is True or not ]
         otherwise
@@ -231,37 +282,37 @@ class GaplotContext(object):
           
         
     """
-    X = []
-    Y = []
-    D = []
-    L = []
-    I = []
-    for cam in self._mkcamera(camera):
+    X, Y, D, L, I = [], [], [], [], []
+    if luminosity is not None:
+      alum = self.F[ftype][luminosity]
+    else:
+      alum = None
+    for cam in self._mkcameras(camera):
       pos = self.F[ftype]['locations']
       x,y,z = pos[:, 0], pos[:, 1], pos[:, 2]
       uvt = cam.transform(x, y, z)
       x = (uvt[:, 0] + 1.0) * 0.5 * self.shape[0]
       y = (uvt[:, 1] + 1.0) * 0.5 * self.shape[1]
-      mask = x >= -bleeding
-      mask&= y >= -bleeding
-      mask&= x <= self.shape[0]+bleeding
-      mask&= y <= self.shape[1]+bleeding
+      mask = x >= -radius
+      mask&= y >= -radius
+      mask&= x <= self.shape[0]+radius
+      mask&= y <= self.shape[1]+radius
       mask&= uvt[:,2] > -1
       mask&= uvt[:,2] < 1
       X += [x[mask]]
       Y += [y[mask]]
-      if luminosity is not None:
+      if alum is not None:
         d = ((pos - cam.pos)**2).sum(axis=-1)
         D += [d[mask]]
-        L += [luminosity[mask]]
+        L += [alum[mask]]
       else:
         I += [mask.nonzero()[0]]
     X = numpy.concatenate(X)
     Y = numpy.concatenate(Y)
-    if luminosity is not None:
+    if alum is not None:
       D = numpy.concatenate(D)
       L = numpy.concatenate(L)
-      if camera.fade:
+      if cam.fade:
         return X, Y, L /(3.1416*D)
       else:
         return X, Y, L
@@ -269,26 +320,100 @@ class GaplotContext(object):
       I = numpy.concatenate(I)
       return X, Y, I
 
-  def imshow(self, image, ax=None, **kwargs):
-    if ax is None: ax=pyplot.gca()
-    ax.imshow(image.swapaxes(0,1), origin='lower', extent=self.extent, **kwargs)
+  def colorbar(self, ax=None, **kwargs):
+    from matplotlib import colorbar as cb
+    from matplotlib.ticker import Formatter
+    class MyFormatter(Formatter):
+      def __init__(self, logscale, vmin, vmax):
+        self.logscale = logscale
+        self.vmin = vmin
+        self.vmax = vmax
+        self.scale = 10 **(_fr10(vmax - vmin)[1] - 1)
+        if vmax != 0 and \
+           numpy.abs((vmin - vmax) / vmax) < 0.01:
+          self.offset = vmax
+        else:
+          self.offset = 0
+      def get_offset(self):
+        if self.offset != 0:
+          return '+%.3g\n x%.3g' % (self.offset, self.scale)
+        else:
+          return r'x%.3g' % self.scale
+      def __call__(self, data, pos=None):
+        if self.offset != 0:
+          return '%.3g' % ((data - self.offset) / self.scale)
+        else:
+          return '%.3g' % (data / self.scale)
+
+    if not hasattr(ax, 'colorbarax'):
+      ca = ax.get_figure().gca()
+      ax.colorbarax, kwargs = cb.make_axes(ax, **kwargs)
+      ax.get_figure().sca(ca)
+    color = context.last['color']
+    cb.ColorbarBase(ax=ax.colorbarax, 
+           cmap=self.last['cmap'], 
+           norm=cb.colors.Normalize(
+             vmin=color.vmin, vmax=color.vmax),
+           format = MyFormatter(color.logscale, color.vmin, color.vmax)
+           )
+
+  def imshow(self, color, luminosity=None, ax=None, **kwargs):
+    """ shows an image on ax.
+        always expecting color and luminosity
+        normalized to [0, 1].
+        
+        The default color map is 
+          coolwarm if luminosity is given
+          gist_heat if luminosity is not given
+        Example:
+
+        >> C, L = paint('ie', 'mass')
+        >> imshow(nl_(C), nl_(L))
+        
+    """
+    realkwargs = dict(origin='lower', extent=self.extent)
+    if luminosity is not None:
+       realkwargs['cmap'] = pyplot.cm.coolwarm
+    else:
+       realkwargs['cmap'] = pyplot.cm.gist_heat
+    realkwargs.update(kwargs)
+    self.last['cmap'] = realkwargs['cmap']
+    cmap = realkwargs['cmap']
+    if not isinstance(color, normalize):
+      color = nl_(color)
+    if luminosity is not None and not isinstance(luminosity, normalize):
+      luminosity = nl_(luminosity)
+      
+    im = image(color, cmap, luminosity)
+    ax.imshow(im.swapaxes(0,1), **realkwargs)
+
+    self.last['color'] = color
 
   def scatter(self, x, y, s, ax=None, **kwargs):
-    if ax is None: ax=pyplot.gca()
     x = x
     y = y
     l, r, b, t =self.extent
     x = x / self.shape[0] * (r - l) + l
     y = y / self.shape[1] * (t - b) + b
-    ax.scatter(x, y, s, ** kwargs)
+    ax.scatter(x, y, s, **kwargs)
     
   def schema(self, ftype, types, components):
-    self.F[ftype] = Field(components=components)
+    """ loc dtype is the base dtype of the locations."""
+    reader = Reader(self.format)
+    schemed = {}
+    for comp in components:
+      if comp is tuple:
+        schemed[comp[0]] = comp[1]
+      elif comp in reader:
+        schemed[comp] = reader[comp].dtype
+
+    self.F[ftype] = Field(components=schemed, dtype=reader['pos'].dtype.base)
     self.P[ftype] = _ensurelist(types)
 
   def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None):
     self.snapname = snapname
     self.format = format
+
     try:
       snapname = self.snapname % 0
     except TypeError:
@@ -318,6 +443,11 @@ class GaplotContext(object):
     self.cosmology = Cosmology(M=self.C['OmegaM'], L=self.C['OmegaL'], h=self.C['h'])
     self.units = self.cosmology.units
     self.invalidate()
+
+    self.schema('gas', 0, ['sml', 'mass'])
+    self.schema('bh', 5, ['bhmass', 'bhmdot'])
+    self.schema('halo', 1, ['mass'])
+    self.schema('star', 4, ['mass', 'sft'])
  
   def read(self, ftypes, fids=None, numthreads=None):
     if self.need_cut:
@@ -356,8 +486,6 @@ class GaplotContext(object):
           return '%.10g %s' % (value * self.scale, self.unit)
         else:
           return '%.10g' % (value * self.scale)
-
-    if ax is None: ax = pyplot.gca()
 
     l,r,b,t = self.extent
     if off is None:
@@ -419,13 +547,18 @@ class GaplotContext(object):
     gas['T'] *= C.units.TEMPERATURE
 
 context = GaplotContext()
+from gaepsi.tools import bindmethods as _bindmethods
 
-for x in dir(context):
-  from functools import update_wrapper
-  import inspect
-  m = getattr(context, x)
-  if not x.startswith('_') and hasattr(m, '__call__'):
-    locals()[x] = m
+def _before(args, kwargs):
+  if 'ax' in kwargs:
+    if kwargs['ax'] is None:
+      kwargs['ax'] = pyplot.gca()
+
+def _after(args, kwargs):
+  if 'ax' in kwargs and pyplot.isinteractive():
+    pyplot.show()
+
+_bindmethods(context, locals(), _before, _after)
 
 if False:
   def mergeBHs(self, threshold=1.0):
@@ -461,6 +594,5 @@ if False:
 
     bh.numpoints = len(ind)
     for comp in bh.names: bh[comp] = bh[comp][ind]
-
 
 

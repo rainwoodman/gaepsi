@@ -30,22 +30,22 @@ cdef class Zorder:
        x += dx * dx
     return x
     
-  cdef inline void decode_float(Zorder self, int64_t key, float pos[3]) nogil:
+  cdef inline void decode_float(Zorder self, int64_t key, double pos[3]) nogil:
     cdef int32_t point[3]
     cdef int d
     self.decode(key, point)
     for d in range(3):
       pos[d] = point[d] * self._Inorm + self._min[d]
-  cdef inline int64_t encode_float (Zorder self, float pos[3]) nogil:
+  cdef inline int64_t encode_float (Zorder self, double pos[3]) nogil:
     cdef int32_t point[3]
     cdef int d
     for d in range(3):
       point[d] = <int32_t> ((pos[d] - self._min[d]) * self._norm)
     return self.encode(point)
 
-  cdef inline void float_to_int(Zorder self, float pos[3], int32_t point[3]) nogil:
+  cdef inline void float_to_int(Zorder self, double pos[3], int32_t point[3]) nogil:
     cdef int d
     for d in range(3):
       point[d] = <int32_t> ((pos[d] - self._min[d]) * self._norm)
 
-  cdef void BBint(Zorder self, float pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil
+  cdef void BBint(Zorder self, double pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil

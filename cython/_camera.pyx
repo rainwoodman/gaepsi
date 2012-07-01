@@ -147,7 +147,8 @@ cdef class VisTree:
     return self._node_color[ind]
 
   def find_large_nodes(self, Camera camera, intptr_t root, size_t thresh):
-    cdef float pos[3], r[3]
+    cdef double pos[3]
+    cdef float  r[3]
     cdef int d, k
     self.tree.get_node_pos(root, pos)
     r[0] = self.tree.get_node_size(root)
@@ -176,7 +177,8 @@ cdef class VisTree:
     cdef float c3inv
     cdef int d
     cdef size_t rt = 0
-    cdef float pos[3], r[3]
+    cdef double pos[3]
+    cdef float r[3]
     cdef int k 
     self.tree.get_node_pos(index, pos)
     r[0] = self.tree.get_node_size(index)
@@ -399,16 +401,16 @@ cdef class Camera:
     self.frustum[5,:] = self.matrix[3,:] + self.matrix[2,:] #nahe plane berechnen
     self.frustum[...] /= ((self.frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
   
-  cdef int mask_object_one(self, float center[3], float r[3]) nogil:
+  cdef int mask_object_one(self, double center[3], float r[3]) nogil:
     cdef int j
-    cdef float AABB[8][3]
+    cdef double AABB[8][3]
     for j in range(8):
       AABB[j][0] = center[0] + r[0] * _AABBshifting[j][0]
       AABB[j][1] = center[1] + r[1] * _AABBshifting[j][1]
       AABB[j][2] = center[2] + r[2] * _AABBshifting[j][2]
     return self.mask_object_one_AABB(AABB)
 
-  cdef inline int mask_object_one_AABB(self, float AABB[8][3]) nogil:
+  cdef inline int mask_object_one_AABB(self, double AABB[8][3]) nogil:
     """ Diese Funktion liefert 
         0 zurück, wenn die geprüften coordinaten nicht sichtbar sind,
         1 zurück, wenn die coords teilweise sichtbar sind und 
@@ -461,7 +463,8 @@ cdef class Camera:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double * ccd = <double*> out.data
-    cdef float pos[3], uvt[3], whl[3], c3inv, R[3]
+    cdef double pos[3]
+    cdef float uvt[3], whl[3], c3inv, R[3]
    
     with nogil:
       while size > 0:
@@ -518,7 +521,8 @@ cdef class Camera:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float c3inv, R, uvt[3], pos[3]
+    cdef float c3inv, R, uvt[3]
+    cdef double pos[3]
     with nogil: 
       while size > 0:
         while size > 0:
@@ -572,7 +576,8 @@ cdef class Camera:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float pos[3], R[3]
+    cdef double pos[3]
+    cdef float R[3]
     with nogil: 
       while size > 0:
         while size > 0:
@@ -630,7 +635,7 @@ cdef class Camera:
     whl[1] = r[1] * self._scale[1] * c3inv
     whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)
     
-  cdef void paint_object_one(self, float pos[3], float uvt[3], float whl[3], float color, float luminosity, double * ccd) nogil:
+  cdef void paint_object_one(self, double pos[3], float uvt[3], float whl[3], float color, float luminosity, double * ccd) nogil:
 
     if whl[0] > 2 or whl[1] > 2:
       # over resolved
@@ -728,7 +733,7 @@ cdef class Camera:
       p += self._shape[1] * 2
       ix = ix + 1
 
-  cdef inline float transform_one(self, float pos[3], float uvt[3]) nogil:
+  cdef inline float transform_one(self, double pos[3], float uvt[3]) nogil:
     cdef int k
     cdef float coord[4]
     for k in range(4):

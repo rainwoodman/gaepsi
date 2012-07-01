@@ -65,7 +65,7 @@ setup(name="gaepsi", version="1.0",
              ["cython/zorder.c", 
              ], 
 #             extra_compile_args=['-g -O3'], 
-             extra_compile_args=['-O3'],
+             extra_compile_args=['-O0 -g'],
              libraries=[],
              include_dirs=[get_include()],
              depends = ["cython/_bittricks.c"]

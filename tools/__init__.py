@@ -1,3 +1,77 @@
+
+def bindmethods(obj, locals, before=None, after=None):
+  """ bind methods of obj to locals namespace 
+      methods starting with _ are ignored
+      # before can update kwargs before the method is called
+      def before(args, kwargs): pass
+      def after(args, kwargs): pass
+  """
+  from types import MethodType
+  for x in dir(obj):
+    m = getattr(obj, x)
+    if not x.startswith('_') and isinstance(m, MethodType):
+      locals[x] = _wrapfunc(m, before=before, after=after)
+
+def _wrapfunc(m, before=None, after=None):
+    """ wraps a bound method, creates a unbound method
+        that calls m and calls before / after respectively
+        'before' and 'after' are called with a dictionary of
+        the actually args.
+        'before' can update the args
+    """
+    import inspect
+    from types import MethodType
+    args, varargs, varkw, defaults = inspect.getargspec(m)
+
+    D = {}
+   
+    if defaults is not None:
+      D = dict(zip(reversed(args),reversed(defaults)))
+
+    P = list(args[1:]) # remove self
+    A = [ '%s=%s' % (a, repr(D[a])) if a in D else a for a in P]
+
+    if varargs is not None:
+      A += ['*%s' % varargs]
+      P += ['*%s' % varargs]
+      
+    if varkw is not None:
+      A += ['**%s' % varkw]
+      P += ['**%s' % varkw]
+
+    def callargs(m, *args, **kwargs):
+      d = inspect.getcallargs(m, *args, **kwargs)
+      del d['self']
+      if varargs: 
+        args = d[varargs]
+        del d[varargs]
+      else:
+        args = []
+      if varkw: 
+        kwargs = d[varkw]
+        del d[varkw]
+      else:
+        kwargs = {}
+      d.update(kwargs)
+      return  args, d
+    L = {'m':m, 'after':after, 'before': before, 'callargs': callargs}
+
+    code = """def %(name)s(%(args)s):
+         varargs, kwargs = callargs(m, %(params)s)
+         if before: before(varargs, kwargs)
+         ret = m(*varargs, **kwargs)
+         if after: after(varargs, kwargs)
+         return ret
+    """ % {'name':m.__name__, 
+           'args':','.join(A), 
+           'params':','.join(P)}
+    eval(compile(code, '', 'exec', 0, True), L)
+    func = L[m.__name__]
+    func.__doc__ = m.__doc__
+    func.source = code
+    del L[m.__name__]
+    return func
+
 import numpy
 def join_recarrays(*args):
   if len(args) == 1 and isinstance(args[0] , list):

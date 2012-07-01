@@ -1,6 +1,5 @@
-from gaepsi.readers import ReaderBase, F77File
-
-header = [
+class Reader:
+    header = [
       ('N', ('u4', 6)),
       ('mass', ('f8', 6)),
       ('time', 'f8'),
@@ -22,14 +21,10 @@ header = [
       ('flag_ic_info', 'i4'),
       ('flag_lpt_scalingfactor', 'i4'),
       ('unused', ('i4', 12)),
-    ];
+    ]
 
-class Reader(ReaderBase):
-  def __init__(self) :
-    ReaderBase.__init__(self, 
-    F77File, 
-    header = header,
-    schemas = [
+    format = 'F'
+    schema = [
       ('pos', ('f4', 3), [0, 1, 4, 5], []),
       ('vel', ('f4', 3), [0, 1, 4, 5], []),
       ('id', 'u4', [0, 1, 4, 5], []),
@@ -44,7 +39,7 @@ class Reader(ReaderBase):
       ('met', 'f4', [0, 4], ['flag_met']),
       ('bhmass', 'f4', [5], []),
       ('bhmdot', 'f4', [5], [])
-    ],
+    ]
     defaults = {
       'flag_sfr': 1,
       'flag_sft': 1,
@@ -54,7 +49,7 @@ class Reader(ReaderBase):
       'flag_ic_info': 0,
       'flag_cool': 1,
       'flag_feedback': 1,
-    },
+    }
     constants = {
      'N': 'N',
      'Ntot': (lambda h: h['Ntot_low'] + (h['Ntot_high'].astype('u8') << 32),
@@ -68,4 +63,3 @@ class Reader(ReaderBase):
      'boxsize': 'boxsize',
      'Nfiles': 'Nfiles',
     }
-    );

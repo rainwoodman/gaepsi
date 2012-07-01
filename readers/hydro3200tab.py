@@ -1,6 +1,5 @@
-from gaepsi.readers import ReaderBase, F77File
-
-header = [
+class Reader:
+    header = [
       ('N', ('u8', 3)),
       ('mass', ('f8', 6)),
       ('time', 'f8'),
@@ -24,14 +23,9 @@ header = [
       ('flag_ic_info', 'i4'),
       ('flag_lpt_scalingfactor', 'i4'),
       ('unused', ('i4', 12)),
-    ];
-
-class Reader(ReaderBase):
-  def __init__(self) :
-    ReaderBase.__init__(self, 
-    F77File, 
-    header = header,
-    schemas = [
+    ]
+    format = 'F'
+    schema = [
       ('length', 'u8', [0], []),
       ('offset', 'u8', [0], []),
       ('totmass', 'f4', [0], []),
@@ -42,7 +36,7 @@ class Reader(ReaderBase):
       ('sfr', 'f4', [0], []),
       ('bhmass', 'f4', [0], []),
       ('bhmdot', 'f4', [0], [])
-    ],
+    ]
     defaults = {
       'flag_sfr': 1,
       'flag_sft': 1,
@@ -52,7 +46,7 @@ class Reader(ReaderBase):
       'flag_ic_info': 0,
       'flag_cool': 1,
       'flag_feedback': 1,
-    },
+    }
     constants = {
      'OmegaB' : 0.044,
      'PhysDensThresh': 0.000831188,
@@ -63,4 +57,3 @@ class Reader(ReaderBase):
      'Z': 'redshift',
      'L': 'boxsize',
     }
-    );

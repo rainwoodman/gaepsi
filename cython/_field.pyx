@@ -35,7 +35,7 @@ cdef float addweight(float * r, float * w, float h, int NGB) nogil:
   return rt
 
 @cython.boundscheck(False)
-cdef float solve_sml_one(float pos[3], float * r, float * w, int NGB, float mean) nogil:
+cdef float solve_sml_one(float * r, float * w, int NGB, float mean) nogil:
   cdef float m
   cdef float hmin, hmax, hmid
   cdef int iter = 0
@@ -84,7 +84,7 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
           [pos[..., 0], pos[..., 1], pos[..., 2], pweight, out], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readwrite']], 
-     op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4'],
+     op_dtypes=['f8', 'f8', 'f8', 'f4', 'f4'],
          flags=['buffered', 'external_loop'], 
        casting='unsafe')
 
@@ -97,7 +97,7 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
     cdef float w0 = 0
     cdef float x
     cdef intptr_t i
-    cdef float fpos[3]
+    cdef double fpos[3]
     cdef float[:, :] _locations = locations
     cdef float[:] _weights = weights
 
@@ -130,7 +130,7 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
                   x = _locations[result._buffer[i], d] - fpos[d]
                   r_ptr[i] = r_ptr[i] + x * x
                 r_ptr[i] = r_ptr[i] ** 0.5
-              (<float*>citer.data[4])[0] = solve_sml_one(fpos, r_ptr, w_ptr, NGB, w0 / (4 * 3.1416 / 3))
+              (<float*>citer.data[4])[0] = solve_sml_one(r_ptr, w_ptr, NGB, w0 / (4 * 3.1416 / 3))
             npyiter.advance(&citer)
             size = size - 1
         size = npyiter.next(&citer)
