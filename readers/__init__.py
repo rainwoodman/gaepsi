@@ -91,7 +91,11 @@ class Schema:
     self.dict = {}
     self.list = []
     for entry in list:
-      self.dict[entry[0]] = Schema.Entry._make((entry[0], numpy.dtype(entry[1]), entry[2], entry[3]))
+      if len(entry) == 3:
+        conditions = []
+      else:
+        conditions = entry[3]
+      self.dict[entry[0]] = Schema.Entry._make((entry[0], numpy.dtype(entry[1]), entry[2], conditions))
       self.list += [entry[0]]
   def __contains__(self, index):
     return index in self.dict
