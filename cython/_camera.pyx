@@ -5,6 +5,7 @@ cimport cpython
 cimport numpy
 cimport npyiter
 cimport ztree
+cimport zorder
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from libc.string cimport memcpy
@@ -54,7 +55,7 @@ cdef class VisTree:
     self.node_color = numpy.zeros(shape=tree.used, dtype='f4')
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
-    self._nodes = tree._buffer
+    self._nodes = tree._nodes
     self.Inorm = self.tree.zorder._Inorm
     if luminosity is None:
       self.fd[0] = -1
@@ -120,7 +121,7 @@ cdef class VisTree:
         while size > 0:
           key = (<int64_t*>citer.data[2])[0]
           if ind == -1 or \
-             not ztree.insquare(self._nodes[ind].key, self._nodes[ind].order, key):
+             not zorder.boxtest(self._nodes[ind].key, self._nodes[ind].order, key):
             ind = self.tree.get_container_key(key, 0)
           lum = (<float*>citer.data[0])[0]
           self._node_lum[ind] += lum
@@ -148,16 +149,13 @@ cdef class VisTree:
 
   def find_large_nodes(self, Camera camera, intptr_t root, size_t thresh):
     cdef double pos[3]
-    cdef float  r[3]
+    cdef double r[3]
     cdef int d, k
     self.tree.get_node_pos(root, pos)
-    r[0] = self.tree.get_node_size(root)
+    self.tree.get_node_size(root, r)
     
-    r[0] *= 0.5
-    r[1] = r[0]
-    r[2] = r[0]
     for d in range(3):
-      pos[d] += r[d]
+      pos[d] += r[d] * 0.5
 
     if 0 == camera.mask_object_one(pos, r):
       return []
@@ -178,16 +176,13 @@ cdef class VisTree:
     cdef int d
     cdef size_t rt = 0
     cdef double pos[3]
-    cdef float r[3]
+    cdef double r[3]
     cdef int k 
     self.tree.get_node_pos(index, pos)
-    r[0] = self.tree.get_node_size(index)
+    self.tree.get_node_size(index, r)
 
-    r[0] *= 0.5
-    r[1] = r[0]
-    r[2] = r[0]
     for d in range(3):
-      pos[d] += r[d]
+      pos[d] += r[d] * 0.5
 
     if 0 == camera.mask_object_one(pos, r):
       return 0
@@ -401,7 +396,7 @@ cdef class Camera:
     self.frustum[5,:] = self.matrix[3,:] + self.matrix[2,:] #nahe plane berechnen
     self.frustum[...] /= ((self.frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
   
-  cdef int mask_object_one(self, double center[3], float r[3]) nogil:
+  cdef int mask_object_one(self, double center[3], double r[3]) nogil:
     cdef int j
     cdef double AABB[8][3]
     for j in range(8):
@@ -457,24 +452,24 @@ cdef class Camera:
           [x, y, z, r, color, luminosity], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readonly'], ['readonly']], 
-     op_dtypes=['f4', 'f4', 'f4', 'f4', 'f4', 'f4'],
+     op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4'],
          flags=['buffered', 'external_loop'], 
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double * ccd = <double*> out.data
-    cdef double pos[3]
-    cdef float uvt[3], whl[3], c3inv, R[3]
+    cdef double pos[3], R[3]
+    cdef float uvt[3], whl[3], c3inv
    
     with nogil:
       while size > 0:
         while size > 0:
-          pos[0] = (<float*>citer.data[0])[0]
-          pos[1] = (<float*>citer.data[1])[0]
-          pos[2] = (<float*>citer.data[2])[0]
-          R[0] = (<float*>citer.data[3])[0]
-          R[1] = (<float*>citer.data[3])[0]
-          R[2] = (<float*>citer.data[3])[0]
+          pos[0] = (<double*>citer.data[0])[0]
+          pos[1] = (<double*>citer.data[1])[0]
+          pos[2] = (<double*>citer.data[2])[0]
+          R[0] = (<double*>citer.data[3])[0]
+          R[1] = (<double*>citer.data[3])[0]
+          R[2] = (<double*>citer.data[3])[0]
           c3inv = self.transform_one(pos, uvt)
           self.transform_size_one(R,
               c3inv, 
@@ -556,18 +551,18 @@ cdef class Camera:
     cdef int rdim
     arrays    = [x, y, z, out]
     op_flags  = [['readonly'], ['readonly'], ['readonly'], ['writeonly']]
-    op_dtypes = ['f4', 'f4', 'f4', 'u1']
+    op_dtypes = ['f8', 'f8', 'f8', 'u1']
 
     if isinstance(r, tuple):
       rdim = 3
       arrays += [r[0], r[1], r[2]]
       op_flags += [['readonly']] * 3
-      op_dtypes += ['f4'] * 3
+      op_dtypes += ['f8'] * 3
     else:
       rdim = 1
       arrays += [r]
       op_flags += [['readonly']]
-      op_dtypes += ['f4']
+      op_dtypes += ['f8']
 
     iter = numpy.nditer(
           arrays, op_flags=op_flags, op_dtypes=op_dtypes,
@@ -577,21 +572,21 @@ cdef class Camera:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double pos[3]
-    cdef float R[3]
+    cdef double R[3]
     with nogil: 
       while size > 0:
         while size > 0:
-          pos[0] = (<float*> citer.data[0])[0]
-          pos[1] = (<float*> citer.data[1])[0]
-          pos[2] = (<float*> citer.data[2])[0]
+          pos[0] = (<double*> citer.data[0])[0]
+          pos[1] = (<double*> citer.data[1])[0]
+          pos[2] = (<double*> citer.data[2])[0]
           if rdim == 1:
-            R[0] = (<float*> citer.data[4])[0]
-            R[1] = (<float*> citer.data[4])[0]
-            R[2] = (<float*> citer.data[4])[0]
+            R[0] = (<double*> citer.data[4])[0]
+            R[1] = (<double*> citer.data[4])[0]
+            R[2] = (<double*> citer.data[4])[0]
           else:
-            R[0] = (<float*> citer.data[4])[0]
-            R[1] = (<float*> citer.data[5])[0]
-            R[2] = (<float*> citer.data[6])[0]
+            R[0] = (<double*> citer.data[4])[0]
+            R[1] = (<double*> citer.data[5])[0]
+            R[2] = (<double*> citer.data[6])[0]
           (<uint8_t *> citer.data[3])[0] = self.mask_object_one(pos, R)
 
           npyiter.advance(&citer)
@@ -630,7 +625,7 @@ cdef class Camera:
     self.matrix[...] = numpy.dot(self.proj, self.model)
     self.extract_frustum()
 
-  cdef inline void transform_size_one(self, float r[3], float c3inv, float whl[3]) nogil:
+  cdef inline void transform_size_one(self, double r[3], float c3inv, float whl[3]) nogil:
     whl[0] = r[0] * self._scale[0] * c3inv
     whl[1] = r[1] * self._scale[1] * c3inv
     whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)

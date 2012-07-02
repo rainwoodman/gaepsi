@@ -441,26 +441,22 @@ class Field(object):
   def zorder(self, sort=True, ztree=False, thresh=128):
     """ calculate zkey (morton key) and return it.
         if sort is true, the field is sorted by zkey
-        if ztree is false, return zkey, zorder, where zorder is
+        if ztree is false, return zkey, digitize, where digitize is
         an object converting from zkey and coordinates.
         if ztree is true, the field is permuted by zkey ordering,
         and a ZTree is returned.
-        zorder object is used to convert pos to zkey and verse vica
+        digitize object is used to convert pos to zkey and verse vica
         Notice that if sort or ztree is true, all previous reference
         to the field's components are invalid.
     """
     from cython import ztree as zt
     from cython import zorder as zo
-    x, y, z = (self['locations'][:, 0],
-              self['locations'][:, 1],
-              self['locations'][:, 2])
 
-    zorder = zo.Zorder.from_points(x, y, z)
+    digitize = zo.Digitize.adapt(self['locations'])
     zkey = numpy.empty(self.numpoints, dtype='i8')
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
-        x, y, z = locations[:, 0], locations[:, 1], locations[:, 2]
-        zorder(x, y, z, out=zkey)
+        digitize(locations, out=zkey)
       pool.starmap(work, pool.zipsplit((zkey, self['locations'])))
 
     if sort or ztree:
@@ -472,6 +468,6 @@ class Field(object):
 
       zkey = zkey[arg]
     if ztree:
-      return zt.Tree(points=zkey, zorder=zorder, thresh=thresh)
-    return zkey, zorder
+      return zt.Tree(zkey=zkey, digitize=digitize, thresh=thresh)
+    return zkey, digitize
 

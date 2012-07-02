@@ -8,7 +8,7 @@
  * utab = reduce(numpy.add, [ (1<<(3*i)) * b for i, b in enumerate(g)]).ravel()
  *
  * */
-static uint32_t utab[256] = {
+static int32_t utab[256] = {
     0x000000, 0x000001, 0x000008, 0x000009,
     0x000040, 0x000041, 0x000048, 0x000049,
     0x000200, 0x000201, 0x000208, 0x000209,
@@ -151,8 +151,11 @@ static uint8_t ctab[256] = {
 0xf6,  0xf7,  0xfe,  0xff, 
 };
 
-static inline int64_t xyz2ind (int32_t x, int32_t y, int32_t z) {
+static inline int64_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
     int64_t ind = 0;
+    x &= 0x1fffff;
+    y &= 0x1fffff;
+    z &= 0x1fffff;
     ind |= utab[(uint8_t) x];
     x >>= 8;
     ind |= (uint64_t) utab[(uint8_t) x] << 24;
@@ -173,7 +176,7 @@ static inline int64_t xyz2ind (int32_t x, int32_t y, int32_t z) {
     }
     return ind;
 }
-static int32_t inline ind2x(uint64_t ind) {
+static int32_t inline _ind2x(uint64_t ind) {
     uint64_t comp = ind & 0x1249249249249249L;
     int32_t x;
     uint8_t raw;
@@ -207,19 +210,70 @@ static int32_t inline ind2x(uint64_t ind) {
     return x;
 }
 
-void inline ind2xyz(int64_t ind, int32_t * x, int32_t * y, int32_t * z) {
-  *x = ind2x(ind);
-  *y = ind2x(ind>>1);
-  *z = ind2x(ind>>2);
+void inline _ind2xyz(int64_t ind, int32_t * x, int32_t * y, int32_t * z) {
+  *x = _ind2x(ind);
+  *y = _ind2x(ind>>1);
+  *z = _ind2x(ind>>2);
+}
+
+static int _boxtest(int64_t key, int order, int64_t point) {
+  return 0 == ((key ^ point) >> (order * 3));
+}
+
+int64_t masks[] = {
+     0111111111111111111111L,
+     0222222222222222222222L,
+     0444444444444444444444L};
+
+void inline _diff(int64_t ind1, int64_t ind2, int32_t d[3]) {
+  d[0] = _ind2x(ind2);
+  d[1] = _ind2x(ind2>>1);
+  d[2] = _ind2x(ind2>>2);
+  d[0] -= _ind2x(ind1);
+  d[1] -= _ind2x(ind1>>1);
+  d[2] -= _ind2x(ind1>>2);
+}
+
+static char * _format_key(int64_t key) {
+  static char buf[100];
+  int32_t ix, iy, iz;
+  _ind2xyz(key, &ix, &iy, &iz);
+
+  sprintf(buf, "%lx, %d %d %d", key, ix, iy, iz);
+  return strdup(buf);
+}
+static int _AABBtest(int64_t key, int order, int64_t AABB[2]) {
+  /**** returns -2 if key, order fully in AABB, returns -1 if partially in,
+ *      0 if not in  ***/
+  int d, i;
+  int64_t l, x0, x1, r;
+  int in = 0;
+  for(d=0; d<3; d++) {
+    l = key & masks[d];
+    r = l + (masks[d] & ((1L << (3*order)) - 1));
+    x0 = AABB[0] & masks[d];
+    x1 = AABB[1] & masks[d];
+    /* r <= x0 because it's open on the right */
+  //  printf ("x0 %d x1 %d l %d, r %d\n", _ind2x(x0 >> d), _ind2x(x1 >> d),
+   //    _ind2x(l >> d), _ind2x(r >>d));
+    if (x1 < x0) abort();
+    if (l > x1 || r < x0) return 0;
+    /* r <= x1 because both are open on the right */
+    if (l > x0 && r < x1) in++;
+  }
+  if(in == 3) return -2;
+  return -1;
 }
 
 #if 0
+
 int main() {
-    uint32_t ix;
-    uint32_t iy;
-    uint32_t iz;
+    int32_t ix;
+    int32_t iy;
+    int32_t iz;
     int xstep=1, ystep=1, zstep=1;
     int count = 0;
+    int i, j;
     for(ix = 0; ix < (1 << 21) && xstep > 0; ix += xstep, xstep <<=1) {
     for(iy = 0; iy < (1 << 21) && ystep > 0; iy += ystep, ystep <<=1) {
     for(iz = 0; iz < (1 << 21) && zstep > 0; iz += zstep, zstep <<=1) {
@@ -233,7 +287,44 @@ int main() {
     }
     }
     }
-    printf("%d\n", count);
+    printf("xyz ind done: %d\n", count);
+    for(i = 1; i < 21; i++) {
+      ix = 1<<i; iy = 1<<i; iz = 1<<i;
+      int64_t ind = xyz2ind(ix, iy, iz);
+      int bit = 1 << (i-1);
+      int64_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
+      if(!boxtest(ind, i, ind2)) {
+        printf("inside fail: %lx %d %lx\n", ind, i, ind2);
+        abort();
+      }
+      if(boxtest(ind, i - 1, ind2)) {
+        printf("outside fail: %lx %d %lx\n", ind, i, ind2);
+        abort();
+      }
+    }
+    printf("boxtest done: %d\n", count);
+
+    for(i = 1; i < 21; i++) {
+      ix = 1<<i; iy = 1<<i; iz = 1<<i;
+      int64_t AABB[2];
+      int64_t ind = xyz2ind(ix, iy, iz);
+      int bit = 1 << (i-1);
+      int64_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
+      AABB[0] = ind;
+      AABB[1] = ind2;
+      for (j = 0; j < i; j++) {
+        if(!AABBtest(AABB, ind, j)) {
+          printf("inside fail: %lx %lx %lx %d\n", AABB[0], AABB[1], ind, j);
+          abort();
+        }
+        if(AABBtest(AABB, ind2, j)) {
+          printf("outside fail: %lx %lx %lx %d\n", AABB[0], AABB[1], ind2, j);
+          abort();
+        }
+      }
+    }
+    printf("AABBtest done: %d\n", count);
+
     return 0;
 }
 #endif

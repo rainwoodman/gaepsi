@@ -14,9 +14,28 @@ cimport cython
 import cython
 from warnings import warn
 
+cdef extern from '_bittricks.c':
+  cdef int64_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
+  cdef void _ind2xyz (int64_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
+  cdef int _boxtest (int64_t ind, int order, int64_t key) nogil 
+  cdef int _AABBtest(int64_t ind, int order, int64_t AABB[2]) nogil 
+  cdef void _diff(int64_t p1, int64_t p2, int32_t d[3]) nogil
+
 numpy.import_array()
 
-cdef class Zorder:
+cdef void decode(int64_t key, int32_t point[3]) nogil:
+    _ind2xyz(key, point, point+1, point+2)
+cdef int64_t encode(int32_t point[3]) nogil:
+    return _xyz2ind(point[0], point[1], point[2])
+cdef int boxtest (int64_t ind, int order, int64_t key) nogil:
+  return _boxtest(ind, order, key)
+cdef int AABBtest(int64_t ind, int order, int64_t AABB[2]) nogil:
+  return _AABBtest(ind, order, AABB)
+cdef void diff(int64_t p1, int64_t p2, int32_t d[3]) nogil:
+  _diff(p1, p2, d)
+
+
+cdef class Digitize:
   """Scale scales x,y,z to 0 ~ (1<<bits) - 1 """
   def __cinit__(self):
     self.min = numpy.empty(3)
@@ -24,7 +43,8 @@ cdef class Zorder:
     self.scale = numpy.empty(3)
 
   @classmethod
-  def from_points(klass, x, y, z, bits=21):
+  def adapt(klass, pos, bits=21):
+    x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
     return klass(
       min=numpy.array([x.min(), y.min(), z.min()]),
       scale=numpy.array([ x.ptp(), y.ptp(), z.ptp()]),
@@ -40,45 +60,40 @@ cdef class Zorder:
     self._norm = 1.0 / self.scale.max() * ((1 << bits) -1)
     self._Inorm = 1.0 / self._norm
 
-  cdef void decode(Zorder self, int64_t key, int32_t point[3]) nogil:
-    cdef int j
-    ind2xyz(key, point, point+1, point+2)
-    return
-  cdef int64_t encode(Zorder self, int32_t point[3]) nogil:
-    return xyz2ind(point[0], point[1], point[2])
-
   def invert(self, index, out=None):
     """ revert from zorder indices to floating points """
     if out is None:
-      out = numpy.empty(numpy.broadcast(index).shape, dtype=('f4', 3))
-    x, y, z = out[:, 0], out[:, 1], out[:, 2]
-    iter = numpy.nditer([x, y, z, out], 
+      out = numpy.empty(numpy.broadcast(index, index).shape, dtype=('f8', 3))
+
+    iter = numpy.nditer([out[..., 0], out[..., 1], out[..., 3], index], 
           op_flags=[['writeonly'], ['writeonly'], ['writeonly'], ['readonly']], 
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
-          op_dtypes=['f4', 'f4', 'f4', 'i8'])
+          op_dtypes=['f8', 'f8', 'f8', 'i8'])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef double pos[3]
+    cdef int32_t ipos[3]
+    cdef double fpos[3]
+    cdef int d
     with nogil:
       while size > 0:
         while size > 0:
-          self.decode_float((<int64_t*>citer.data[3])[0], pos)
-          (<float*>citer.data[0])[0] = pos[0]
-          (<float*>citer.data[1])[0] = pos[1]
-          (<float*>citer.data[2])[0] = pos[2]
+          decode((<int64_t*>citer.data[3])[0], ipos)
+          self.i2f(ipos, fpos)
+          for d in range(3):
+            (<double*>citer.data[d])[0] = fpos[d]
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
-    
-  def __call__(self, x, y, z, out=None):
+    return out
+  def __call__(self, pos, out=None):
     """ calculates the zorder of given points """
 
     if out is None:
-      out = numpy.empty(numpy.broadcast(x, y, z).shape, dtype='i8')
+      out = numpy.empty(numpy.broadcast(pos[..., 0], pos[..., 1]).shape, dtype='i8')
 
-    iter = numpy.nditer([x, y, z, out], 
+    iter = numpy.nditer([pos[..., 0], pos[..., 1], pos[..., 2], out], 
           op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], 
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
@@ -87,28 +102,21 @@ cdef class Zorder:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
 
-    cdef double pos[3]
+    cdef int32_t ipos[3]
+    cdef double fpos[3]
+    cdef int d
     with nogil:
       while size > 0:
         while size > 0:
           for d in range(3):
-            pos[d] = (<double*>citer.data[d])[0]
-
-          (<int64_t*>citer.data[3])[0] = self.encode_float(pos)
-
+            fpos[d] = (<double*>citer.data[d])[0]
+          self.f2i(fpos, ipos)
+          (<int64_t*>citer.data[3])[0] = encode(ipos)
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
-
+    return out
   def __str__(self):
     return str(dict(min=self.min, scale=self.scale, bits=self.bits))
   def __repr__(self):
     return str(dict(min=self.min, scale=self.scale, bits=self.bits))
-
-  cdef void BBint(self, double pos[3], float r, int32_t center[3], int32_t min[3], int32_t max[3]) nogil:
-    cdef double rf
-    for d in range(3):
-      center[d] = <int32_t> ((pos[d] - self._min[d] ) * self._norm)
-      rf = r * self._norm
-      min[d] = <int32_t>(<double>center[d] - rf)
-      max[d] = <int32_t>(<double>center[d] + rf)
