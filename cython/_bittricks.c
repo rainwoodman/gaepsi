@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+typedef int64_t zorder_t;
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)
  * g.reverse()
@@ -151,33 +152,34 @@ static uint8_t ctab[256] = {
 0xf6,  0xf7,  0xfe,  0xff, 
 };
 
-static inline int64_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
-    int64_t ind = 0;
+static inline zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
+    zorder_t ind = 0;
     x &= 0x1fffff;
     y &= 0x1fffff;
     z &= 0x1fffff;
     ind |= utab[(uint8_t) x];
     x >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) x] << 24;
+    ind |= (zorder_t) utab[(uint8_t) x] << 24;
     x >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) x] << 48;
-    ind |= (uint64_t) utab[(uint8_t) y] << 1;
+    ind |= (zorder_t) utab[(uint8_t) x] << 48;
+    ind |= (zorder_t) utab[(uint8_t) y] << 1;
     y >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) y] << 25;
+    ind |= (zorder_t) utab[(uint8_t) y] << 25;
     y >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) y] << 49;
-    ind |= (uint64_t) utab[(uint8_t) z] << 2;
+    ind |= (zorder_t) utab[(uint8_t) y] << 49;
+    ind |= (zorder_t) utab[(uint8_t) z] << 2;
     z >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) z] << 26;
+    ind |= (zorder_t) utab[(uint8_t) z] << 26;
     z >>= 8;
-    ind |= (uint64_t) utab[(uint8_t) z] << 50;
+    ind |= (zorder_t) utab[(uint8_t) z] << 50;
     if( ind < 0) {
           abort();
     }
     return ind;
 }
-static int32_t inline _ind2x(uint64_t ind) {
-    uint64_t comp = ind & 0x1249249249249249L;
+
+static int32_t inline _ind2x(zorder_t ind) {
+    zorder_t comp = ind & 0x1249249249249249L;
     int32_t x;
     uint8_t raw;
 
@@ -210,22 +212,22 @@ static int32_t inline _ind2x(uint64_t ind) {
     return x;
 }
 
-void inline _ind2xyz(int64_t ind, int32_t * x, int32_t * y, int32_t * z) {
+void inline _ind2xyz(zorder_t ind, int32_t * x, int32_t * y, int32_t * z) {
   *x = _ind2x(ind);
   *y = _ind2x(ind>>1);
   *z = _ind2x(ind>>2);
 }
 
-static int _boxtest(int64_t key, int order, int64_t point) {
+static int _boxtest(zorder_t key, int order, zorder_t point) {
   return 0 == ((key ^ point) >> (order * 3));
 }
 
-int64_t masks[] = {
+zorder_t masks[] = {
      0111111111111111111111L,
      0222222222222222222222L,
      0444444444444444444444L};
 
-void inline _diff(int64_t ind1, int64_t ind2, int32_t d[3]) {
+void inline _diff(zorder_t ind1, zorder_t ind2, int32_t d[3]) {
   d[0] = _ind2x(ind2);
   d[1] = _ind2x(ind2>>1);
   d[2] = _ind2x(ind2>>2);
@@ -234,7 +236,7 @@ void inline _diff(int64_t ind1, int64_t ind2, int32_t d[3]) {
   d[2] -= _ind2x(ind1>>2);
 }
 
-static char * _format_key(int64_t key) {
+static char * _format_key(zorder_t key) {
   static char buf[100];
   int32_t ix, iy, iz;
   _ind2xyz(key, &ix, &iy, &iz);
@@ -242,15 +244,16 @@ static char * _format_key(int64_t key) {
   sprintf(buf, "%lx, %d %d %d", key, ix, iy, iz);
   return strdup(buf);
 }
-static int _AABBtest(int64_t key, int order, int64_t AABB[2]) {
+static int _AABBtest(zorder_t key, int order, zorder_t AABB[2]) {
   /**** returns -2 if key, order fully in AABB, returns -1 if partially in,
  *      0 if not in  ***/
   int d, i;
-  int64_t l, x0, x1, r;
+  zorder_t l, x0, x1, r;
   int in = 0;
+  zorder_t m = (1L << (3*order)) - 1;
   for(d=0; d<3; d++) {
-    l = key & masks[d];
-    r = l + (masks[d] & ((1L << (3*order)) - 1));
+    l = (key & masks[d]) & ~m;
+    r = l + (masks[d] & m);
     x0 = AABB[0] & masks[d];
     x1 = AABB[1] & masks[d];
     /* r <= x0 because it's open on the right */
@@ -277,7 +280,7 @@ int main() {
     for(ix = 0; ix < (1 << 21) && xstep > 0; ix += xstep, xstep <<=1) {
     for(iy = 0; iy < (1 << 21) && ystep > 0; iy += ystep, ystep <<=1) {
     for(iz = 0; iz < (1 << 21) && zstep > 0; iz += zstep, zstep <<=1) {
-        int64_t ind = xyz2ind(ix, iy, iz);
+        zorder_t ind = xyz2ind(ix, iy, iz);
         int32_t x, y, z;
         ind2xyz(ind, &x, &y, &z);
         if(x != ix || y != iy || z != iz) {
@@ -290,9 +293,9 @@ int main() {
     printf("xyz ind done: %d\n", count);
     for(i = 1; i < 21; i++) {
       ix = 1<<i; iy = 1<<i; iz = 1<<i;
-      int64_t ind = xyz2ind(ix, iy, iz);
+      zorder_t ind = xyz2ind(ix, iy, iz);
       int bit = 1 << (i-1);
-      int64_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
+      zorder_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
       if(!boxtest(ind, i, ind2)) {
         printf("inside fail: %lx %d %lx\n", ind, i, ind2);
         abort();
@@ -306,10 +309,10 @@ int main() {
 
     for(i = 1; i < 21; i++) {
       ix = 1<<i; iy = 1<<i; iz = 1<<i;
-      int64_t AABB[2];
-      int64_t ind = xyz2ind(ix, iy, iz);
+      zorder_t AABB[2];
+      zorder_t ind = xyz2ind(ix, iy, iz);
       int bit = 1 << (i-1);
-      int64_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
+      zorder_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
       AABB[0] = ind;
       AABB[1] = ind2;
       for (j = 0; j < i; j++) {

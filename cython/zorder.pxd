@@ -8,11 +8,15 @@ from libc.stdint cimport *
 cdef extern from 'math.h':
   cdef int fmax(double, double) nogil
 
-cdef void decode(int64_t key, int32_t point[3]) nogil
-cdef int64_t encode(int32_t point[3]) nogil
-cdef int boxtest (int64_t ind, int order, int64_t key) nogil 
-cdef int AABBtest(int64_t ind, int order, int64_t AABB[2]) nogil 
-cdef void diff(int64_t p1, int64_t p2, int32_t d[3]) nogil
+ctypedef int64_t zorder_t
+
+cdef zorder_t ZNUL = 0
+
+cdef void decode(zorder_t key, int32_t point[3]) nogil
+cdef zorder_t encode(int32_t point[3]) nogil
+cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil 
+cdef int AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 
+cdef void diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil
 
 cdef class Digitize:
   """Zorder scales x,y,z to 0 ~ (1<<bits) - 1 """

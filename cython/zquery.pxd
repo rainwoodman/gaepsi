@@ -1,14 +1,14 @@
 from libc.stdint cimport *
 from ztree cimport Tree
-
+from zorder cimport zorder_t
 cdef class Query:
   cdef readonly size_t used
   cdef readonly size_t size
   cdef readonly size_t limit
-  cdef readonly int64_t centerkey
-  cdef int64_t AABBkey[2]
+  cdef readonly zorder_t centerkey
+  cdef zorder_t AABBkey[2]
   cdef intptr_t * _items
-  cdef float * _weight
+  cdef double * _weight
   cdef int _weighted
 
   cdef intptr_t * steal(Query self) nogil

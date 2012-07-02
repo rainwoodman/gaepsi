@@ -11,6 +11,7 @@ from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from libc.string cimport memcpy
 from warnings import warn
 cimport cython
+from zorder cimport zorder_t
 import cython
 
 numpy.import_array()
@@ -114,12 +115,12 @@ cdef class VisTree:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef intptr_t ind = -1, i
-    cdef int64_t key
+    cdef zorder_t key
     cdef float lum
     with nogil:
       while size > 0:
         while size > 0:
-          key = (<int64_t*>citer.data[2])[0]
+          key = (<zorder_t*>citer.data[2])[0]
           if ind == -1 or \
              not zorder.boxtest(self._nodes[ind].key, self._nodes[ind].order, key):
             ind = self.tree.get_container_key(key, 0)

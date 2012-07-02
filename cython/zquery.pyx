@@ -5,8 +5,9 @@ from ztree cimport Tree
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport zorder
+from zorder cimport zorder_t
 cimport npyiter
-
+from libc.math cimport sqrt
 numpy.import_array()
 
 cdef extern from '_heap.c':
@@ -21,12 +22,12 @@ cdef extern from '_heap.c':
   void _heapify(Heap * self) nogil
 
 cdef int cmp_lt(int i, int j, void * weight) nogil:
-  cdef float * f = <float*>weight
+  cdef double * f = <double*>weight
   # NOTE: reversed order!
   return f[i] > f[j]
 cdef void load(int i, int j, void * data, void * weight) nogil:
   cdef intptr_t * I = <intptr_t*>data
-  cdef float * F = <float*>weight
+  cdef double * F = <double*>weight
   F[i] = F[j]
   I[i] = I[j]
 
@@ -53,7 +54,7 @@ cdef class Query:
       self.size = limit
       self.used = 0
       # NOTE: first (0th) item used by the Heap algorithm as a scratch.
-      self._weight = (<float *> malloc(sizeof(float) * (self.size + 1)))
+      self._weight = (<double *> malloc(sizeof(double) * (self.size + 1)))
       self._items = (<intptr_t *> malloc(sizeof(intptr_t) * (self.size + 1)))
     else:
       self.size = limit
@@ -138,6 +139,7 @@ cdef class Query:
     cdef intptr_t * temp
     cdef intptr_t k = 0
     cdef size_t size = npyiter.init(&citer, iter)
+    cdef double w
     cdef int d
     cdef intptr_t leaf
     cdef found_last_time = 0
@@ -155,12 +157,13 @@ cdef class Query:
                 fsize[d] = 1.3 * fsize[d]
               continue
             if self.used == self.size:
-              if self._weight[1] <= fsize[0] * fsize[0]:
+              w = sqrt(self._weight[1])
+              if w <= fsize[0]:
                 break
               else:
-                fsize[0] = self._weight[1] ** 0.5
-                fsize[1] = fsize[0] 
-                fsize[2] = fsize[0] 
+                fsize[0] = w
+                fsize[1] = w
+                fsize[2] = w
                 continue
           temp = (<intptr_t *>citer.data[3])
           for k in range(self.used):
@@ -173,11 +176,11 @@ cdef class Query:
   property weight:
     def __get__(self):
       cdef numpy.intp_t dims[1]
+      if not self._weighted:
+        raise AttributeError("attribute weight is unavable for unweighted query object")
+
       dims[0] = self.used
-      if self._weighted:
-        arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_FLOAT, self._weight+1)
-      else:
-        arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_FLOAT, self._weight)
+      arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_DOUBLE, self._weight+1)
       numpy.set_array_base(arr, self)
       return arr
 
@@ -226,7 +229,7 @@ cdef class Query:
 
   cdef void execute_r(Query self, Tree tree, intptr_t node) nogil:
     cdef int k
-    cdef int64_t key = tree._nodes[node].key
+    cdef zorder_t key = tree._nodes[node].key
     cdef int order = tree._nodes[node].order
     cdef int flag = zorder.AABBtest(key, order, self.AABBkey)
     if flag == 0:

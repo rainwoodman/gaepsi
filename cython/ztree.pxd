@@ -8,9 +8,10 @@ cimport numpy
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport zorder
+from zorder cimport zorder_t
 
 cdef packed struct NodeInfo:
-  int64_t key # from key and level to derive the bot and top limits
+  zorder_t key # from key and level to derive the bot and top limits
   short order
   short child_length
   int parent
@@ -23,7 +24,7 @@ cdef class Tree:
   cdef readonly size_t size
   cdef readonly size_t used
   cdef readonly size_t thresh
-  cdef int64_t * _zkey
+  cdef zorder_t * _zkey
   cdef size_t _zkey_length
   cdef readonly numpy.ndarray zkey
   cdef readonly zorder.Digitize digitize
@@ -46,13 +47,13 @@ cdef class Tree:
     self.digitize.i2f(isize, size)
 
   cdef inline intptr_t get_container(Tree self, double pos[3], int atleast) nogil:
-    cdef int64_t key
+    cdef zorder_t key
     cdef int32_t ipos[3]
     self.digitize.f2i(pos, ipos)
     key = zorder.encode(ipos)
     return self.get_container_key(key, atleast)
 
-  cdef inline intptr_t get_container_key(Tree self, int64_t key, int atleast) nogil:
+  cdef inline intptr_t get_container_key(Tree self, zorder_t key, int atleast) nogil:
     cdef intptr_t this, child, next
     this = 0
     while this != -1 and self._nodes[this].child_length > 0:

@@ -90,7 +90,6 @@ def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef uint64_t key
     cdef double fpos[3]
     cdef double R[3]
     with nogil: 

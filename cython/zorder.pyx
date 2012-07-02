@@ -15,23 +15,23 @@ import cython
 from warnings import warn
 
 cdef extern from '_bittricks.c':
-  cdef int64_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
-  cdef void _ind2xyz (int64_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
-  cdef int _boxtest (int64_t ind, int order, int64_t key) nogil 
-  cdef int _AABBtest(int64_t ind, int order, int64_t AABB[2]) nogil 
-  cdef void _diff(int64_t p1, int64_t p2, int32_t d[3]) nogil
+  cdef zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
+  cdef void _ind2xyz (zorder_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
+  cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
+  cdef int _AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 
+  cdef void _diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil
 
 numpy.import_array()
 
-cdef void decode(int64_t key, int32_t point[3]) nogil:
+cdef void decode(zorder_t key, int32_t point[3]) nogil:
     _ind2xyz(key, point, point+1, point+2)
-cdef int64_t encode(int32_t point[3]) nogil:
+cdef zorder_t encode(int32_t point[3]) nogil:
     return _xyz2ind(point[0], point[1], point[2])
-cdef int boxtest (int64_t ind, int order, int64_t key) nogil:
+cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil:
   return _boxtest(ind, order, key)
-cdef int AABBtest(int64_t ind, int order, int64_t AABB[2]) nogil:
+cdef int AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil:
   return _AABBtest(ind, order, AABB)
-cdef void diff(int64_t p1, int64_t p2, int32_t d[3]) nogil:
+cdef void diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil:
   _diff(p1, p2, d)
 
 
@@ -79,7 +79,7 @@ cdef class Digitize:
     with nogil:
       while size > 0:
         while size > 0:
-          decode((<int64_t*>citer.data[3])[0], ipos)
+          decode((<zorder_t*>citer.data[3])[0], ipos)
           self.i2f(ipos, fpos)
           for d in range(3):
             (<double*>citer.data[d])[0] = fpos[d]
@@ -111,7 +111,7 @@ cdef class Digitize:
           for d in range(3):
             fpos[d] = (<double*>citer.data[d])[0]
           self.f2i(fpos, ipos)
-          (<int64_t*>citer.data[3])[0] = encode(ipos)
+          (<zorder_t*>citer.data[3])[0] = encode(ipos)
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)

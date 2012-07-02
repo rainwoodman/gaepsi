@@ -11,6 +11,7 @@ cimport cython
 import cython
 from warnings import warn
 cimport zorder
+from zorder cimport zorder_t
 
 numpy.import_array()
 
@@ -32,7 +33,7 @@ cdef class Tree:
     if not zkey.dtype == numpy.dtype('int64'):
       raise TypeError("zkey needs to be of int64")
     self.zkey = zkey
-    self._zkey = <int64_t *> self.zkey.data
+    self._zkey = <zorder_t *> self.zkey.data
     self._zkey_length = self.zkey.shape[0]
     if -1 == self._tree_build():
       raise ValueError("tree build failed. Is the input zkey sorted?")
@@ -86,7 +87,7 @@ cdef class Tree:
       cdef intptr_t i = 0
       cdef intptr_t step = 0
       self.used = 1;
-      self._nodes[0].key = 0
+      self._nodes[0].key = zorder.ZNUL
       self._nodes[0].first = 0
       self._nodes[0].npar = 0
       self._nodes[0].order = self.digitize.bits
@@ -139,7 +140,10 @@ cdef class Tree:
     self._nodes[self.used].child_length = 0
     self._nodes[self.used].order = self._nodes[parent].order - 1
     #/* the lower bits of a sqkey is cleared off but I don't think it is necessary */
-    self._nodes[self.used].key = (self._zkey[first_par] >> (self._nodes[self.used].order * 3)) << (self._nodes[self.used].order * 3)
+#    self._nodes[self.used].key = (self._zkey[first_par] >> (self._nodes[self.used].order * 3)) << (self._nodes[self.used].order * 3)
+    # the above code causes problem when zorder is not an integral type
+    # thus we do not clear the lower bits.
+    self._nodes[self.used].key = self._zkey[first_par]
     self._nodes[parent].child[self._nodes[parent].child_length] = self.used
     self._nodes[parent].child_length = self._nodes[parent].child_length + 1
     if self._nodes[parent].child_length > 8:
