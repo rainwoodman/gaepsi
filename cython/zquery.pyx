@@ -10,7 +10,7 @@ cimport npyiter
 from libc.math cimport sqrt
 numpy.import_array()
 
-cdef extern from '_heap.c':
+cdef extern from 'zquery_internal.c':
   ctypedef struct Heap:
     int (*cmp_lt)(int i, int j, void* weight)
     void (*load)(int i, int j, void* data, void * weight)

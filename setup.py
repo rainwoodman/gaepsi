@@ -68,7 +68,7 @@ setup(name="gaepsi", version="1.0",
              extra_compile_args=['-O0 -g'],
              libraries=[],
              include_dirs=[get_include()],
-             depends = ["cython/_heap.c"]
+             depends = ["cython/zquery_internal.c"]
         ),
         Extension("gaepsi.cython.zorder", 
              ["cython/zorder.c", 
@@ -77,7 +77,7 @@ setup(name="gaepsi", version="1.0",
              extra_compile_args=['-O0 -g'],
              libraries=[],
              include_dirs=[get_include()],
-             depends = ["cython/_bittricks.c"]
+             depends = ["cython/zorder_internal.c"]
         ),
         Extension("gaepsi.cython._camera", 
              ["cython/_camera.c", 

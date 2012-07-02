@@ -14,7 +14,7 @@ cimport cython
 import cython
 from warnings import warn
 
-cdef extern from '_bittricks.c':
+cdef extern from 'zorder_internal.c':
   cdef zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
   cdef void _ind2xyz (zorder_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
   cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
