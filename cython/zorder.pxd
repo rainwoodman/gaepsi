@@ -7,11 +7,12 @@ from libc.stdint cimport *
 
 cdef extern from 'math.h':
   cdef int fmax(double, double) nogil
+  ctypedef int __int128_t
 
-ctypedef int64_t zorder_t
+# to change zorder_t also modify the typedef in _bittricks.c !
+ctypedef __int128_t zorder_t
 
-cdef zorder_t ZNUL = 0
-
+cdef numpy.dtype _zorder_dtype
 cdef void decode(zorder_t key, int32_t point[3]) nogil
 cdef zorder_t encode(int32_t point[3]) nogil
 cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil 
@@ -27,6 +28,11 @@ cdef class Digitize:
   cdef readonly numpy.ndarray min
   cdef readonly numpy.ndarray scale
 
+  cdef inline void i2f0(self, int32_t point[3], double pos[3]) nogil:
+    cdef int d
+    for d in range(3):
+      pos[d] = point[d] * self._Inorm
+    
   cdef inline void i2f(self, int32_t point[3], double pos[3]) nogil:
     cdef int d
     for d in range(3):

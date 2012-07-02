@@ -58,7 +58,7 @@ void _heapify(Heap * self) {
         _siftup(self, i);
     }
 }
-
+#if 0
 float data[9];
 int main() {
     Heap wh;
@@ -82,3 +82,4 @@ int main() {
     }
     return 0;
 }
+#endif

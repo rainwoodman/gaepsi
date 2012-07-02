@@ -8,27 +8,9 @@
 /*************
  *
  * mergesort(data, A, B, out)
- * All needs to be u8
+ * All needs to be u8. data can be any types b/c numpy is used for comparision
  *
  ****************/
-static int cmp_i4(int32_t * p1, int32_t * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
-static int cmp_i8(int64_t * p1, int64_t * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
-static int cmp_u8(uint64_t * p1, uint64_t * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
-static int cmp_u4(uint32_t * p1, uint32_t * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
-static int cmp_f4(float * p1, float * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
-static int cmp_f8(double * p1, double * p2) {
-    return (*p1 > *p2) -(*p1 < *p2);
-}
 
 static PyObject * permute(PyObject * self,
     PyObject * args, PyObject * kwds) {
@@ -95,18 +77,6 @@ static PyObject * merge(PyObject * self,
         "data", "A", "B", "out", NULL
     };
 
-    static struct {
-        int type;
-        int (*func)(void *,  void*);
-    } cmp_table[] = {
-        {NPY_FLOAT32, cmp_f4},
-        {NPY_FLOAT64, cmp_f8},
-        {NPY_INT32, cmp_i4},
-        {NPY_UINT32, cmp_u4},
-        {NPY_INT64, cmp_i8},
-        {NPY_UINT64, cmp_u8},
-        {0, NULL},
-    };
     PyArrayObject * data, * A, * B, * out;
     if(!PyArg_ParseTupleAndKeywords(args, kwds, 
         "O!O!O!O!", kwlist,
@@ -116,19 +86,11 @@ static PyObject * merge(PyObject * self,
         &PyArray_Type, &out)) return NULL;
 
     intptr_t i = 0;
-    int (*func)(void *, void*) = NULL;
-    for(i = 0; cmp_table[i].func != NULL; i++) {
-        if(cmp_table[i].type == PyArray_TYPE(data)) {
-            func = cmp_table[i].func;
-        }
-    }
-    if(func == NULL) {
-        PyErr_SetString(PyExc_TypeError, "data format is unknown, taking u4 u8 i4 i8 f4 f8 only");
-        return NULL;
-    }
+
+    int (*compare)(void *, void *, void*) = PyArray_DESCR(data)->f->compare;
+
     size_t sizeA = PyArray_SIZE(A);
     size_t sizeB = PyArray_SIZE(B);
-    void * dataptr = PyArray_DATA(data);
     int64_t * Aptr = PyArray_DATA(A);
     int64_t * Aend = Aptr + sizeA;
 
@@ -141,13 +103,13 @@ static PyObject * merge(PyObject * self,
 
     Py_BEGIN_ALLOW_THREADS
     while(Aptr < Aend|| Bptr < Bend) {
-        while(Aptr < Aend && (Bptr == Bend || func(VA, VB) <= 0)) {
+        while(Aptr < Aend && (Bptr == Bend || compare(VA, VB, data) <= 0)) {
             *Optr = *Aptr;
             Aptr++;
             Optr++;
             //printf("adding from A, i = %ld, k = %ld v = %ld\n", i, k, v);
         }
-        while(Bptr < Bend && (Aptr == Aend || func(VA, VB) >= 0)) {
+        while(Bptr < Bend && (Aptr == Aend || compare(VA, VB, data) >= 0)) {
             *Optr = *Bptr + sizeA;
             Bptr++;
             Optr++;
@@ -157,6 +119,46 @@ static PyObject * merge(PyObject * self,
     Py_END_ALLOW_THREADS
     Py_INCREF(Py_None);
     return Py_None;
+}
+
+static PyObject * reorderdtype(PyObject * self,
+     PyObject * args, PyObject * kwds) {
+    PyObject *order = NULL;
+    PyArray_Descr *newd, *dtype;
+    static char *kwlist[] = {"dtype", "order", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O!O", kwlist,
+                                     &PyArrayDescr_Type, &dtype,
+                                     &order)) {
+        return NULL;
+    }
+    printf("compare, %p argsort %p %p %p\n", 
+       dtype->f->compare, 
+       dtype->f->argsort[0], 
+       dtype->f->argsort[1], 
+       dtype->f->argsort[2]
+    );
+    PyObject *new_name;
+    PyObject *_numpy_internal;
+    if (!PyDataType_HASFIELDS(dtype)) {
+        PyErr_SetString(PyExc_ValueError, "Cannot specify "
+                        "order when the array has no fields.");
+         return NULL;
+    }
+    _numpy_internal = PyImport_ImportModule("numpy.core._internal");
+    if (_numpy_internal == NULL) {
+        return NULL;
+    }
+    new_name = PyObject_CallMethod(_numpy_internal, "_newnames",
+                                       "OO", dtype, order);
+    Py_DECREF(_numpy_internal);
+    if (new_name == NULL) {
+         return NULL;
+    }
+    newd = PyArray_DescrNew(dtype);
+    newd->names = new_name;
+
+    return newd;
 }
 
 static PyMethodDef module_methods[] = {
@@ -169,15 +171,20 @@ static PyMethodDef module_methods[] = {
     "everything must be continueous in memory!",},
 	{"permute", (PyCFunction) permute, METH_KEYWORDS, 
     "permute(array, index) array = array[index] with O(1) storage. index has to be u8. array has to be 1d.\n"},
+	{"reorderdtype", (PyCFunction) reorderdtype, METH_KEYWORDS, 
+    "reorder a dtype by order, returns new dtype reordered"},
 	{NULL}
 };
 static PyObject * m = NULL;
+
 void init_mergesort(void) {
     import_array();
     import_ufunc();
 	m = Py_InitModule3("_mergesort", module_methods, "mergesort module for parallel mergesort");
 	PyObject * mergefunc = PyCFunction_New(module_methods, NULL);
 	PyObject * permutefunc = PyCFunction_New(module_methods + 1, NULL);
+	PyObject * reorderdtypefunc = PyCFunction_New(module_methods + 2, NULL);
 	PyModule_AddObject(m, "merge", mergefunc);
 	PyModule_AddObject(m, "permute", permutefunc);
+	PyModule_AddObject(m, "reorderdtype", reorderdtypefunc);
 }

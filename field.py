@@ -453,7 +453,7 @@ class Field(object):
     from cython import zorder as zo
 
     digitize = zo.Digitize.adapt(self['locations'])
-    zkey = numpy.empty(self.numpoints, dtype='i8')
+    zkey = numpy.empty(self.numpoints, dtype=zo.zorder_dtype)
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
         digitize(locations, out=zkey)

@@ -403,7 +403,7 @@ def __round_to_power_of_two(i):
   i |= (i >> 32)
   return i + 1
 
-def argsort(data):
+def argsort(data, order=None):
   """
      parallel argsort, like numpy.argsort
 
@@ -423,8 +423,12 @@ def argsort(data):
   """
 
   from _mergesort import merge
+  from _mergesort import reorderdtype
+#  if len(data) < 64*65536: return data.argsort()
 
-  if len(data) < 64*65536: return data.argsort()
+  if order: 
+    newdtype = reorderdtype(data.dtype, order)
+    data = data.view(newdtype)
 
   if cpu_count() <= 1: return data.argsort()
 

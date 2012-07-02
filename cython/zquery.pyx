@@ -270,7 +270,7 @@ cdef class Query:
     for item in range(tree._nodes[node].first, 
          tree._nodes[node].first + tree._nodes[node].npar, 1):
       zorder.diff(self.centerkey, tree._zkey[item], id)
-      tree.digitize.i2f(id, fd)
+      tree.digitize.i2f0(id, fd)
       weight = fd[0] * fd[0] + fd[1] * fd[1] + fd[2] * fd[2]
 
       if self.used < self.size:

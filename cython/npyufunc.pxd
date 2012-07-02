@@ -17,8 +17,8 @@ from libc.stdint cimport *
 
 cdef struct UFunc2to1:
   void * funcs[2]
-  char types[6]
   PyUFuncGenericFunction gfs[2]
+  char types[6]
 
 cdef inline register(namespace,
     float (*ff_f)(float, float) nogil, 
@@ -29,9 +29,9 @@ cdef inline register(namespace,
     cdef int PyUFunc_ReorderableNone = -2
     
     cdef numpy.ndarray bytes = numpy.empty(shape=1, 
-          dtype=[('funcs', (numpy.intp, 2)),
+          dtype=numpy.dtype([('funcs', (numpy.intp, 2)),
                  ('types', (numpy.int8, (2,3))),
-                 ('wrappers', (numpy.intp, 2))])
+                 ('wrappers', (numpy.intp, 2))], align=True))
     cdef UFunc2to1 * stru = <UFunc2to1*> bytes.data
 
     stru.types[0] = NPY_FLOAT

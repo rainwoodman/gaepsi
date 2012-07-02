@@ -11,7 +11,7 @@ from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from libc.string cimport memcpy
 from warnings import warn
 cimport cython
-from zorder cimport zorder_t
+from zorder cimport zorder_t, _zorder_dtype
 import cython
 
 numpy.import_array()
@@ -41,7 +41,6 @@ cdef class VisTree:
   cdef readonly numpy.ndarray node_color
   cdef float * _node_lum
   cdef float * _node_color
-  cdef float Inorm
   cdef readonly numpy.ndarray luminosity
   cdef readonly numpy.ndarray color
   cdef float [:] l_f
@@ -57,7 +56,6 @@ cdef class VisTree:
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
     self._nodes = tree._nodes
-    self.Inorm = self.tree.zorder._Inorm
     if luminosity is None:
       self.fd[0] = -1
       self.luminosity = numpy.array(1.0)
@@ -109,7 +107,7 @@ cdef class VisTree:
     iter = numpy.nditer(
           [self.luminosity, self.color, self.tree.zkey], 
       op_flags=[['readonly'], ['readonly'], ['readonly']],
-     op_dtypes=['f4', 'f4', 'i8'],
+     op_dtypes=['f4', 'f4', _zorder_dtype],
          flags=['buffered', 'external_loop'], 
        casting='unsafe')
     cdef npyiter.CIter citer

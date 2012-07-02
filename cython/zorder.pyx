@@ -20,8 +20,37 @@ cdef extern from '_bittricks.c':
   cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
   cdef int _AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 
   cdef void _diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil
+  cdef int aquicksort_zorder(zorder_t *, numpy.npy_intp* tosort, numpy.npy_intp num, void *) nogil
+  cdef int compare_zorder(zorder_t *, zorder_t *, void *) nogil
 
 numpy.import_array()
+
+cdef extern from 'numpy/arrayobject.h':
+    ctypedef void* PyArray_CompareFunc
+    ctypedef void* PyArray_ArgSortFunc
+    ctypedef struct PyArray_ArrFuncs:
+      PyArray_CompareFunc * compare
+      PyArray_ArgSortFunc ** argsort
+    ctypedef class numpy.dtype [object PyArray_Descr]:
+        cdef int type_num
+        cdef int itemsize "elsize"
+        cdef char byteorder
+        cdef object fields
+        cdef tuple names
+        cdef PyArray_ArrFuncs *f
+
+    dtype PyArray_DescrNew (dtype)
+
+cdef numpy.dtype _setupdtype():
+  rt = PyArray_DescrNew(numpy.dtype('V16'))
+  rt.f.compare = <PyArray_CompareFunc*>compare_zorder
+  rt.f.argsort[0] = <PyArray_ArgSortFunc*>aquicksort_zorder
+  rt.f.argsort[1] = <PyArray_ArgSortFunc*>aquicksort_zorder
+  rt.f.argsort[2] = <PyArray_ArgSortFunc*>aquicksort_zorder
+  return rt
+
+_zorder_dtype = _setupdtype()
+zorder_dtype = _zorder_dtype
 
 cdef void decode(zorder_t key, int32_t point[3]) nogil:
     _ind2xyz(key, point, point+1, point+2)
@@ -33,7 +62,6 @@ cdef int AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil:
   return _AABBtest(ind, order, AABB)
 cdef void diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil:
   _diff(p1, p2, d)
-
 
 cdef class Digitize:
   """Scale scales x,y,z to 0 ~ (1<<bits) - 1 """
@@ -69,7 +97,7 @@ cdef class Digitize:
           op_flags=[['writeonly'], ['writeonly'], ['writeonly'], ['readonly']], 
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
-          op_dtypes=['f8', 'f8', 'f8', 'i8'])
+          op_dtypes=['f8', 'f8', 'f8', zorder_dtype])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -87,17 +115,18 @@ cdef class Digitize:
           size = size - 1
         size = npyiter.next(&citer)
     return out
+
   def __call__(self, pos, out=None):
-    """ calculates the zorder of given points """
+    """ calculates the zorder of given points,
+    """
 
     if out is None:
-      out = numpy.empty(numpy.broadcast(pos[..., 0], pos[..., 1]).shape, dtype='i8')
-
+      out = numpy.empty(numpy.broadcast(pos[..., 0], pos[..., 1]).shape, dtype=zorder_dtype)
     iter = numpy.nditer([pos[..., 0], pos[..., 1], pos[..., 2], out], 
           op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], 
           flags=['buffered', 'external_loop'], 
           casting='unsafe', 
-          op_dtypes=['f8', 'f8', 'f8', 'i8'])
+          op_dtypes=['f8', 'f8', 'f8', zorder_dtype])
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)

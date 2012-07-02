@@ -44,7 +44,7 @@ cdef class Tree:
     isize[0] = ((1<<(self._nodes[index].order+1)) - 1)
     isize[1] = isize[0]
     isize[2] = isize[0]
-    self.digitize.i2f(isize, size)
+    self.digitize.i2f0(isize, size)
 
   cdef inline intptr_t get_container(Tree self, double pos[3], int atleast) nogil:
     cdef zorder_t key

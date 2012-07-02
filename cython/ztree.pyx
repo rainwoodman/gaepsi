@@ -11,11 +11,11 @@ cimport cython
 import cython
 from warnings import warn
 cimport zorder
-from zorder cimport zorder_t
+from zorder cimport zorder_t, _zorder_dtype
 
 numpy.import_array()
 
-NodeInfoDtype = numpy.dtype([('key', 'i8'), ('order', 'i2'), ('child_length', 'i2'), ('parent', 'i4'), ('first', 'i8'), ('npar', 'i8'), ('child', ('i4', 8))])
+NodeInfoDtype = numpy.dtype([('key', _zorder_dtype), ('order', 'i2'), ('child_length', 'i2'), ('parent', 'i4'), ('first', 'i8'), ('npar', 'i8'), ('child', ('i4', 8))])
 
 cdef class Tree:
 
@@ -30,8 +30,8 @@ cdef class Tree:
         zkey needs to be sorted!"""
     self.thresh = thresh
     self.digitize = digitize
-    if not zkey.dtype == numpy.dtype('int64'):
-      raise TypeError("zkey needs to be of int64")
+    if not zkey.dtype == _zorder_dtype:
+      raise TypeError("zkey needs to be of %s" % _zorder_dtype.str)
     self.zkey = zkey
     self._zkey = <zorder_t *> self.zkey.data
     self._zkey_length = self.zkey.shape[0]
@@ -87,7 +87,7 @@ cdef class Tree:
       cdef intptr_t i = 0
       cdef intptr_t step = 0
       self.used = 1;
-      self._nodes[0].key = zorder.ZNUL
+      self._nodes[0].key = 0
       self._nodes[0].first = 0
       self._nodes[0].npar = 0
       self._nodes[0].order = self.digitize.bits

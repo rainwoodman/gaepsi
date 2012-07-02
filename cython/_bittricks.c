@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-typedef int64_t zorder_t;
+typedef __int128_t zorder_t;
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)
  * g.reverse()
@@ -331,3 +331,80 @@ int main() {
     return 0;
 }
 #endif
+
+/* from numpy*/
+#define SMALL_QUICKSORT 17
+#define PYA_QS_STACK 128
+
+#define ZORDER_LT(a, b) ((a) < (b))
+
+static int compare_zorder(zorder_t *v, zorder_t *u, void *NOT_USED) {
+    return (*v > *u) - (*v < *u);
+}
+
+#define INTP_SWAP(a, b) {npy_intp tmp = (b); (b) = (a); (a) = tmp;}
+static int
+aquicksort_zorder(zorder_t *v, npy_intp* tosort, npy_intp num, void *NOT_USED)
+{
+    zorder_t vp;
+    npy_intp *pl, *pr;
+    npy_intp *stack[PYA_QS_STACK], **sptr=stack, *pm, *pi, *pj, *pk, vi;
+
+    pl = tosort;
+    pr = tosort + num - 1;
+
+    for (;;) {
+        while ((pr - pl) > SMALL_QUICKSORT) {
+            /* quicksort partition */
+            pm = pl + ((pr - pl) >> 1);
+            if (ZORDER_LT(v[*pm],v[*pl])) INTP_SWAP(*pm,*pl);
+            if (ZORDER_LT(v[*pr],v[*pm])) INTP_SWAP(*pr,*pm);
+            if (ZORDER_LT(v[*pm],v[*pl])) INTP_SWAP(*pm,*pl);
+            vp = v[*pm];
+            pi = pl;
+            pj = pr - 1;
+            INTP_SWAP(*pm,*pj);
+            for (;;) {
+                do ++pi; while (ZORDER_LT(v[*pi],vp));
+                do --pj; while (ZORDER_LT(vp,v[*pj]));
+                if (pi >= pj) {
+                    break;
+                }
+                INTP_SWAP(*pi,*pj);
+            }
+            pk = pr - 1;
+            INTP_SWAP(*pi,*pk);
+            /* push largest partition on stack */
+            if (pi - pl < pr - pi) {
+                *sptr++ = pi + 1;
+                *sptr++ = pr;
+                pr = pi - 1;
+            }
+            else {
+                *sptr++ = pl;
+                *sptr++ = pi - 1;
+                pl = pi + 1;
+            }
+        }
+
+        /* insertion sort */
+        for (pi = pl + 1; pi <= pr; ++pi) {
+            vi = *pi;
+            vp = v[vi];
+            pj = pi;
+            pk = pi - 1;
+            while (pj > pl && ZORDER_LT(vp, v[*pk])) {
+                *pj-- = *pk--;
+            }
+            *pj = vi;
+        }
+        if (sptr == stack) {
+            break;
+        }
+        pr = *(--sptr);
+        pl = *(--sptr);
+    }
+
+    return 0;
+}
+
