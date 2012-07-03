@@ -71,7 +71,7 @@ cdef class Digitize:
     self.scale = numpy.empty(3)
 
   @classmethod
-  def adapt(klass, pos, bits=21):
+  def adapt(klass, pos, bits=30):
     x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
     return klass(
       min=numpy.array([x.min(), y.min(), z.min()]),
@@ -79,9 +79,9 @@ cdef class Digitize:
       bits = bits
     )
 
-  def __init__(self, min, scale, bits=21):
-    if bits > 21:
-      raise ValueError("bits cannnot be bigger than 21 with 64bit integer")
+  def __init__(self, min, scale, bits=30):
+    if bits > 30:
+      raise ValueError("bits cannnot be bigger than 30 with 128bit integer, but 32bit xyz coordinates")
     self.min[:] = min
     self.scale[:] = scale
     self.bits = bits

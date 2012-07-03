@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 typedef __int128_t zorder_t;
+#define BITS 30
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)
  * g.reverse()
@@ -154,61 +155,47 @@ static uint8_t ctab[256] = {
 
 static inline zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
     zorder_t ind = 0;
-    x &= 0x1fffff;
-    y &= 0x1fffff;
-    z &= 0x1fffff;
-    ind |= utab[(uint8_t) x];
-    x >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) x] << 24;
-    x >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) x] << 48;
-    ind |= (zorder_t) utab[(uint8_t) y] << 1;
-    y >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) y] << 25;
-    y >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) y] << 49;
-    ind |= (zorder_t) utab[(uint8_t) z] << 2;
-    z >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) z] << 26;
-    z >>= 8;
-    ind |= (zorder_t) utab[(uint8_t) z] << 50;
+    x &= (1 << BITS) - 1;
+    y &= (1 << BITS) - 1;
+    z &= (1 << BITS) - 1;
+    int i;
+    for (i = 0; i < BITS; i+= 8) {
+      ind |= (zorder_t) utab[(uint8_t) x] << (i*3+0);
+      ind |= (zorder_t) utab[(uint8_t) y] << (i*3+1);
+      ind |= (zorder_t) utab[(uint8_t) z] << (i*3+2);
+      x >>= 8;
+      y >>= 8;
+      z >>= 8;
+    }
     if( ind < 0) {
           abort();
     }
     return ind;
 }
 
+zorder_t masks[] = {
+     ((zorder_t)0111111111111111111111L << 63) | ((zorder_t)0111111111111111111111L),
+     ((zorder_t)0222222222222222222222L << 63) | ((zorder_t)0222222222222222222222L),
+     ((zorder_t)0444444444444444444444L << 63) | ((zorder_t)0444444444444444444444L),
+};
+
 static int32_t inline _ind2x(zorder_t ind) {
-    zorder_t comp = ind & 0x1249249249249249L;
+    zorder_t comp = ind & masks[0];
     int32_t x;
     uint8_t raw;
 
-    raw = comp;
-    comp >>= 8;
-    raw |= comp;
-    comp >>= 8;
-    raw |= comp;
-    comp >>= 8;
-    x = ctab[raw];
+    int i;
+    for( i = 0; i < BITS; i+=8) {
+      raw = comp;
+      comp >>= 8;
+      raw |= comp;
+      comp >>= 8;
+      raw |= comp;
+      comp >>= 8;
+      x |= (ctab[raw] << i);
+      if(!comp) return x;
 
-    if(!comp) return x;
-
-    raw = comp;
-    comp >>= 8;
-    raw |= comp;
-    comp >>= 8;
-    raw |= comp;
-    comp >>= 8;
-    x |= (ctab[raw] << 8);
-
-    if(!comp) return x;
-
-    raw = comp;
-    comp >>= 8;
-    raw |= comp;
-    comp >>= 8;
-    x |= (ctab[raw] << 16);
-
+    }
     return x;
 }
 
@@ -221,11 +208,6 @@ void inline _ind2xyz(zorder_t ind, int32_t * x, int32_t * y, int32_t * z) {
 static int _boxtest(zorder_t key, int order, zorder_t point) {
   return 0 == ((key ^ point) >> (order * 3));
 }
-
-zorder_t masks[] = {
-     0111111111111111111111L,
-     0222222222222222222222L,
-     0444444444444444444444L};
 
 void inline _diff(zorder_t ind1, zorder_t ind2, int32_t d[3]) {
   d[0] = _ind2x(ind2);
@@ -250,7 +232,7 @@ static int _AABBtest(zorder_t key, int order, zorder_t AABB[2]) {
   int d, i;
   zorder_t l, x0, x1, r;
   int in = 0;
-  zorder_t m = (1L << (3*order)) - 1;
+  zorder_t m = ((zorder_t)1 << (3*order)) - 1;
   for(d=0; d<3; d++) {
     l = (key & masks[d]) & ~m;
     r = l + (masks[d] & m);
