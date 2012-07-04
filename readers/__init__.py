@@ -103,6 +103,8 @@ class Schema:
     return self.dict[index]
   def __iter__(self):
     return iter(self.list)
+  def __str__(self):
+    return str(self.list)
 
 class ReaderMeta(type):
   def __new__(meta, name, base, dict):
@@ -139,7 +141,8 @@ class ReaderMeta(type):
     filedict = {'F': F77File, 'C': CFile }
     cls.file_class = filedict[cls.format]
     cls.header = numpy.dtype(cls.header)
-    cls.schema = Schema(cls.schema)
+    if not isinstance(cls.schema, Schema):
+      cls.schema = Schema(cls.schema)
 
 
   def __str__(cls):

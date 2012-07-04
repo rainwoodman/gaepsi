@@ -181,7 +181,7 @@ zorder_t masks[] = {
 
 static int32_t inline _ind2x(zorder_t ind) {
     zorder_t comp = ind & masks[0];
-    int32_t x;
+    int32_t x = 0;
     uint8_t raw;
 
     int i;
@@ -259,12 +259,12 @@ int main() {
     int xstep=1, ystep=1, zstep=1;
     int count = 0;
     int i, j;
-    for(ix = 0; ix < (1 << 21) && xstep > 0; ix += xstep, xstep <<=1) {
-    for(iy = 0; iy < (1 << 21) && ystep > 0; iy += ystep, ystep <<=1) {
-    for(iz = 0; iz < (1 << 21) && zstep > 0; iz += zstep, zstep <<=1) {
-        zorder_t ind = xyz2ind(ix, iy, iz);
+    for(ix = 0; ix < (1 << 30) && xstep > 0; ix += xstep, xstep <<=1) {
+    for(iy = 0; iy < (1 << 30) && ystep > 0; iy += ystep, ystep <<=1) {
+    for(iz = 0; iz < (1 << 30) && zstep > 0; iz += zstep, zstep <<=1) {
+        zorder_t ind = _xyz2ind(ix, iy, iz);
         int32_t x, y, z;
-        ind2xyz(ind, &x, &y, &z);
+        _ind2xyz(ind, &x, &y, &z);
         if(x != ix || y != iy || z != iz) {
             abort();
         }
@@ -273,37 +273,38 @@ int main() {
     }
     }
     printf("xyz ind done: %d\n", count);
-    for(i = 1; i < 21; i++) {
+    for(i = 1; i < 30; i++) {
       ix = 1<<i; iy = 1<<i; iz = 1<<i;
-      zorder_t ind = xyz2ind(ix, iy, iz);
+      zorder_t ind = _xyz2ind(ix, iy, iz);
       int bit = 1 << (i-1);
-      zorder_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
-      if(!boxtest(ind, i, ind2)) {
+      zorder_t ind2 = _xyz2ind(ix + bit, iy + bit, iz + bit);
+      if(!_boxtest(ind, i, ind2)) {
         printf("inside fail: %lx %d %lx\n", ind, i, ind2);
         abort();
       }
-      if(boxtest(ind, i - 1, ind2)) {
+      if(_boxtest(ind, i - 1, ind2)) {
         printf("outside fail: %lx %d %lx\n", ind, i, ind2);
         abort();
       }
     }
     printf("boxtest done: %d\n", count);
 
-    for(i = 1; i < 21; i++) {
+    for(i = 1; i < 30; i++) {
       ix = 1<<i; iy = 1<<i; iz = 1<<i;
       zorder_t AABB[2];
-      zorder_t ind = xyz2ind(ix, iy, iz);
+      zorder_t ind = _xyz2ind(ix, iy, iz);
       int bit = 1 << (i-1);
-      zorder_t ind2 = xyz2ind(ix + bit, iy + bit, iz + bit);
+      zorder_t ind2 = _xyz2ind(ix + bit, iy + bit, iz + bit);
       AABB[0] = ind;
       AABB[1] = ind2;
       for (j = 0; j < i; j++) {
-        if(!AABBtest(AABB, ind, j)) {
-          printf("inside fail: %lx %lx %lx %d\n", AABB[0], AABB[1], ind, j);
+        if(!_AABBtest(ind, j, AABB)) {
+          printf("inside fail: %lx %lx %lx %lx %lx %lx %d\n", AABB[0], AABB[1], ind, j);
           abort();
         }
-        if(AABBtest(AABB, ind2, j)) {
-          printf("outside fail: %lx %lx %lx %d\n", AABB[0], AABB[1], ind2, j);
+        /* the following will for sure fail, need to come up with a better test*/
+        if(_AABBtest(ind2, j, AABB)) {
+          printf("outside fail: %lx %lx %lx %lx %lx %lx %d\n", AABB[0], AABB[1], ind2, j);
           abort();
         }
       }
@@ -324,13 +325,13 @@ static int compare_zorder(zorder_t *v, zorder_t *u, void *NOT_USED) {
     return (*v > *u) - (*v < *u);
 }
 
-#define INTP_SWAP(a, b) {npy_intp tmp = (b); (b) = (a); (a) = tmp;}
+#define INTP_SWAP(a, b) {intptr_t tmp = (b); (b) = (a); (a) = tmp;}
 static int
-aquicksort_zorder(zorder_t *v, npy_intp* tosort, npy_intp num, void *NOT_USED)
+aquicksort_zorder(zorder_t *v, intptr_t* tosort, intptr_t num, void *NOT_USED)
 {
     zorder_t vp;
-    npy_intp *pl, *pr;
-    npy_intp *stack[PYA_QS_STACK], **sptr=stack, *pm, *pi, *pj, *pk, vi;
+    intptr_t *pl, *pr;
+    intptr_t *stack[PYA_QS_STACK], **sptr=stack, *pm, *pi, *pj, *pk, vi;
 
     pl = tosort;
     pr = tosort + num - 1;

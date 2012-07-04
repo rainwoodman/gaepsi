@@ -6,6 +6,7 @@ cimport numpy
 cimport npyiter
 cimport ztree
 cimport zorder
+cimport npyarray
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from libc.string cimport memcpy
@@ -48,6 +49,8 @@ cdef class VisTree:
   cdef float [:] c_f
   cdef double [:] c_d
   cdef int fd[2]
+  cdef npyarray.CArray _luminosity
+  cdef npyarray.CArray _color
 
   def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
     self.tree = tree
@@ -59,56 +62,30 @@ cdef class VisTree:
     if luminosity is None:
       self.fd[0] = -1
       self.luminosity = numpy.array(1.0)
-    elif luminosity.dtype == numpy.dtype('f4'):
-      self.luminosity = luminosity
-      self.l_f = luminosity
-      self.fd[0] = 0
     else:
       self.luminosity = luminosity
-      self.fd[0] = 1
-      self.l_d = luminosity
 
+    npyarray.init(&self._luminosity, self.luminosity)
+    
     if color is None:
-      self.fd[1] = -1
       self.color = numpy.array(1.0)
-    elif color.dtype == numpy.dtype('f4'):
-      self.color = color
-      self.fd[1] = 0
-      self.c_f = color
     else:
       self.color = color
-      self.fd[1] = 1
-      self.c_d = color
 
+    npyarray.init(&self._color, self.color)
+    
     self.ensure_node_lum()
 
     self.ensure_node_lum_r(0)
     self.ensure_node_color_r(0)
     self.node_color[...] /= self.node_lum
       
-  @cython.boundscheck(False)
-  cdef void get_color_and_luminosity(self, intptr_t index, float *color, float * luminosity) nogil :
-    if self.fd[0] == 0: 
-      luminosity[0] = self.l_f[index]
-    elif self.fd[1] == 1:
-      luminosity[0] = self.l_d[index]
-    else:
-      luminosity[0] = 1.0
-
-    if self.fd[1] == 0: 
-      color[0] = self.c_f[index]
-    elif self.fd[1] == 1:
-      color[0] = self.c_d[index]
-    else:
-      color[0] = 1.0
-
-  @cython.boundscheck(False)
   cdef void ensure_node_lum(self):
     iter = numpy.nditer(
           [self.luminosity, self.color, self.tree.zkey], 
       op_flags=[['readonly'], ['readonly'], ['readonly']],
      op_dtypes=['f4', 'f4', _zorder_dtype],
-         flags=['buffered', 'external_loop'], 
+         flags=['buffered', 'external_loop', 'zerosize_ok'], 
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -194,7 +171,8 @@ cdef class VisTree:
         self.tree.get_leaf_pos(self._nodes[index].first+k, pos)
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r , c3inv, whl)
-        self.get_color_and_luminosity(self._nodes[index].first + k, &color, &luminosity)
+        npyarray.flat(&self._luminosity, index, &luminosity)
+        npyarray.flat(&self._color, index, &color)
         camera.paint_object_one(pos, 
           uvt, whl, color, luminosity, ccd)
       return self._nodes[index].npar
@@ -452,7 +430,7 @@ cdef class Camera:
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readonly'], ['readonly']], 
      op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4'],
-         flags=['buffered', 'external_loop'], 
+         flags=['buffered', 'external_loop', 'zerosize_ok'], 
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -510,7 +488,7 @@ cdef class Camera:
 
     iter = numpy.nditer(
           arrays, op_flags=op_flags, op_dtypes=op_dtypes,
-          flags=['buffered', 'external_loop'], 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
           casting='unsafe')
 
     cdef npyiter.CIter citer
@@ -565,7 +543,7 @@ cdef class Camera:
 
     iter = numpy.nditer(
           arrays, op_flags=op_flags, op_dtypes=op_dtypes,
-          flags=['buffered', 'external_loop'], 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
           casting='unsafe')
 
     cdef npyiter.CIter citer

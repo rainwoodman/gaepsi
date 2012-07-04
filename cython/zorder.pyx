@@ -85,7 +85,7 @@ cdef class Digitize:
     self.min[:] = min
     self.scale[:] = scale
     self.bits = bits
-    self._norm = 1.0 / self.scale.max() * ((1 << bits) -1)
+    self._norm = 1.0 / self.scale.max() * ((1L << bits) -1)
     self._Inorm = 1.0 / self._norm
 
   def invert(self, index, out=None):
@@ -95,7 +95,7 @@ cdef class Digitize:
 
     iter = numpy.nditer([out[..., 0], out[..., 1], out[..., 3], index], 
           op_flags=[['writeonly'], ['writeonly'], ['writeonly'], ['readonly']], 
-          flags=['buffered', 'external_loop'], 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
           casting='unsafe', 
           op_dtypes=['f8', 'f8', 'f8', zorder_dtype])
 
@@ -124,7 +124,7 @@ cdef class Digitize:
       out = numpy.empty(numpy.broadcast(pos[..., 0], pos[..., 1]).shape, dtype=zorder_dtype)
     iter = numpy.nditer([pos[..., 0], pos[..., 1], pos[..., 2], out], 
           op_flags=[['readonly'], ['readonly'], ['readonly'], ['writeonly']], 
-          flags=['buffered', 'external_loop'], 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
           casting='unsafe', 
           op_dtypes=['f8', 'f8', 'f8', zorder_dtype])
 

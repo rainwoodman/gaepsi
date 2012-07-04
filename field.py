@@ -91,7 +91,8 @@ class Field(object):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
     self.numpoints = numpoints
-    self['locations'] = numpy.zeros(shape = numpoints, dtype = (dtype, 3))
+    if dtype is not None:
+      self['locations'] = numpy.zeros(shape = numpoints, dtype = (dtype, 3))
     if components is not None:
       for comp in components:
         self.dict[comp] = numpy.zeros(shape = numpoints, dtype = components[comp])
@@ -337,8 +338,6 @@ class Field(object):
   def __contains__(self, index):
     if isinstance(index, basestring):
       return index in self.dict
-    else:
-      return index >= 0 and index < self.numpoints
 
   def __repr__(self):
     d = {}

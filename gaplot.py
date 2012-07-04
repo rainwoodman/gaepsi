@@ -105,7 +105,7 @@ class GaplotContext(object):
     self.boxsize = numpy.array([1, 1, 1.])
 
     self._shape = shape
-    self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, 1], fade=True, method='ortho')
+    self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=True, method='ortho')
     from gaepsi.cosmology import default
     self.cosmology = default
     self.units = self.cosmology.units
@@ -128,6 +128,9 @@ class GaplotContext(object):
     if not isinstance(value, Field):
       raise TypeError('need a Field')
     self.F[ftype] = value
+    self.rebuildtree(ftype)
+
+  def rebuildtree(self, ftype):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=32)
 
   def invalidate(self):
@@ -154,11 +157,10 @@ class GaplotContext(object):
     if isinstance(center, basestring):
       ftype = center
       if self.F[ftype].numpoints > 0:
-        min=self.F[ftype]['locations'].min(axis=0)
-        max=self.F[ftype]['locations'].max(axis=0)
-        center = (min + max) * 0.5
+        t = self.T[ftype].digitize
+        center =t.min + 0.5 * t.scale
       if size is None:
-        size = (max - min)
+        size= t.scale.copy()
 
     if center is not None:
       self.center = numpy.ones(3) * center
@@ -257,7 +259,9 @@ class GaplotContext(object):
               CCD[...] += _CCD
           pool.map(work, nodes)
     else:
-      sml = self.F[ftype][sml]
+      if sml in self.F[ftype]:
+        sml = self.F[ftype][sml]
+      print 'sml', sml
       x,y,z=self.F[ftype]['locations'].T
       for cam in self._mkcameras(camera):
         print 'cam:', cam.pos, cam.dir, cam.up
@@ -407,7 +411,11 @@ class GaplotContext(object):
       elif comp in reader:
         schemed[comp] = reader[comp].dtype
 
-    self.F[ftype] = Field(components=schemed, dtype=reader['pos'].dtype.base)
+    if 'pos' in reader:
+      self.F[ftype] = Field(components=schemed, dtype=reader['pos'].dtype.base)
+    else:
+      self.F[ftype] = Field(components=schemed, dtype=None)
+
     self.P[ftype] = _ensurelist(types)
 
   def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None):

@@ -41,7 +41,7 @@ cdef class Tree:
 
   cdef inline void get_node_size(Tree self, intptr_t index, double size[3]) nogil:
     cdef int32_t isize[3]
-    isize[0] = ((1<<(self._nodes[index].order+1)) - 1)
+    isize[0] = ((1<<(self._nodes[index].order)) - 1)
     isize[1] = isize[0]
     isize[2] = isize[0]
     self.digitize.i2f0(isize, size)
