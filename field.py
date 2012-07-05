@@ -321,8 +321,16 @@ class Field(object):
       if value.shape[0] != self.numpoints:
         raise ValueError("num of points of value doesn't match, %d != %d(new)" %( value.shape[0], self.numpoints))
       self.dict[index] = value
+      return
+    if isinstance(value, dict):
+      for comp in value:
+        if comp in self:
+          self[comp][index] = value[comp]
+        else:
+          raise IndexError("component %s not in the field" % comp)
+      return
 
-    elif isinstance(index, slice):
+    if isinstance(index, slice):
       raise IndexError("not supported setting a slice")
     else:
       raise IndexError("not supported setting a arbitrary index")
