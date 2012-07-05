@@ -41,14 +41,19 @@ cdef class FOFCluster:
     self.tree = tree
 
   def __call__(self, double linkl):
+    """ returns labels, len
+        label: one integer group id per item,
+        len: the length of the groups.
+        the groups are sorted decsending order of length.
+    """
     head, len = self.execute(linkl)
-    u, cbook = numpy.unique(head, return_inverse=True)
+    u, labels = numpy.unique(head, return_inverse=True)
     len = len[u]
     a = len.argsort()[::-1]
     u[a] = numpy.arange(u.size)
-    cbook = u[cbook]
+    labels = u[labels]
     len = len[a]
-    return cbook, len
+    return labels, len
 
   # this needs gil because _head, _len , etc have a racing condition!
   cdef void execute_one(self, data * dt, zquery.Query query, intptr_t target, double linkl2):
