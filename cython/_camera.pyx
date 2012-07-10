@@ -36,7 +36,7 @@ cdef extern from "math.h":
   int isnan(double d) nogil
 
 cdef class VisTree:
-  cdef ztree.Tree tree
+  cdef readonly ztree.Tree tree
   cdef ztree.NodeInfo * _nodes
   cdef readonly numpy.ndarray node_lum
   cdef readonly numpy.ndarray node_color

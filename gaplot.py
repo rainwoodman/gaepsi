@@ -130,8 +130,10 @@ class GaplotContext(object):
     self.F[ftype] = value
     self.rebuildtree(ftype)
 
-  def rebuildtree(self, ftype):
-    self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=32)
+  def rebuildtree(self, ftype, thresh=32):
+    self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
+    if ftype in self.VT:
+      del self.VT[ftype]
 
   def invalidate(self):
     pass
@@ -246,7 +248,8 @@ class GaplotContext(object):
       aluminosity = None
     CCD = numpy.zeros(self.shape, dtype=('f8',2))
     if sml is None:
-      if not (ftype, color, luminosity) in self.VT:
+      if not (ftype, color, luminosity) in self.VT \
+      or self.VT[(ftype, color, luminosity)].tree != self.T[ftype]:
         self.VT[(ftype, color, luminosity)] = _camera.VisTree(self.T[ftype], acolor, aluminosity)
       vt = self.VT[(ftype, color, luminosity)]
       for cam in self._mkcameras(camera):

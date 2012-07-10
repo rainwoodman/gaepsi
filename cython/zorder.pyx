@@ -93,7 +93,7 @@ cdef class Digitize:
     if out is None:
       out = numpy.empty(numpy.broadcast(index, index).shape, dtype=('f8', 3))
 
-    iter = numpy.nditer([out[..., 0], out[..., 1], out[..., 3], index], 
+    iter = numpy.nditer([out[..., 0], out[..., 1], out[..., 2], index], 
           op_flags=[['writeonly'], ['writeonly'], ['writeonly'], ['readonly']], 
           flags=['buffered', 'external_loop', 'zerosize_ok'], 
           casting='unsafe', 

@@ -79,14 +79,14 @@ setup(name="gaepsi", version="1.0",
              include_dirs=[get_include()],
              depends = ["cython/zorder_internal.c"]
         ),
-        Extension("gaepsi.cython.fof", 
-             ["cython/fof.c", 
+        Extension("gaepsi.cython.zfof", 
+             ["cython/zfof.c", 
              ], 
 #             extra_compile_args=['-g -O3'], 
              extra_compile_args=['-O0 -g'],
              libraries=[],
              include_dirs=[get_include()],
-             depends = ["cython/zorder_internal.c"]
+             depends = []
         ),
         Extension("gaepsi.cython._camera", 
              ["cython/_camera.c", 
