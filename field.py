@@ -3,7 +3,7 @@ from numpy import sin, cos
 from numpy import newaxis
 from cosmology import Cosmology
 from cosmology import WMAP7
-from tools import sharedmem
+import sharedmem
 from warnings import warn
 
 def is_string_like(v):

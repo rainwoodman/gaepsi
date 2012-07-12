@@ -5,10 +5,13 @@ setup(name="gaepsi", version="0.2",
       author_email="yfeng1@andrew.cmu.edu",
       description="Visualization and Analysis toolkit for SPH Cosmology code GADGET",
       url="http://github.com/rainwoodman/gaepsi",
+      download_url="http://web.phys.cmu.edu/~yfeng1/gaepsi/gaepsi-0.2.tar.gz",
       zip_safe=False,
+      install_requires=['numpy', 'sharedmem', 'chealpy'],
+      requires=['numpy', 'sharedmem', 'chealpy'],
       package_dir = {'gaepsi': '.'},
       packages = [
-        'gaepsi', 'gaepsi.cosmology', 'gaepsi.ccode', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.tools.sharedmem', 'gaepsi.cython'
+        'gaepsi', 'gaepsi.cosmology', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.cython'
       ],
       scripts = [ 'scripts/gadget-render.py', 
                   'scripts/gadget-mklayers.py', 
@@ -34,8 +37,6 @@ setup(name="gaepsi", version="0.2",
          ('cython.zorder', ['cython/zorder_internal.c']),
          ('cython.zquery', ['cython/zquery_internal.c']),
          ('cosmology._cosmology', []),
-         ('tools.sharedmem.listtools', []),
-         ('tools.sharedmem._mergesort', []),
         ]
       ])
 

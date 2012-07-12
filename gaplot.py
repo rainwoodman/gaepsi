@@ -8,7 +8,7 @@ from gaepsi.cython import _camera
 from gaepsi.cython import _fast
 from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools.spikes import SpikeCollection
-from gaepsi.tools import sharedmem
+import sharedmem
 from gaepsi.cosmology import Cosmology
 
 def _ensurelist(a):

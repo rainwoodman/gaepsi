@@ -8,11 +8,14 @@ cdef extern from "numpy/arrayobject.h":
   cdef enum :
     NPY_VERSION
 
+cdef extern from "numpy/ufuncobject.h":
+  cdef PyUFuncGenericFunction PyUFunc_dd_d
+  cdef PyUFuncGenericFunction PyUFunc_ff_f
+
 from numpy cimport NPY_FLOAT, NPY_DOUBLE
 from numpy cimport PyUFunc_RegisterLoopForType
 from numpy cimport PyUFunc_FromFuncAndDataAndSignature
 from numpy cimport PyUFunc_FromFuncAndData
-from numpy cimport PyUFunc_dd_d, PyUFunc_ff_f
 from libc.stdint cimport *
 
 cdef struct UFunc2to1:
