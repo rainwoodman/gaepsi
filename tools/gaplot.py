@@ -1,4 +1,6 @@
 #! python
+from warnings import warn
+warn("module tools.gaplot is deprecated")
 from numpy import asarray, newaxis
 from numpy import multiply, divide, add, array
 from numpy import max, min, isscalar
