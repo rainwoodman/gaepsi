@@ -1,6 +1,11 @@
 from numpy.distutils.core import setup, Extension
 from numpy import get_include
-setup(name="gaepsi", version="1.0",
+setup(name="gaepsi", version="0.2",
+      author="Yu Feng",
+      author_email="yfeng1@andrew.cmu.edu",
+      description="Visualization and Analysis toolkit for SPH Cosmology code GADGET",
+      url="http://github.com/rainwoodman/gaepsi",
+      zip_safe=False,
       package_dir = {'gaepsi': '.'},
       packages = [
         'gaepsi', 'gaepsi.cosmology', 'gaepsi.ccode', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.tools.sharedmem', 'gaepsi.cython'
@@ -16,7 +21,7 @@ setup(name="gaepsi", version="1.0",
       ext_modules = [
         Extension("gaepsi.%s" % name, 
              [ name.replace('.', '/') + '.c',],
-             extra_compile_args=['-O3'],
+             extra_compile_args=['-O3', '-Dintp=npy_intp'],
              libraries=[],
              include_dirs=[get_include()],
              depends = extra
