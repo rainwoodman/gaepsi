@@ -72,12 +72,18 @@ cdef class Digitize:
 
   @classmethod
   def adapt(klass, pos, bits=30):
-    x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
-    return klass(
-      min=numpy.array([x.min(), y.min(), z.min()]),
-      scale=numpy.array([ x.ptp(), y.ptp(), z.ptp()]),
-      bits = bits
-    )
+    if len(pos) > 0:
+      x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
+      return klass(
+        min=numpy.array([x.min(), y.min(), z.min()]),
+        scale=numpy.array([ x.ptp(), y.ptp(), z.ptp()]),
+        bits=bits
+      )
+    else:
+      return klass(
+        min=numpy.array([0, 0, 0.]),
+        scale=numpy.array([1, 1, 1.]),
+        bits = bits)
 
   def __init__(self, min, scale, bits=30):
     if bits > 30:
