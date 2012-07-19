@@ -97,6 +97,12 @@ class Field(object):
       for comp in components:
         self.dict[comp] = numpy.zeros(shape = numpoints, dtype = components[comp])
 
+  def todict(self):
+    d = {}
+    for comp in self.names:
+      d[comp] = self[comp]
+    return d
+
   def __len__(self):
     return self.numpoints
 
@@ -123,6 +129,7 @@ class Field(object):
   def comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
     return comp
+
 
   def dump_snapshots(self, snapshots, ptype, save_and_clear=False, nthreads=None):
     """ dump field into snapshots.
@@ -192,14 +199,17 @@ class Field(object):
         for j, ptype in enumerate(ptypes):
           mask = None
           if (ptype, 'pos') in snapshot:
-            pos = snapshot[ptype, 'pos']
             if snapshot.C['N'][ptype] != 0 and cut is not None:
+              pos = snapshot[ptype, 'pos']
               mask = cut.select(pos)
           if mask is not None:
             lengths[i, j] = mask.sum()
           else:
             lengths[i, j] = snapshot.C['N'][ptype]
-      pool.starmap(work, list(enumerate(snapshots)))
+      if cut is None:
+        pool.map_debug(work, list(enumerate(snapshots)), star=True)
+      else:
+        pool.starmap(work, list(enumerate(snapshots)))
 
     starts.flat[1:] = lengths.cumsum()[:-1]
 

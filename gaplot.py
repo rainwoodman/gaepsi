@@ -1,6 +1,5 @@
 #! python
 import numpy 
-import matplotlib.pyplot as pyplot
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 from gaepsi.readers import Reader
@@ -10,6 +9,8 @@ from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools.spikes import SpikeCollection
 import sharedmem
 from gaepsi.cosmology import Cosmology
+import matplotlib
+import matplotlib.cm
 
 def _ensurelist(a):
   if numpy.isscalar(a):
@@ -180,10 +181,7 @@ class GaplotContext(object):
     self.default_camera = self._mkcamera(self.method, self.fade)
 
   def _mkcamera(self, method, fade):
-    """ make a camera in the given class,
-        for PCamera, assuming the extent is
-        the field of view at the target distance,
-        for OCamera, directly set the field of view
+    """ make a camera, method can be ortho or persp
         also set the fade property of the camera,
         determining whether the distance is used
         to simulate the brightness reduction.
@@ -380,9 +378,9 @@ class GaplotContext(object):
     """
     realkwargs = dict(origin='lower', extent=self.extent)
     if luminosity is not None:
-       realkwargs['cmap'] = pyplot.cm.coolwarm
+       realkwargs['cmap'] = matplotlib.cm.coolwarm
     else:
-       realkwargs['cmap'] = pyplot.cm.gist_heat
+       realkwargs['cmap'] = matplotlib.cm.gist_heat
     realkwargs.update(kwargs)
     self.last['cmap'] = realkwargs['cmap']
     cmap = realkwargs['cmap']
@@ -471,11 +469,12 @@ class GaplotContext(object):
       snapnames = [self.snapname % i for i in range(self.C['Nfiles'])]
     else:
       snapnames = [self.snapname]
-    snapshots = [Snapshot(snapname, self.format) for snapname in snapnames]
+
+    snapshots = sharedmem.map(lambda snapname: Snapshot(snapname, self.format), snapnames)
 
     for ftype in _ensurelist(ftypes):
       self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], nthreads=numthreads, cut=cut)
-      self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=32)
+      self.rebuildtree(ftype)
     self.invalidate()
 
   def frame(self, off=None, bgcolor=None, ax=None):
@@ -512,7 +511,7 @@ class GaplotContext(object):
     else :
       if bgcolor is not None:
         ax.figure.set_facecolor(color)
-      if not hasattr('scale', ax):
+      if not hasattr(ax, 'scale'):
         ax.scale = self.drawscale(ax)
     ax.axison = not off
     xoffset = formatter(self.center[0], 'label')
@@ -557,19 +556,22 @@ class GaplotContext(object):
     C.ie2T(ie = gas['ie'], ye = gas['ye'], Xh = Xh, out = gas['T'])
     gas['T'] *= C.units.TEMPERATURE
 
-context = GaplotContext()
-from gaepsi.tools import bindmethods as _bindmethods
 
-def _before(args, kwargs):
-  if 'ax' in kwargs:
-    if kwargs['ax'] is None:
-      kwargs['ax'] = pyplot.gca()
+if matplotlib.is_interactive():
+  import matplotlib.pyplot as pyplot
+  context = GaplotContext()
+  from gaepsi.tools import bindmethods as _bindmethods
 
-def _after(args, kwargs):
-  if 'ax' in kwargs and pyplot.isinteractive():
-    pyplot.show()
+  def _before(args, kwargs):
+    if 'ax' in kwargs:
+      if kwargs['ax'] is None:
+        kwargs['ax'] = pyplot.gca()
 
-_bindmethods(context, locals(), _before, _after)
+  def _after(args, kwargs):
+    if 'ax' in kwargs and pyplot.isinteractive():
+      pyplot.show()
+
+  _bindmethods(context, locals(), _before, _after)
 
 if False:
   def mergeBHs(self, threshold=1.0):
