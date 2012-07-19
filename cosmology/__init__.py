@@ -33,8 +33,14 @@ def sphrotate(ref, new, ra, dec):
   ra[ra < 0] += 2 * numpy.pi
   return ra, dec
 
-class Cosmology:
-  def __init__(self, h, M, L, K=0):
+class Cosmology(object):
+  cache = {}
+  def __new__(klass, h, M, L, K=0):
+    key = repr((h, M, L, K))
+    if key in klass.cache:
+      return klass.cache[key]
+
+    self = object.__new__(klass)
     self.M = M
     self.L = L
     self.K = K
@@ -49,6 +55,8 @@ class Cosmology:
     self._z_table = z[::256]
     self._Ezinv_table = Ezinv[::256]
     self.DH = self.units.C / self.units.H0
+    klass.cache[key] = self
+    return self
 
   def __repr__(self):
     return "Cosmology(h=%g M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
