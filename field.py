@@ -131,7 +131,7 @@ class Field(object):
     return comp
 
 
-  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, nthreads=None):
+  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, np=None):
     """ dump field into snapshots.
         if save_and_clear is True, immediately save the file and clear the snapshot object,
         using less memory.
@@ -161,7 +161,7 @@ class Field(object):
       for comp in self.names:
         block = self.comp_to_block(comp)
         try:
-          dtype = snapshot.reader.hash[block]['dtype']
+          dtype = snapshot.reader[block].dtype
         except KeyError:
           skipped_comps.update(set([comp]))
           continue
@@ -172,13 +172,13 @@ class Field(object):
           snapshot.clear([block], ptype=ptype)
       #skip if the reader doesn't save the block
 
-    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+    with sharedmem.Pool(use_threads=True, np=np) as pool:
       pool.map(work, list(range(Nfile)))
 
     if skipped_comps:
       print 'warning: blocks not supported in snapshot', skipped_comps
 
-  def take_snapshots(self, snapshots, ptype, cut=None, nthreads=None):
+  def take_snapshots(self, snapshots, ptype, cut=None, np=None):
     """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
     self.init_from_snapshot(snapshots[0])
     if numpy.isscalar(ptype):
@@ -194,7 +194,7 @@ class Field(object):
     lengths = numpy.zeros(dtype='u8', shape=(len(snapshots), len(ptypes)))
     starts  = lengths.copy()
 
-    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+    with sharedmem.Pool(use_threads=True, np=np) as pool:
       def work(i, snapshot):
         for j, ptype in enumerate(ptypes):
           mask = None
@@ -241,7 +241,7 @@ class Field(object):
     #      print block, 'is not supported in snapshot'
     #  else:
 
-    with sharedmem.Pool(use_threads=True, np=nthreads) as pool:
+    with sharedmem.Pool(use_threads=True, np=np) as pool:
       def work(snapshot, start, length):
         for j, ptype in enumerate(ptypes):
           if length[j] == 0: continue

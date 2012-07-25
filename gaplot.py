@@ -251,8 +251,7 @@ class GaplotContext(object):
         self.VT[(ftype, color, luminosity)] = _camera.VisTree(self.T[ftype], acolor, aluminosity)
       vt = self.VT[(ftype, color, luminosity)]
       for cam in self._mkcameras(camera):
-        print 'cam:', cam.pos, cam.dir, cam.up
-        nodes = vt.find_large_nodes(cam, 0, 65536*8)
+        nodes = list(vt.find_large_nodes(cam, 0, 65536 * 2))
         with sharedmem.Pool(use_threads=True) as pool:
           def work(node):
             _CCD = vt.paint(cam, node)
@@ -262,10 +261,8 @@ class GaplotContext(object):
     else:
       if sml in self.F[ftype]:
         sml = self.F[ftype][sml]
-      print 'sml', sml
       x,y,z=self.F[ftype]['locations'].T
       for cam in self._mkcameras(camera):
-        print 'cam:', cam.pos, cam.dir, cam.up
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity):
             _CCD = cam.paint(x,y,z,sml,color,luminosity)
@@ -458,7 +455,7 @@ class GaplotContext(object):
     self.schema('halo', 1, ['mass'])
     self.schema('star', 4, ['mass', 'sft'])
  
-  def read(self, ftypes, fids=None, numthreads=None):
+  def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
       cut = Cut(origin=self.origin, size=self.boxsize)
     else:
@@ -473,7 +470,7 @@ class GaplotContext(object):
     snapshots = sharedmem.map(lambda snapname: Snapshot(snapname, self.format), snapnames)
 
     for ftype in _ensurelist(ftypes):
-      self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], nthreads=numthreads, cut=cut)
+      self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
       self.rebuildtree(ftype)
     self.invalidate()
 
@@ -548,13 +545,20 @@ class GaplotContext(object):
 
     ax.add_artist(b)
     return b
-  def makeT(self, ftype, Xh = 0.76):
+  def makeT(self, ftype, Xh=0.76, halo=False):
     """T will be in Kelvin"""
-    gas =self.F[ftype]
-    C = gas.cosmology
-    gas['T'] = numpy.zeros(dtype='f4', shape=gas.numpoints)
-    C.ie2T(ie = gas['ie'], ye = gas['ye'], Xh = Xh, out = gas['T'])
-    gas['T'] *= C.units.TEMPERATURE
+    gas = self.F[ftype]
+    if halo:
+      gas['T'] = gas['vel'][:, 0] ** 2
+      gas['T'] += gas['vel'][:, 1] ** 2
+      gas['T'] += gas['vel'][:, 2] ** 2
+      gas['T'] *= 0.5
+      gas['T'] *= self.cosmology.units.TEMPERATURE
+    else:
+      gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
+      self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
+      gas['T'] *= self.cosmology.units.TEMPERATURE
+    
 
 
 if matplotlib.is_interactive():

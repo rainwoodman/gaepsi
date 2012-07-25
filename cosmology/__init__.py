@@ -37,6 +37,8 @@ class Cosmology(object):
   cache = {}
   def __new__(klass, h, M, L, K=0):
     key = repr((h, M, L, K))
+    if len(klass.cache) > 10: 
+      klass.cache.clear()
     if key in klass.cache:
       return klass.cache[key]
 
@@ -46,24 +48,27 @@ class Cosmology(object):
     self.K = K
     self.h = h
     self.units = Units(h)
+    self.DH = self.units.C / self.units.H0
+    self.tH = 1.0 / self.units.H0
+    self._cosmology = _cosmology.Cosmology(self.M, self.K, self.L, self.h)
+
     z = numpy.linspace(0, 1, 1024*1024)
     z = z ** 6 * 255
     Ezinv = 1 / self.Ez(z)
     dz = numpy.zeros_like(z)
     dz[:-1] = numpy.diff(z)
-    self._intEzinv_table = (Ezinv * dz).cumsum()[::256]
-    self._z_table = z[::256]
-    self._Ezinv_table = Ezinv[::256]
-    self.DH = self.units.C / self.units.H0
+    self._intEzinv_table = (Ezinv * dz).cumsum()[::256].copy()
+    self._z_table = z[::256].copy()
+    self._Ezinv_table = Ezinv[::256].copy()
     klass.cache[key] = self
     return self
 
   def __repr__(self):
-    return "Cosmology(h=%g M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
+    return "Cosmology(h=%g, M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
 
-  def Ez(self, z):
-    M,L,K = self.M, self.L, self.K
-    return numpy.sqrt(M*(1+z)**3 + K*(1+z)**2+L)
+  def Ez(self, z, out=None):
+   # Ez is dimensionless, and so is _cosmology
+   return self._cosmology.eval('H', 1.0 / (1+ z), out)
 
   def intEzinvdz(self, z1, z2, func):
     """integrate func(z) * 1 /Ez dz, always from the smaller z to the higher"""
@@ -84,22 +89,20 @@ class Cosmology(object):
   def a2t(self, a):
     """ returns the age of the universe at scaling factor a, in GADGET unit 
         (multiply by units.TIME to seconds, or divide by units.MYEAR_h to conv units)"""
-    H0 = self.units.H0
     M,L,K = self.M, self.L, self.K
     if K!=0: raise ValueError("K has to be zero")
     aeq = (M / L) ** (1.0/3.0)
     pre = 2.0 / (3.0 * numpy.sqrt(L))
     arg = (a / aeq) ** (3.0 / 2.0) + numpy.sqrt(1.0 + (a / aeq) ** 3.0)
-    return pre * numpy.log(arg) / H0
+    return pre * numpy.log(arg) * self.tH
 
   def t2a(self, t):
     """ returns the scaling factor of the universe at given time(in GADGET unit)"""
-    H0 = self.units.H0
     M,L,K = self.M, self.L, self.K
     if K!=0: raise ValueError("K has to be zero")
     aeq = (M / L) ** (1.0/3.0)
     pre = 2.0 / (3.0 * numpy.sqrt(L))
-    return (numpy.sinh(H0 * t/ pre)) ** (2.0/3.0) * aeq
+    return (numpy.sinh(t/self.tH/ pre)) ** (2.0/3.0) * aeq
 
   def z2t(self, z):
     return self.a2t(1.0 / (1.0 + z))
@@ -131,17 +134,15 @@ class Cosmology(object):
     data = self.ddplus(agrid)
     return eta / a * numpy.trapz(y=data, x=agrid)
 
-  def ddplus(self, a):
-    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
-    return 2.5 / eta ** 3
+  def ddplus(self, a, out=None):
+    return self._cosmology.eval('ddplus', a, out)
 
-  def dladt(self, a):
+  def dladt(self, a, out=None):
     """===============================================================================
     !  Evaluate dln(a)/dtau for FLRW cosmology.
     !===============================================================================
     """
-    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
-    return a * eta
+    return self._cosmology.eval('dladt', a, out)
 
   def Dc(self, z1, z2=None, t=None, out=None):
     """ returns the comoing distance between z1 and z2 
@@ -183,14 +184,13 @@ class Cosmology(object):
        out cannot be alias of dec1, dec2 """
     return _cosmology.sphdist(ra1, dec1, ra2, dec2, out)
 
-  def H(self, a):
+  def H(self, a, out=None):
     """ return the hubble constant at the given z or a, 
         in GADGET units,(and h is not multiplied)
     """
-    M,L,K = self.M, self.L, self.K
-    H0 = self.units.H0
-    Omega0 = K + M + L
-    return H0 * numpy.sqrt(Omega0 / a**3 + (1 - Omega0 - L)/ a**2 + L)
+    out = self._cosmology.eval('H', a, out)
+    out *= self.units.H0
+    return out
 
   def DtoZ(self, distance, z0):
     """ integrate the redshift on a sightline based on the distance taking GADGET, comoving. 

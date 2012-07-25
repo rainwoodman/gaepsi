@@ -54,8 +54,11 @@ cdef class VisTree:
 
   def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
     self.tree = tree
-    self.node_lum = numpy.zeros(shape=tree.used, dtype='f4')
-    self.node_color = numpy.zeros(shape=tree.used, dtype='f4')
+    self.node_lum = numpy.empty(shape=tree.used, dtype='f4')
+    self.node_color = numpy.empty(shape=tree.used, dtype='f4')
+    self.node_lum[...] = -1
+    self.node_color[...] = -1
+
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
     self._nodes = tree._nodes
@@ -74,13 +77,9 @@ cdef class VisTree:
 
     npyarray.init(&self._color, self.color)
     
-    self.ensure_node_lum()
+#    self.ensure_leaf_values()
 
-    self.ensure_node_lum_r(0)
-    self.ensure_node_color_r(0)
-    self.node_color[...] /= self.node_lum
-      
-  cdef void ensure_node_lum(self):
+  cdef void ensure_leaf_values(self):
     iter = numpy.nditer(
           [self.luminosity, self.color, self.tree.zkey], 
       op_flags=[['readonly'], ['readonly'], ['readonly']],
@@ -107,21 +106,32 @@ cdef class VisTree:
           size = size - 1
         size = npyiter.next(&citer)
 
-  cdef float ensure_node_lum_r(self, intptr_t ind) nogil:
-    if self._node_lum[ind] != 0:
-      return self._node_lum[ind]
-    for k in range(self._nodes[ind].child_length):
-      child = self._nodes[ind].child[k]
-      self._node_lum[ind] += self.ensure_node_lum_r(child)
-    return self._node_lum[ind]
+  cdef void ensure_node_value_r(self, intptr_t ind, float * luminosity, float * color) nogil:
+    # note that this function is thread safe even though no locking is used.
+    # in case there is a race condition it will do redundant work
+    
+    if self._node_lum[ind] != -1:
+      luminosity[0] = self._node_lum[ind]
+      color[0] = self._node_color[ind]
 
-  cdef float ensure_node_color_r(self, intptr_t ind) nogil:
-    if self._node_color[ind] != 0:
-      return self._node_color[ind]
-    for k in range(self._nodes[ind].child_length):
-      child = self._nodes[ind].child[k]
-      self._node_color[ind] += self.ensure_node_color_r(child)
-    return self._node_color[ind]
+    cdef int k, child
+    cdef float l, c
+    if self._nodes[ind].child_length > 0:
+      for k in range(self._nodes[ind].child_length):
+        child = self._nodes[ind].child[k]
+        self.ensure_node_value_r(child, &l, &c)
+        luminosity[0] += l
+        color[0] += c
+    else:
+      for k in range(self._nodes[ind].npar):
+        child = self._nodes[ind].first + k
+        npyarray.flat(&self._luminosity, child, &l)
+        npyarray.flat(&self._color, child, &c)
+        luminosity[0] += l
+        color[0] += c
+    self._node_lum[ind] = luminosity[0]
+    self._node_color[ind] = color[0]
+    return
 
   def find_large_nodes(self, Camera camera, intptr_t root, size_t thresh):
     cdef double pos[3]
@@ -131,19 +141,19 @@ cdef class VisTree:
     self.tree.get_node_size(root, r)
     
     for d in range(3):
-      pos[d] += r[d] * 0.5
+      r[d] *= 0.5
+      pos[d] += r[d]
 
-    if 0 == camera.mask_object_one(pos, r):
-      return []
-    else:
-      if self._nodes[root].child_length > 0 \
+    if self._nodes[root].npar == 0 or \
+      0 == camera.mask_object_one(pos, r):
+      return
+
+    if self._nodes[root].child_length > 0 \
       and self._nodes[root].npar > thresh:
-        rt = []
-        for k in range(self._nodes[root].child_length):
-          rt += self.find_large_nodes(camera, self._nodes[root].child[k], thresh)
-        return rt
-      else:
-        return [ root ]
+      for k in range(self._nodes[root].child_length):
+        for node in self.find_large_nodes(camera, self._nodes[root].child[k], thresh):
+          yield node
+    else: yield root
 
   cdef size_t paint_node(self, Camera camera, intptr_t index, double * ccd) nogil:
     cdef float uvt[3], whl[3]
@@ -158,38 +168,37 @@ cdef class VisTree:
     self.tree.get_node_size(index, r)
 
     for d in range(3):
-      pos[d] += r[d] * 0.5
+      r[d] *= 0.5
+      pos[d] += r[d]
+      r[d] *= 1.733
 
     if 0 == camera.mask_object_one(pos, r):
       return 0
 
-    r[0] *= 1.733
-    r[1] *= 1.733
-    r[2] *= 1.733
-    if self._nodes[index].child_length == 0:
+    c3inv = camera.transform_one(pos, uvt)
+    camera.transform_size_one(r, c3inv, whl)
+
+    if False and (r[0] / (camera.far - camera.near) < 0.1) and \
+      (whl[0] * camera._hshape[0] < 0.1 and whl[1] * camera._hshape[1] < 0.1):
+      self.ensure_node_value_r(index, &luminosity, &color)
+      camera.paint_object_one(pos, uvt, whl, color/luminosity, luminosity, ccd)
+    elif self._nodes[index].child_length == 0:
       for k in range(self._nodes[index].npar):
         self.tree.get_leaf_pos(self._nodes[index].first+k, pos)
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r , c3inv, whl)
-        npyarray.flat(&self._luminosity, index, &luminosity)
-        npyarray.flat(&self._color, index, &color)
+        npyarray.flat(&self._luminosity, self._nodes[index].first+k, &luminosity)
+        npyarray.flat(&self._color, self._nodes[index].first+k, &color)
         camera.paint_object_one(pos, 
           uvt, whl, color, luminosity, ccd)
       return self._nodes[index].npar
     else:
-      # FIXME:  when r becomes anisotropic
-      if (r[0] / (camera.far - camera.near) < 0.1):
-        c3inv = camera.transform_one(pos, uvt)
-        camera.transform_size_one(r, c3inv, whl)
-        if (whl[0] * camera._hshape[0] < 0.1 and whl[1] * camera._hshape[1] < 0.1):
-          camera.paint_object_one(pos, 
-            uvt, whl, self._node_color[index], self._node_lum[index], ccd)
-          return 1
       for k in range(self._nodes[index].child_length):
         rt += self.paint_node(camera, self._nodes[index].child[k], ccd)
-      return rt
 
-  def paint(self, Camera camera, intptr_t root=0, numpy.ndarray out=None):
+    return rt
+
+  def paint(self, Camera camera, intptr_t root=0, numpy.ndarray out=None, profile=None):
     if out is None:
       out = numpy.zeros(camera.shape, dtype=('f8', 2))
     assert out.dtype == numpy.dtype('f8')
@@ -199,7 +208,8 @@ cdef class VisTree:
     cdef size_t total = 0
     with nogil:
       total = self.paint_node(camera, root, <double*> out.data)
-    print 'total nodes painted:', total
+    if profile is not None:
+      profile['total_nodes_painted'] = total
     return out
 
 

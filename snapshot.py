@@ -58,7 +58,7 @@ class Snapshot:
 
     # now ensure the structure of the file is complete
     for ptype in range(len(self.C['N'])):
-      for block in [sch['name'] for sch in self.reader.schemas]:
+      for block in [sch.name for sch in self.reader]:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
 
