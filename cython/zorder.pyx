@@ -90,6 +90,8 @@ cdef class Digitize:
       raise ValueError("bits cannnot be bigger than 30 with 128bit integer, but 32bit xyz coordinates")
     self.min[:] = min
     self.scale[:] = scale
+    if self.scale.max() == 0.0:
+      self.scale[:] = [1., 1., 1.]
     self.bits = bits
     self._norm = 1.0 / self.scale.max() * ((1L << bits) -1)
     self._Inorm = 1.0 / self._norm
