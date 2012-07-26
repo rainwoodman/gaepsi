@@ -2,9 +2,10 @@ import numpy
 import numpy.random
 
 def sphere2d(size=1):
-  """ phi ~[0, 2pi), theta~ [-pi/2, pi/2), returns (phi, theta)"""
+  """ phi ~[0, 2pi), [ra] theta~ [-pi/2, pi/2),[dec] returns (phi, theta)"""
   phi = numpy.random.uniform(0, 2 * pi, size=size)
-  theta = numpy.arcsin(numpy.random.uniform(-1, 1, size=size))
+  theta = numpy.random.uniform(-1, 1, size=size)
+  numpy.acrsin(theta, theta)
   return phi, theta
 
 def discrete(weight, uniform):
