@@ -16,7 +16,6 @@ def _ensurelist(a):
   if numpy.isscalar(a):
     return (a,)
   return a
-
 def _fr10(n):
   """ base 10 frexp """
   exp = numpy.floor(numpy.log10(n))
@@ -39,10 +38,14 @@ class normalize(numpy.ndarray):
          where vmin, vmax are the real vmin vmax used
     """
     if out is None:
-      out = value.copy()
+      out = numpy.empty_like(value)
 
     if logscale:
       numpy.log10(value, out)
+
+    if out.shape[0] == 0:
+      return out
+
     if vmax is None:
       vmax = _fast.finitemax(out)
     elif isinstance(vmax, basestring) \
@@ -88,6 +91,18 @@ def image(color, cmap, luminosity=None, composite=False):
 
     return image
 
+def addspikes(image, x, y, s, color):
+  from matplotlib.colors import colorConverter
+  color = colorConverter.to_rgba(color)
+  for X, Y, S in zip(x, y, s):
+    image[X, Y-S:Y+S, 0:3] = image[X, Y-S:Y+S, 0:3] * (1-color[3]) * image[X, Y-S:Y+S, 3][:, None] / 256. \
+                           + numpy.array(color[0:3])[None,  :] * color[3] * 255.9999
+    image[X, Y-S:Y+S, 3] = image[X, Y-S:Y+S, 3] * (1-color[3]) \
+                         + color[3] * 255.9999
+    image[X-S:X+S, Y, 0:3] = image[X-S:X+S, Y, 0:3] * (1-color[3]) * image[X-S:X+S, Y, 3][:, None] / 256. \
+                           + numpy.array(color[0:3])[None, :] * color[3] * 255.9999
+    image[X-S:X+S, Y, 3] = image[X-S:X+S, Y, 3] * (1-color[3]) \
+                         + color[3] * 255.9999
 
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
@@ -141,11 +156,11 @@ class GaplotContext(object):
 
   @property
   def extent(self):
-    l = -self.size[0] * 0.5
-    r = self.size[0] * 0.5
-    b = -self.size[1] * 0.5
-    t = self.size[1] * 0.5
-    return l, r, b , t
+#    l = -self.size[0] * 0.5
+#    r = self.size[0] * 0.5
+#    b = -self.size[1] * 0.5
+#    t = self.size[1] * 0.5
+    return self.default_camera.extent
 
   def view(self, center=None, size=None, up=None, dir=None, method=None, fade=None):
     """ 
@@ -474,8 +489,9 @@ class GaplotContext(object):
       self.rebuildtree(ftype)
     self.invalidate()
 
-  def frame(self, off=None, bgcolor=None, ax=None):
+  def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
     from matplotlib.ticker import Formatter
+    from matplotlib.text import Text
     class MyFormatter(Formatter):
       def __init__(self, size, units, unit=None):
         if unit is None:
@@ -495,37 +511,44 @@ class GaplotContext(object):
           return '%.10g' % (value * self.scale)
 
     l,r,b,t = self.extent
-    if off is None:
-      off = not ax.axison
     formatter = MyFormatter(self.size[0], self.units)
-    if not off:
-      if bgcolor is not None:
-        ax.set_axis_bgcolor(bgcolor)
-      ax.xaxis.set_major_formatter(formatter)
-      ax.yaxis.set_major_formatter(formatter)
-      ax.set_xticks(numpy.linspace(l, r, 5, endpoint=True))
-      ax.set_yticks(numpy.linspace(b, t, 5, endpoint=True))
-    else :
-      if bgcolor is not None:
-        ax.figure.set_facecolor(color)
-      if not hasattr(ax, 'scale'):
-        ax.scale = self.drawscale(ax)
-    ax.axison = not off
-    xoffset = formatter(self.center[0], 'label')
-    yoffset = formatter(self.center[1], 'label')
-    zoffset = formatter(self.center[2], 'label')
-    if not hasattr(ax, 'offsetlabel'):
-      ax.offsetlabel = ax.text(0.1, 0.1, '', transform=ax.transAxes)
-    ax.offsetlabel.set_text('%s %s %s' % (xoffset, yoffset, zoffset))
+    if bgcolor is not None:
+      ax.set_axis_bgcolor(bgcolor)
+      ax.figure.set_facecolor(color)
+    ax.xaxis.set_major_formatter(formatter)
+    ax.yaxis.set_major_formatter(formatter)
+    ax.set_xticks(numpy.linspace(l, r, 5, endpoint=True))
+    ax.set_yticks(numpy.linspace(b, t, 5, endpoint=True))
+
+    if hasattr(ax, 'scale') and ax.scale is not None:
+      ax.scale.remove()
+      ax.scale = None
+
+    if scale != False:
+      if isinstance(scale, dict):
+        ax.scale = self._updatescale(ax=ax, **scale)
+      else:
+        ax.scale = self._updatescale(ax=ax)
+      ax.add_artist(ax.scale)
+
+    if axis:
+      ax.axison = True
+    elif axis == False:
+      ax.axison = False
+
     ax.set_xlim(l, r)
     ax.set_ylim(b, t)
-  def drawscale(self, ax, color='white', fontsize=None):
-    from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
+
+  def _updatescale(self, ax, scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5):
     from matplotlib.patches import Rectangle
     from matplotlib.text import Text
-
-    l = (self.size[0]) * 0.2
-    l = l // 10 ** int(numpy.log10(l)) * 10 ** int(numpy.log10(l))
+    from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
+    if scale is None:
+      l = (self.size[0]) * 0.2
+    else:
+      l = scale
+    n, e = _fr10(l)
+    l = numpy.floor(n) * 10 ** e
     if l > 500 :
       l/=1000.0
       l = int(l+0.5)
@@ -533,18 +556,21 @@ class GaplotContext(object):
       l *= 1000.0
     else:
       text = r"%g Kpc/h" %l
-   
-    b = AnchoredSizeBar(ax.transData, l, text, loc = 8, 
-        pad=0.1, borderpad=0.5, sep=5, frameon=False)
-    for r in b.size_bar.findobj(Rectangle):
-      r.set_edgecolor(color)
-    for t in b.txt_label.findobj(Text):
-      t.set_color(color)
-      if fontsize is not None:
+ 
+    ret = AnchoredSizeBar(ax.transData, l, text, loc=loc,
+      pad=pad, borderpad=borderpad, sep=sep, frameon=False)
+
+    if color is not None:
+      for r in ret.size_bar.findobj(Rectangle):
+        r.set_edgecolor(color)
+      for t in ret.txt_label.findobj(Text):
+        t.set_color(color)
+    if fontsize is not None:
+      for t in ret.txt_label.findobj(Text):
         t.set_fontsize(fontsize)
 
-    ax.add_artist(b)
-    return b
+    return ret
+
   def makeT(self, ftype, Xh=0.76, halo=False):
     """T will be in Kelvin"""
     gas = self.F[ftype]
