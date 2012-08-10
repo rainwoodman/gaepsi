@@ -31,12 +31,13 @@ setup(name="gaepsi", version="0.2",
         ) for name, extra in [
          ('cython._fast', []),
          ('cython._field', []),
-         ('cython._camera', []),
+         ('cython.camera', []),
          ('cython.ztree', []),
          ('cython.zfof', []),
          ('cython.zorder', ['cython/zorder_internal.c']),
          ('cython.zquery', ['cython/zquery_internal.c']),
          ('cosmology._cosmology', []),
+         ('cosmology._qlf', ['cosmology/qlf_calculator.c']),
         ]
       ])
 

@@ -1,6 +1,7 @@
 import numpy
 import numpy.random
 
+from numpy.random import *
 def sphere2d(size=1):
   """ phi ~[0, 2pi), [ra] theta~ [-pi/2, pi/2),[dec] returns (phi, theta)"""
   phi = numpy.random.uniform(0, 2 * pi, size=size)

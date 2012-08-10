@@ -24,10 +24,11 @@ def crop_snapshot(center, size, map, format, snapname, output):
   bh['locations'][:, :] -= left[newaxis, :]
   print bh['id']
   out = Snapshot(output, format, create=True)
-  out.header['redshift'] = snapshots[0].header['redshift']
-  out.header['time'] = snapshots[0].header['time']
+  for f in snapshots[0].header.dtype.names:
+    out.header[f] = snapshots[0].header[f]
+
   out.header['unused'][0:3] = center
-  out.header['boxsize'] = size
+  out.header['boxsize'] = size[0]
   gas.dump_snapshots([out], 0)
   star.dump_snapshots([out], 4)
   bh.dump_snapshots([out], 5)

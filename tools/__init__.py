@@ -342,3 +342,159 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n', preamble=None, c
     finally:
         if own_fh:
             fh.close()
+
+
+import numpy
+from itertools import izip
+
+class packarray(numpy.ndarray):
+  def __new__(cls, arrays):
+    L = numpy.array([len(arr) for arr in arrays], dtype='u8')
+    self = numpy.concatenate(arrays).view(type=packarray)
+    self.start = numpy.zeros(shape=len(arrays), dtype='u8')
+    self.end = numpy.zeros(shape=len(arrays), dtype='u8')
+    self.end[:] = L.cumsum()
+    self.start[1:] = self.end[:-1]
+    return self
+
+  @classmethod
+  def adapt(cls, source, template):
+    """ adapt source to a packarray according to the layout of template """
+    rt = source.view(type=packarray)
+    rt.start = template.start
+    rt.end = template.end
+    return rt
+
+  def __array_finalize__(self, obj):
+    if isinstance(obj, packarray):
+      self.start = obj.start
+      self.end = obj.end
+    self.A = self.view(type=numpy.ndarray)
+  def __array_wrap__(self, outarr, context=None):
+    if context is None:
+      return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
+    return super(packarray, self).__array_wrap__(outarr, context)
+
+  def __repr__(self):
+    return 'packarray: %s, start=%s, end=%s' % \
+          (repr(self.view(type=numpy.ndarray)), 
+           repr(self.start), repr(self.end))
+  def __str__(self):
+    return repr(self)
+
+  def copy(self):
+    rt = self.view(type=numpy.ndarray).copy().view(type=packarray)
+    rt.start = self.start.copy()
+    rt.end = self.end.copy()
+    return rt
+
+  def __getitem__(self, index):
+    if isinstance(index, basestring):
+      return super(packarray, self).__getitem__(index)
+
+    if numpy.isscalar(index):
+      return self.A[self.start[index]:self.end[index]]
+
+    if isinstance(index, numpy.ndarray) and index.dtype == numpy.dtype('?'):
+      return self.A[index]
+
+    return [self[i] for i in index]
+
+  def __len__(self):
+    return len(self.start)
+
+  def __iter__(self):
+    for i in range(len(self.start)):
+      yield self[i]
+
+def n_(value, vmin=None, vmax=None):
+  return normalize(value, vmin, vmax, logscale=False)
+
+def nl_(value, vmin=None, vmax=None):
+  return normalize(value, vmin, vmax, logscale=True)
+
+from gaepsi.cython import _fast
+class normalize(numpy.ndarray):
+  def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):
+    """normalize an array to 0 and 1, value is returned.
+       if logscale is True, and vmin is in format 'nn db', then
+       vmin = vmax - nn * 0.1
+       NaNs and INFs are neglected
+       safe for in-place operation
+       returns normalized_value, vmin, vmax
+         where vmin, vmax are the real vmin vmax used
+    """
+    if out is None:
+      out = numpy.empty_like(value)
+
+    if logscale:
+      numpy.log10(value, out)
+
+    if out.shape[0] == 0:
+      return out
+
+    if vmax is None:
+      vmax = _fast.finitemax(out)
+    elif isinstance(vmax, basestring) \
+        and '%' == vmax[:-1]:
+      vmax = numpy.percentile(out, float(vmax[:-1]))
+
+    if vmin is None:
+      vmin = _fast.finitemin(out)
+    elif isinstance(vmin, basestring):
+      if logscale and 'db' in vmin:
+        vmin = vmax - float(vmin[:-2]) * 0.1 
+      else:
+        raise ValueError('vmin format is "?? db"')
+
+    out[...] -= vmin
+    out[...] /= (vmax - vmin)
+    out.clip(0, 1, out=out)
+    self = out.view(type=normalize)
+    self.vmin = vmin
+    self.vmax = vmax
+    self.logscale = logscale
+#    self.__array_priority__ = 0
+    return self
+
+  def __array_finalize__(self, obj):
+    #self.__array_priority__ = 0
+    pass
+
+  def __repr__(self):
+    return 'normed values = %s, vmin=%s, vmax=%s, logscale=%s' % \
+          (repr(self.view(type=numpy.ndarray)), 
+           repr(self.vmin), repr(self.vmax), repr(self.logscale))
+
+def spinner(vec, omega, axis, time, out=None):
+  """ spin a vector vec by angular velocity omega, along axis,
+      returns the spinned vector at given times.
+  """
+  axis = numpy.asarray(axis)
+  vec = numpy.asarray(vec)
+  time = numpy.asarray(time)
+  if out is None:
+    out = numpy.empty_like(time, dtype=('f8', 3))
+
+  up = axis/ (axis **2).sum() ** 0.5
+
+  side = numpy.cross(up, vec)
+  side /= (side **2).sum() ** 0.5
+  
+  dir = numpy.cross(side, up)
+  dir /= (dir **2).sum() ** 0.5
+
+  proj = dir.dot(vec)
+  
+  theta = omega * time
+
+  matrix = numpy.array([dir, side, up])
+  x = proj * numpy.cos(theta)
+  y = proj * numpy.sin(theta)
+  z =  up.dot(vec)
+  out[...] = x[..., None] * dir[None, ...] \
+            + y[..., None] * side[None, ...] \
+            + z * up[None, ...]
+
+  return out
+

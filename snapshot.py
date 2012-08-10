@@ -62,12 +62,14 @@ class Snapshot:
         if block in self.P[ptype]:
           self.save(ptype = ptype, blocknames = [block])
 
-  def save(self, blocknames, ptype) :
+  def save(self, blocknames, ptype, clear=False) :
     self.save_on_delete = False
     if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.save(self, ptype, bn)
- 
+    if clear: 
+      self.clear(blocknames, ptype)
+
   def check(self):
     self.reader.check(self)
 

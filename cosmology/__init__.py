@@ -63,6 +63,22 @@ class Cosmology(object):
     klass.cache[key] = self
     return self
 
+  @classmethod
+  def from_snapshot(cls, snapshot):
+    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
+      warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
+      return WMAP7
+    else:
+      return cls(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
+    
+  def to_snapshot(self, snapshot):
+    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
+      warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
+      return
+    snapshot.C['OmegaM'] = self.cosmology.M
+    snapshot.C['OmegaL'] = self.cosmology.L
+    snapshot.C['h'] = self.cosmology.h
+    
   def __repr__(self):
     return "Cosmology(h=%g, M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
 
@@ -171,13 +187,16 @@ class Cosmology(object):
     z = numpy.interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
     return z
 
-  def radec2pos(self, ra, dec, z, out=None):
+  def radec2pos(self, ra, dec, z=None, Dc=None, out=None):
     """ only for flat cosmology, comoving coordinate is returned as (-1, 3) 
-        ra cannot be an alias of out[:, 0], out[:, 2]
-        dec cannot be an alias of out[:, 0]
-        
     """
-    return _cosmology.radec2pos(self, ra, dec, z, out)
+    if Dc is None: Dc = self.Dc(z)
+    return _cosmology.radec2pos(ra, dec, Dc, out)
+
+  def pos2radec(self, pos, out=None):
+    """ only for flat cosmology, return RA, DEC, Dc
+    """
+    return _cosmology.pos2radec(pos, out)
 
   def sphdist(self, ra1, dec1, ra2, dec2, out=None):
     """ all in rad 
@@ -193,7 +212,7 @@ class Cosmology(object):
     return out
 
   def DtoZ(self, distance, z0):
-    """ integrate the redshift on a sightline based on the distance taking GADGET, comoving. 
+    """ Use D2z. integrate the redshift on a sightline based on the distance taking GADGET, comoving. 
         REF transform 3.38) in Barbara Ryden. """
     z = numpy.zeros_like(distance)
     dd =numpy.diff(distance)

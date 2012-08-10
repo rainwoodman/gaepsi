@@ -1,8 +1,6 @@
 import numpy
 from numpy import sin, cos
 from numpy import newaxis
-from cosmology import Cosmology
-from cosmology import WMAP7
 import sharedmem
 from warnings import warn
 
@@ -106,30 +104,9 @@ class Field(object):
   def __len__(self):
     return self.numpoints
 
-  @property
-  def a(self):
-    return 1. / (1. + self.redshift)
-  @a.setter
-  def a(self, value):
-    self.redshift = 1. / a - 1.
-
-  def init_from_snapshot(self, snapshot):
-    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
-      warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
-      self.comsology = WMAP7
-    else:
-      self.cosmology = Cosmology(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
-
-    if not 'redshift' in snapshot.C:
-      warn('redshift not supported in snapshot, assuming redshift=0 (proper)')
-      self.redshift = 0
-    else:
-      self.redshift = snapshot.C['redshift']
-
-  def comp_to_block(self, comp):
+  def _comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
     return comp
-
 
   def dump_snapshots(self, snapshots, ptype, save_and_clear=False, np=None):
     """ dump field into snapshots.
@@ -147,10 +124,6 @@ class Field(object):
       tmp[ptype] = self.numpoints
       snapshot.C['Ntot'] = tmp
       snapshot.C['Nfiles'] = Nfile
-      snapshot.C['OmegaM'] = self.cosmology.M
-      snapshot.C['OmegaL'] = self.cosmology.L
-      snapshot.C['h'] = self.cosmology.h
-      snapshot.C['redshift'] = self.redshift
     skipped_comps = set([])
 
     def work(i):
@@ -159,7 +132,7 @@ class Field(object):
         snapshot.create_structure()
 
       for comp in self.names:
-        block = self.comp_to_block(comp)
+        block = self._comp_to_block(comp)
         try:
           dtype = snapshot.reader[block].dtype
         except KeyError:
@@ -180,7 +153,6 @@ class Field(object):
 
   def take_snapshots(self, snapshots, ptype, cut=None, np=None):
     """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
-    self.init_from_snapshot(snapshots[0])
     if numpy.isscalar(ptype):
        ptypes = [ptype]
     else:
@@ -228,7 +200,7 @@ class Field(object):
 
     for comp in self.names:
       if comp == 'locations': continue # skip locations it is handled differnently
-      block = self.comp_to_block(comp)
+      block = self._comp_to_block(comp)
 
       blocklist.append((comp, block))
       resize(comp)
@@ -428,16 +400,6 @@ class Field(object):
       if comp != 'locations':
         if len(self[comp].shape) > 1:
           self[comp] = numpy.inner(self[comp], M)
-
-  def redshift_distort(self, dir, vel=None):
-    """ perform redshift distortion along direction dir, needs 'vel' and 'pos'
-        if vel is None, field['vel'] is converted to peculiar velocity via multiplying by sqrt(1 / ( 1 + redshift)). A constant H calculated from redshift is used. The position are still given in comoving distance units, NOT the velocity unit. 
-    """
-    a = self.a
-    if vel is None: vel = sqrt(a) * self['vel']
-    H = self.cosmology.H(a = a)
-    v = numpy.inner(vel, dir) / H
-    self['locations'] += dir[newaxis,:] * v[:, newaxis] / a
 
   def unfold(self, M, boxsize):
     """ unfold the field position by transformation M

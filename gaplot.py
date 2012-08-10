@@ -3,10 +3,10 @@ import numpy
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 from gaepsi.readers import Reader
-from gaepsi.cython import _camera
+from gaepsi.cython.camera import Camera, VisTree
 from gaepsi.cython import _fast
 from gaepsi.tools.meshmap import Meshmap
-from gaepsi.tools.spikes import SpikeCollection
+from gaepsi.tools import nl_, n_, normalize
 import sharedmem
 from gaepsi.cosmology import Cosmology
 import matplotlib
@@ -20,59 +20,6 @@ def _fr10(n):
   """ base 10 frexp """
   exp = numpy.floor(numpy.log10(n))
   return n * 10 ** -exp, exp
-
-def n_(value, vmin=None, vmax=None):
-  return normalize(value, vmin, vmax, logscale=False)
-
-def nl_(value, vmin=None, vmax=None):
-  return normalize(value, vmin, vmax, logscale=True)
-
-class normalize(numpy.ndarray):
-  def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):
-    """normalize an array to 0 and 1, value is returned.
-       if logscale is True, and vmin is in format 'nn db', then
-       vmin = vmax - nn * 0.1
-       NaNs and INFs are neglected
-       safe for in-place operation
-       returns normalized_value, vmin, vmax
-         where vmin, vmax are the real vmin vmax used
-    """
-    if out is None:
-      out = numpy.empty_like(value)
-
-    if logscale:
-      numpy.log10(value, out)
-
-    if out.shape[0] == 0:
-      return out
-
-    if vmax is None:
-      vmax = _fast.finitemax(out)
-    elif isinstance(vmax, basestring) \
-        and '%' == vmax[:-1]:
-      vmax = numpy.percentile(out, float(vmax[:-1]))
-
-    if vmin is None:
-      vmin = _fast.finitemin(out)
-    elif isinstance(vmin, basestring):
-      if logscale and 'db' in vmin:
-        vmin = vmax - float(vmin[:-2]) * 0.1 
-      else:
-        raise ValueError('vmin format is "?? db"')
-
-    out[...] -= vmin
-    out[...] /= (vmax - vmin)
-    out.clip(0, 1, out=out)
-    self = out.view(type=normalize)
-    self.vmin = vmin
-    self.vmax = vmax
-    self.logscale = logscale
-    return self
-
-  def __repr__(self):
-    return 'normed values = %s, vmin=%s, vmax=%s, logscale=%s' % \
-          (repr(self.view(type=numpy.ndarray)), 
-           repr(self.vmin), repr(self.vmax), repr(self.logscale))
 
 def image(color, cmap, luminosity=None, composite=False):
     """converts (color, luminosity) to an rgba image,
@@ -93,16 +40,42 @@ def image(color, cmap, luminosity=None, composite=False):
 
 def addspikes(image, x, y, s, color):
   from matplotlib.colors import colorConverter
-  color = colorConverter.to_rgba(color)
+  color = numpy.array(colorConverter.to_rgba(color))
   for X, Y, S in zip(x, y, s):
-    image[X, Y-S:Y+S, 0:3] = image[X, Y-S:Y+S, 0:3] * (1-color[3]) * image[X, Y-S:Y+S, 3][:, None] / 256. \
-                           + numpy.array(color[0:3])[None,  :] * color[3] * 255.9999
-    image[X, Y-S:Y+S, 3] = image[X, Y-S:Y+S, 3] * (1-color[3]) \
-                         + color[3] * 255.9999
-    image[X-S:X+S, Y, 0:3] = image[X-S:X+S, Y, 0:3] * (1-color[3]) * image[X-S:X+S, Y, 3][:, None] / 256. \
-                           + numpy.array(color[0:3])[None, :] * color[3] * 255.9999
-    image[X-S:X+S, Y, 3] = image[X-S:X+S, Y, 3] * (1-color[3]) \
-                         + color[3] * 255.9999
+    def work(image, XY, S, axis):
+      S = int(S)
+      XY = numpy.int32(XY)
+      start = XY[axis] - S
+      end = XY[axis] + S + 1
+
+      fga = ((1.0 - numpy.abs(numpy.linspace(-1, 1, end-start, endpoint=True))) * color[3])
+      #pre multiply
+      fg = color[0:3][None, :] * fga[:, None]
+
+      if start < 0: 
+        fga = fga[-start:]
+        fg = fg[-start:]
+        start = 0
+      if end >= image.shape[axis]:
+        end = image.shape[axis] - 1
+        fga = fga[:end - start]
+        fg = fg[:end - start]
+ 
+      if axis == 0:
+        sl = image[start:end, XY[1], :]
+      elif axis == 1:
+        sl = image[XY[0], start:end, :]
+
+      bg = sl / 256.
+
+      bga = bg[..., 3]
+      bg = bg[..., 0:3] * bga[..., None]
+      c = bg * (1-fga[:, None]) + fg
+      ca = (bga * (1-fga) + fga)
+      sl[..., 0:3] = c * 256
+      sl[..., 3] = ca * 256
+    work(image, (X, Y), S, 0)
+    work(image, (X, Y), S, 1)
 
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
@@ -124,10 +97,18 @@ class GaplotContext(object):
     self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=True, method='ortho')
     from gaepsi.cosmology import default
     self.cosmology = default
-    self.units = self.cosmology.units
     
     # used to save the last state of plotting routines
     self.last = {}
+
+  def __getattr__(self, attr):
+    if attr in self.C:
+      return self.C[attr]
+    else: raise AttributeError('attribute %s not found' % attr)
+
+  @property
+  def U(self):
+    return self.cosmology.units
 
   @property
   def shape(self):
@@ -156,10 +137,6 @@ class GaplotContext(object):
 
   @property
   def extent(self):
-#    l = -self.size[0] * 0.5
-#    r = self.size[0] * 0.5
-#    b = -self.size[1] * 0.5
-#    t = self.size[1] * 0.5
     return self.default_camera.extent
 
   def view(self, center=None, size=None, up=None, dir=None, method=None, fade=None):
@@ -205,7 +182,7 @@ class GaplotContext(object):
     target = self.center
     distance = self.size[2]
 
-    camera = _camera.Camera(width=self.shape[0], height=self.shape[1])
+    camera = Camera(width=self.shape[0], height=self.shape[1])
     camera.lookat(target=target,
        pos=target - self.dir * distance, up=self.up)
     if method == 'ortho':
@@ -263,7 +240,7 @@ class GaplotContext(object):
     if sml is None:
       if not (ftype, color, luminosity) in self.VT \
       or self.VT[(ftype, color, luminosity)].tree != self.T[ftype]:
-        self.VT[(ftype, color, luminosity)] = _camera.VisTree(self.T[ftype], acolor, aluminosity)
+        self.VT[(ftype, color, luminosity)] = VisTree(self.T[ftype], acolor, aluminosity)
       vt = self.VT[(ftype, color, luminosity)]
       for cam in self._mkcameras(camera):
         nodes = list(vt.find_large_nodes(cam, 0, 65536 * 2))
@@ -396,12 +373,15 @@ class GaplotContext(object):
     realkwargs.update(kwargs)
     self.last['cmap'] = realkwargs['cmap']
     cmap = realkwargs['cmap']
-    if not isinstance(color, normalize):
-      color = nl_(color)
-    if luminosity is not None and not isinstance(luminosity, normalize):
-      luminosity = nl_(luminosity)
+    if len(color.shape) < 3:
+      if not isinstance(color, normalize):
+        color = nl_(color)
+      if luminosity is not None and not isinstance(luminosity, normalize):
+        luminosity = nl_(luminosity)
       
-    im = image(color, cmap, luminosity)
+      im = image(color, cmap, luminosity)
+    else:
+      im = color
     ax.imshow(im.swapaxes(0,1), **realkwargs)
 
     self.last['color'] = color
@@ -442,9 +422,6 @@ class GaplotContext(object):
 
     snap = Snapshot(snapname, self.format)
 
-    for ftype in self.F:
-      self.F[ftype].init_from_snapshot(snap)
-
     self.C = snap.C
     self.origin[...] = numpy.ones(3) * origin
 
@@ -460,13 +437,14 @@ class GaplotContext(object):
       self.boxsize[...] = numpy.ones(3) * boxsize
     else:
       self.boxsize = numpy.ones(3)
+
     self.periodic = periodic
-    self.cosmology = Cosmology(M=self.C['OmegaM'], L=self.C['OmegaL'], h=self.C['h'])
-    self.units = self.cosmology.units
+    self.cosmology = Cosmology.from_snapshot(snap)
+    self.redshift = self.C['redshift']
     self.invalidate()
 
     self.schema('gas', 0, ['sml', 'mass'])
-    self.schema('bh', 5, ['bhmass', 'bhmdot'])
+    self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
     self.schema('halo', 1, ['mass'])
     self.schema('star', 4, ['mass', 'sft'])
  
@@ -490,6 +468,10 @@ class GaplotContext(object):
     self.invalidate()
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
+    """scale can be a dictionary or True.
+       properties in scale:
+          (scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5)
+    """
     from matplotlib.ticker import Formatter
     from matplotlib.text import Text
     class MyFormatter(Formatter):
@@ -511,7 +493,7 @@ class GaplotContext(object):
           return '%.10g' % (value * self.scale)
 
     l,r,b,t = self.extent
-    formatter = MyFormatter(self.size[0], self.units)
+    formatter = MyFormatter(self.size[0], self.U)
     if bgcolor is not None:
       ax.set_axis_bgcolor(bgcolor)
       ax.figure.set_facecolor(color)
@@ -539,7 +521,7 @@ class GaplotContext(object):
     ax.set_xlim(l, r)
     ax.set_ylim(b, t)
 
-  def _updatescale(self, ax, scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5):
+  def _updatescale(self, ax, scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5, comoving=True):
     from matplotlib.patches import Rectangle
     from matplotlib.text import Text
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
@@ -547,8 +529,18 @@ class GaplotContext(object):
       l = (self.size[0]) * 0.2
     else:
       l = scale
+      # always first put comoving distance to l
+      if not comoving:
+        l *= (1. + self.C['redshift'])
+
+    if not comoving:
+      # prefer integral distance numbers
+      # for the type of distance of choice(comoving or proper)
+      l /= (1. + self.C['redshift'])
+
     n, e = _fr10(l)
     l = numpy.floor(n) * 10 ** e
+
     if l > 500 :
       l/=1000.0
       l = int(l+0.5)
@@ -557,6 +549,10 @@ class GaplotContext(object):
     else:
       text = r"%g Kpc/h" %l
  
+    if not comoving:
+      # but the bar is always drawn in comoving
+      l *= (1. + self.C['redshift'])
+
     ret = AnchoredSizeBar(ax.transData, l, text, loc=loc,
       pad=pad, borderpad=borderpad, sep=sep, frameon=False)
 
@@ -579,11 +575,11 @@ class GaplotContext(object):
       gas['T'] += gas['vel'][:, 1] ** 2
       gas['T'] += gas['vel'][:, 2] ** 2
       gas['T'] *= 0.5
-      gas['T'] *= self.cosmology.units.TEMPERATURE
+      gas['T'] *= self.U.TEMPERATURE
     else:
       gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
       self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
-      gas['T'] *= self.cosmology.units.TEMPERATURE
+      gas['T'] *= self.U.TEMPERATURE
     
 
 

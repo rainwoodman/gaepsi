@@ -6,7 +6,7 @@ cimport cpython
 cimport numpy
 cimport npyiter
 from libc.stdint cimport *
-from libc.math cimport cos, sin, sqrt, fabs, acos
+from libc.math cimport cos, sin, sqrt, fabs, acos, atan2
 from warnings import warn
 cimport cython
 import cython
@@ -75,17 +75,12 @@ def thirdleg(A, B, t, out=None):
         size = npyiter.next(&citer)
     return out
 
-def radec2pos(cosmology, ra, dec, z, out=None):
-    """ only for flat cosmology, comoving coordinate is returned as (-1, 3) 
-        ra cannot be an alias of out[:, 0], out[:, 2]
-        dec cannot be an alias of out[:, 0]
-        
+def radec2pos(ra, dec, Dc, out=None):
+    """ only for flat comoving coordinate is returned as (-1, 3) 
     """
-    shape = numpy.broadcast(dec, ra, z).shape
+    shape = numpy.broadcast(dec, ra, Dc).shape
     if out is None:
       out = numpy.empty(shape=shape, dtype=('f4', 3))
-
-    Dc = cosmology.Dc(z)
 
     iter = numpy.nditer(
           [ra, dec, Dc, out[..., 0], out[..., 1], out[..., 2]], 
@@ -112,6 +107,45 @@ def radec2pos(cosmology, ra, dec, z, out=None):
           (<double*>citer.data[3])[0] = OUT0
           (<double*>citer.data[4])[0] = OUT1
           (<double*>citer.data[5])[0] = OUT2
+
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+    return out
+
+def pos2radec(pos, out=None):
+    """ only for flat comoving coordinate is input 
+        returns ra, dec, Dc.
+    """
+    if out is None:
+      out = numpy.empty(shape=pos.shape, dtype=('f4'))
+
+    
+    iter = numpy.nditer(
+          [pos[..., 0], pos[..., 1], pos[..., 2], out[..., 0], out[..., 1], out[..., 2]], 
+      op_flags=[['readonly'], ['readonly'], ['readonly'], 
+               ['writeonly'], ['writeonly'], ['writeonly']], 
+     op_dtypes=['f8', 'f8', 'f8', 'f8', 'f8', 'f8'],
+         flags=['buffered', 'external_loop'], 
+       casting='unsafe')
+
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef double RA, DEC, DC, X, Y, Z
+    with nogil: 
+      while size > 0:
+        while size > 0:
+          X = (<double*>citer.data[0])[0]
+          Y = (<double*>citer.data[1])[0]
+          Z = (<double*>citer.data[2])[0]
+
+          DC = sqrt(X * X + Y * Y + Z * Z)
+          RA = atan2(Y, X)
+          DEC = atan2(Z, DC)
+
+          (<double*>citer.data[3])[0] = RA
+          (<double*>citer.data[4])[0] = DEC
+          (<double*>citer.data[5])[0] = DC
 
           npyiter.advance(&citer)
           size = size - 1
