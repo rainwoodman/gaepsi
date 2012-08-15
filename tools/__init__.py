@@ -436,7 +436,7 @@ class normalize(numpy.ndarray):
     if vmax is None:
       vmax = _fast.finitemax(out)
     elif isinstance(vmax, basestring) \
-        and '%' == vmax[:-1]:
+        and '%' == vmax[-1]:
       vmax = numpy.percentile(out, float(vmax[:-1]))
 
     if vmin is None:
@@ -456,6 +456,11 @@ class normalize(numpy.ndarray):
     self.logscale = logscale
 #    self.__array_priority__ = 0
     return self
+
+  def __array_wrap__(self, outarr, context=None):
+    if context is None:
+      return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
+    return super(normalize, self).__array_wrap__(outarr, context)
 
   def __array_finalize__(self, obj):
     #self.__array_priority__ = 0

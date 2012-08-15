@@ -1,4 +1,3 @@
-#! python
 import numpy 
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
@@ -9,8 +8,9 @@ from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools import nl_, n_, normalize
 import sharedmem
 from gaepsi.cosmology import Cosmology
+import warnings
 import matplotlib
-import matplotlib.cm
+from matplotlib import cm
 
 def _ensurelist(a):
   if numpy.isscalar(a):
@@ -79,6 +79,7 @@ def addspikes(image, x, y, s, color):
 
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
+    self.default_axes = None
     self.format = None
     # fields
     self.F = {}
@@ -94,7 +95,7 @@ class GaplotContext(object):
     self.boxsize = numpy.array([1, 1, 1.])
 
     self._shape = shape
-    self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=True, method='ortho')
+    self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=False, method='ortho')
     from gaepsi.cosmology import default
     self.cosmology = default
     
@@ -131,6 +132,21 @@ class GaplotContext(object):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
     if ftype in self.VT:
       del self.VT[ftype]
+
+  def print_png(self, *args, **kwargs):
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    canvas = FigureCanvasAgg(self.default_axes.figure)
+    canvas.print_png(*args, **kwargs)
+
+  def figure(self, dpi=200., axes=[0, 0, 1, 1.]):
+    """ setup a figure and a default axes """
+    from matplotlib.figure import Figure
+    width = self.shape[0] / dpi
+    height = self.shape[1] / dpi
+    fig = Figure((width, height), dpi=dpi)
+    ax = fig.add_axes(axes)
+    self.default_axes = ax
+    return fig, ax
 
   def invalidate(self):
     pass
@@ -315,6 +331,7 @@ class GaplotContext(object):
       return X, Y, I
 
   def colorbar(self, ax=None, **kwargs):
+    if ax is None: ax=self.default_axes
     from matplotlib import colorbar as cb
     from matplotlib.ticker import Formatter
     class MyFormatter(Formatter):
@@ -365,11 +382,12 @@ class GaplotContext(object):
         >> imshow(nl_(C), nl_(L))
         
     """
+    if ax is None: ax=self.default_axes
     realkwargs = dict(origin='lower', extent=self.extent)
     if luminosity is not None:
-       realkwargs['cmap'] = matplotlib.cm.coolwarm
+       realkwargs['cmap'] = cm.coolwarm
     else:
-       realkwargs['cmap'] = matplotlib.cm.gist_heat
+       realkwargs['cmap'] = cm.gist_heat
     realkwargs.update(kwargs)
     self.last['cmap'] = realkwargs['cmap']
     cmap = realkwargs['cmap']
@@ -387,6 +405,7 @@ class GaplotContext(object):
     self.last['color'] = color
 
   def scatter(self, x, y, s, ax=None, **kwargs):
+    if ax is None: ax=self.default_axes
     x = x
     y = y
     l, r, b, t =self.extent
@@ -411,7 +430,7 @@ class GaplotContext(object):
 
     self.P[ftype] = _ensurelist(types)
 
-  def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None):
+  def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None):
     self.snapname = snapname
     self.format = format
 
@@ -429,6 +448,11 @@ class GaplotContext(object):
       self.need_cut = True
     else:
       self.need_cut = False
+
+    if mapfile is not None:
+      self.map = Meshmap(mapfile)
+    else:
+      self.map = None
 
     if boxsize is None and 'boxsize' in self.C:
       boxsize = numpy.ones(3) * self.C['boxsize']
@@ -451,8 +475,11 @@ class GaplotContext(object):
   def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
       cut = Cut(origin=self.origin, size=self.boxsize)
+      if fids is None and self.map is not None:
+        fids = self.map.cut2fid(cut)
     else:
       cut = None
+
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
     elif '%d' in self.snapname:
@@ -460,8 +487,15 @@ class GaplotContext(object):
     else:
       snapnames = [self.snapname]
 
-    snapshots = sharedmem.map(lambda snapname: Snapshot(snapname, self.format), snapnames)
+    def getsnap(snapname):
+      try:
+        return Snapshot(snapname, self.format)
+      except IOError as e:
+        warnings.warn('file %s skipped for %s' %(snapname, str(e)))
+      return None
 
+    snapshots = filter(lambda x: x is not None, sharedmem.map(getsnap, snapnames))
+    
     for ftype in _ensurelist(ftypes):
       self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
       self.rebuildtree(ftype)
@@ -472,6 +506,7 @@ class GaplotContext(object):
        properties in scale:
           (scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5)
     """
+    if ax is None: ax=self.default_axes
     from matplotlib.ticker import Formatter
     from matplotlib.text import Text
     class MyFormatter(Formatter):
