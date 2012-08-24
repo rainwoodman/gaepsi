@@ -1,3 +1,4 @@
+import _gadgetbase
 class Reader:
     format = 'F'
     header = [
@@ -39,37 +40,14 @@ class Reader:
       ('bhmass', 'f4', [5], []),
       ('bhmdot', 'f4', [5], [])
     ]
-    defaults = {
-      'flag_sfr': 1,
-      'flag_sft': 1,
-      'flag_met': 1,
-      'flag_entropy': 0,
-      'flag_double': 0,
-      'flag_ic_info': 0,
-      'flag_cool': 1,
-      'flag_feedback': 1,
-    }
-    class Constants:
+    class constants(_gadgetbase.constants):
       OmegaB = 0.044
       PhysDensThresh = 0.000831188
-      @property
-      def Ntot(self):
-        return self.virtarray(6, 'u8', 
-            lambda i: self['Ntot_low'][i] + (self['Ntot_high'].as_type('u8') << 32)[i],
-            lambda i, value: ( self['Ntot_low'].__setitem__(i, value),
-                               self['Ntot_high'].__setitem__(i, value >> 32))
-            )
-    constants = {
-     'N': 'N',
-     'boxsize': 'boxsize',
-     'Ntot': (lambda h: h['Ntot_low'] + (h['Ntot_high'].astype('u8') << 32),
-              lambda v: {'Ntot_low': v, 'Ntot_high': v >> 32}),
-     'OmegaB' : 0.044,
-     'PhysDensThresh': 0.000831188,
-     'OmegaL': 'OmegaL',
-     'OmegaM': 'OmegaM',
-     'h': 'h',
-     'redshift': 'redshift',
-     'time': 'time',
-     'Nfiles': 'Nfiles',
-    }
+      flag_sfr = 1
+      flag_sft = 1
+      flag_met = 1
+      flag_feedback = 1
+      flag_cool = 1
+      flag_entropy = 0
+      flag_double = 0
+      flag_ic_info = 0

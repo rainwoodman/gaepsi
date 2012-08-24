@@ -1,7 +1,7 @@
 class Reader:
   format = 'C'
-  header = [('Ngroups', 'i4'),
-            ('TotNgroups', 'i4'),
+  header = [('Ngroups', ('i4', 1)),
+            ('TotNgroups', ('i4', 1)),
             ('Nids',  'i4'),
             ('TotNids', 'u8'),
             ('Nfiles', 'i4')]
@@ -16,8 +16,7 @@ class Reader:
             ('bhmass', 'f4', (0, )),
             ('bhmdot', 'f4', (0, )),
             ]
-  constants = {
-    'N': ['Ngroups'],
-    'Ntot': ['Ngroups'],
-    'Nfiles': 'Nfiles',
-  }
+  class constants:
+    N = 'Ngroups'
+    Ntot = 'TotNgroups'
+    Nfiles = 'Nfiles'

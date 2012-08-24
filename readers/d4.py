@@ -22,7 +22,6 @@ class Reader:
       ('flag_lpt_scalingfactor', 'i4'),
       ('unused', ('i4', 12)),
     ]
-
     format = 'F'
     schema = [
       ('pos', ('f4', 3), [0, 1, 4, 5], []),
@@ -40,26 +39,13 @@ class Reader:
       ('bhmass', 'f4', [5], []),
       ('bhmdot', 'f4', [5], [])
     ]
-    defaults = {
-      'flag_sfr': 1,
-      'flag_sft': 1,
-      'flag_met': 1,
-      'flag_entropy': 0,
-      'flag_double': 0,
-      'flag_ic_info': 0,
-      'flag_cool': 1,
-      'flag_feedback': 1,
-    }
-    constants = {
-     'N': 'N',
-     'Ntot': (lambda h: h['Ntot_low'] + (h['Ntot_high'].astype('u8') << 32),
-              lambda v: {'Ntot_low': v, 'Ntot_high': v >> 32}),
-     'OmegaB' : 0.044,
-     'OmegaL': 'OmegaL',
-     'OmegaM': 'OmegaM',
-     'h': 'h',
-     'redshift': 'redshift',
-     'time': 'time',
-     'boxsize': 'boxsize',
-     'Nfiles': 'Nfiles',
-    }
+    class constants(_gadgetbase.constants):
+      OmegaB = 0.044
+      flag_sfr = 1
+      flag_sft = 1
+      flag_met = 1
+      flag_feedback = 1
+      flag_cool = 1
+      flag_entropy = 0
+      flag_double = 0
+      flag_ic_info = 0

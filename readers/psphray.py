@@ -29,21 +29,6 @@ class Reader:
       ('flag_eos', 'i4'),
       ('unused', ('i4', 4)),
     ]
-    defaults = {
-      'flag_sfr': 1,
-      'flag_sft': 1,
-      'flag_met': 1,
-      'flag_entropy': 0,
-      'flag_cool': 1,
-      'flag_feedback': 1,
-      'flag_Hmf': 0,
-      'flag_Hemf': 0,
-      'flag_Helium': 0,
-      'flag_dep': 0,
-      'flag_rec': 0,
-      'flag_cloudy': 0,
-      'flag_eos': 0,
-    }
     schema = [
       ('pos', ('f4', 3), [0,4,5], []),
       ('id', 'u8', [0,4,5], []),
@@ -71,20 +56,19 @@ class Reader:
       ('ngammas', 'f8', [5], []),
       ('spec', 'u8', [5], []),
     ]
-    constants = {
-     'Ntot': (lambda h: h['Ntot_low'] + (h['Ntot_high'].astype('u8') << 32),
-              lambda v: {'Ntot_low': v, 'Ntot_high': v >> 32}),
-     'OmegaB' : 'OmegaB',
-     'OmegaL': 'OmegaL',
-     'OmegaM': 'OmegaM',
-     'h': 'h',
-     'N': 'N',
-     'redshift': 'redshift',
-     'time': 'time',
-     'boxsize': 'boxsize',
-     'Nfiles': 'Nfiles',
-     'hasHe': 'flag_Helium',
-     'hasyGdep': 'flag_dep',
-     'hasyGrec': 'flag_rec',
-    }
-
+    class constants(_gadgetbase.constants):
+      OmegaB = 0.044
+      PhysDensThresh = 0.000831188
+      flag_sfr = 1
+      flag_sft = 1
+      flag_met = 1
+      flag_entropy = 0
+      flag_cool = 1
+      flag_feedback = 1
+      flag_Hmf = 0
+      flag_Hemf = 0
+      flag_Helium = 0
+      flag_dep = 0
+      flag_rec = 0
+      flag_cloudy = 0
+      flag_eos = 0

@@ -1,6 +1,7 @@
 import numpy
 import warnings
-
+from gaepsi.tools import virtarray
+from types import MethodType
 def is_string_like(v):
   try: v + ''
   except: return False
@@ -19,80 +20,47 @@ def Reader(reader):
   return reader
 
 class ConstBase:
-  from gaepsi.tools import virtarray
-  def __init__(self, header):
-    self.header = header
+  def __init__(self, header, init=False):
+    self._header = header
+    if init:
+      for item in self._header.dtype.names:
+        if hasattr(self, item):
+          attr = getattr(self, item)
+          if isinstance(attr, (tuple, basestring)): continue
+          self._header[item] = attr
+      
+  def __contains__(self, item):
+    return item in self._header.dtype.names or hasattr(self, item)
   def __getitem__(self, item):
     if hasattr(self, item):
-      return getattr(self, item)
-    if item in self.header.dtype.names:
-      return self.header[item]
-
-class Constants:
-  """
-    dict = {
-      key: action
-    }
-    action can be:
-      a basestring: index in header
-      a list:       list of indices in header
-      a length 1 tuple: a getter function
-      a length 2 tuple: a getter function and a setter function
-    getter function: lambda header: header[bluh] + header[bluh] ...
-    setter function: lambda value: {key:value/100, key2:value+200} ...
-  """
-  def __init__(self, header, dict={}):
-    self.header = header
-    self.dict = dict
-
-  def __iter__(self):
-    return iter(self.dict)
-  def __contains__(self, index):
-    return index in self.dict
-
-  def __repr__(self):
-    return "Constants(header=%s, dict=%s)" % (repr(self.header), repr(self.dict))
-
+      attr = getattr(self, item)
+      if isinstance(attr, basestring):
+        return self._header[attr]
+      elif isinstance(attr, tuple) or isinstance(attr, list):
+        dtype, get, set = attr
+        return virtarray(None, dtype, MethodType(get, self, None), MethodType(set, self, None))
+      else:
+        return attr
+    elif item in self._header.dtype.names:
+      return self._header[item]
+  def __setitem__(self, item, value):
+    if hasattr(self, item):
+      attr = getattr(self, item)
+      if isinstance(attr, basestring):
+        self._header[attr] = value
+      else:
+        raise IndexError("can't set %s" % attr)
+    elif item in self._header.dtype.names:
+      self._header[item] = value
   def __str__(self):
-    items = ['%s = %s' % (index, self[index]) for index in self.dict]
-    return '\n'.join(items)
-    
-  def __getitem__(self, index):
-    if not index in self.dict:
-      return self.header[index]
-    action = self.dict[index]
-    if isinstance(action, basestring):
-      return self.header[action]
-    elif isinstance(action, tuple):
-      if len(action) >= 1 and hasattr(action[0], '__call__'):
-        return action[0](self.header)
+    s = []
+    for name in sorted(numpy.unique(dir(self) + list(self._header.dtype.names))):
+      if name[0] == '_': continue
+      if name in self._header.dtype.names:
+        s += ['%s(header) = %s' % (name, str(self[name]))]
       else:
-        raise Exception("do not understand tuple constant, use (getter, setter)")
-    elif isinstance(action, list):
-      return numpy.array([self.__getitem__(item) for item in action])
-    else:
-      return action
-
-  def __setitem__(self, index, value):
-    if not index in self.dict:
-      self.header[index] = value
-      return
-    action = self.dict[index]
-    if isinstance(action, basestring):
-      self.header[action] = value
-    elif isinstance(action, tuple):
-      if len(action) == 2 and hasattr(action[1], '__call__'):
-        d = action[1](value)
-        for key in d:
-          self.__setitem__(key, d[key])
-      else:
-        raise Exception("do not understand tuple constant, use (getter, setter)")
-    elif isinstance(action, list):
-      for item, v in zip(action, value):
-        self.__setitem__(item, v)
-    else:
-      raise Exception("constant[%s] has action %s and is readonly", index, action)
-
+        s += ['%s(class) = %s' % (name, str(self[name]))]
+    return '\n'.join(s)
 
 class Schema:
   from collections import namedtuple
@@ -122,7 +90,6 @@ class ReaderMeta(type):
       'format': 'F',
       'header': None,
       'schema': None,
-      'defaults': {},
       'constants': {},
       'endian': '<'}
 
@@ -144,8 +111,6 @@ class ReaderMeta(type):
 
     def _do_not_instantiate(cls):
       raise TypeError('%s is not instantiatable' % repr(cls))
-    if 'Constants' in dict:
-      dict['Constants'] = type('Constants', (dict['Constants'], ConstBase, object), {})
     dict['__init__'] = _do_not_instantiate
     return type.__new__(meta, name, base, dict)
 
@@ -155,7 +120,12 @@ class ReaderMeta(type):
     cls.header = numpy.dtype(cls.header)
     if not isinstance(cls.schema, Schema):
       cls.schema = Schema(cls.schema)
-
+    if not issubclass(cls.constants, ConstBase):
+      # not sure if the 'if' is useful. in no case it shall be already
+      # a sublcass of ConstBase.
+      cls.constants = type('constants', (cls.constants, ConstBase, object), {})
+    else:
+      raise
 
   def __str__(cls):
     return str(cls.__dict__)
@@ -165,7 +135,7 @@ class ReaderMeta(type):
     snapshot.reader = cls
     file.seek(0)
     snapshot.header = file.read_record(cls.header, 1).squeeze()
-    snapshot.C = Constants(snapshot.header, cls.constants)
+    snapshot.C = cls.constants(snapshot.header, init=False)
     cls.update_offsets(snapshot)
 
   def create(cls, snapshot, overwrite=True):
@@ -175,9 +145,7 @@ class ReaderMeta(type):
       file = cls.file_class(snapshot.file, endian=cls.endian, mode='w+')
     snapshot.reader = cls
     snapshot.header = numpy.zeros(dtype=cls.header, shape=None)
-    for f in cls.defaults:
-      snapshot.header[f] = cls.defaults[f]
-    snapshot.C = Constants(snapshot.header, cls.constants)
+    snapshot.C = cls.constants(snapshot.header, init=True)
 
   def __getitem__(cls, key):
     return cls.schema[key]
@@ -322,7 +290,7 @@ class F77File(file):
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
-      raise IOError("length doesn't match %d != %d" % (length, _length))
+      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
     
     length = _length
     if nread == None: nread = length - offset
@@ -331,7 +299,7 @@ class F77File(file):
     self.seek((length - nread - offset) * dtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size != size2 :
-      raise IOError("record size doesn't match %d != %d" % (size, size2))
+      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
     if self.little_endian != numpy.little_endian: X.byteswap(True)
     return X
 
@@ -354,11 +322,11 @@ class F77File(file):
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
-      raise IOError("length doesn't match %d != %d" % (length, _length))
+      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
     self.seek(size, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size != size2 :
-      raise IOError("record size doesn't match %d != %d" % (size, size2))
+      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
 
   def rewind_record(self, dtype, length = None) :
     dtype = numpy.dtype(dtype)
@@ -367,13 +335,14 @@ class F77File(file):
     size = numpy.fromfile(self, self.bsdtype, 1)[0]
     _length = size / dtype.itemsize;
     if length != None and length != _length:
-      raise IOError("length doesn't match %d != %d" % (length, _length))
+      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
     self.seek(-size, 1)
     self.seek(-self.bsdtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     self.seek(-self.bsdtype.itemsize, 1)
     if size != size2 :
-      raise IOError("record size doesn't match %d != %d" % (size, size2))
+      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
+
   def create_record(self, dtype, length):
     dtype = numpy.dtype(dtype)
     size = numpy.int32(length * dtype.itemsize)
