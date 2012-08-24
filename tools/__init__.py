@@ -348,9 +348,14 @@ import numpy
 from itertools import izip
 
 class packarray(numpy.ndarray):
+  """ A packarray packs/copies several arrays into the same memory chunk.
+
+      It feels like a list of arrays, but because the memory chunk is continuous,
+      arithmatic operations are easier to use.
+  """
   def __new__(cls, arrays):
     L = numpy.array([len(arr) for arr in arrays], dtype='u8')
-    self = numpy.concatenate(arrays).view(type=packarray)
+    self = numpy.concatenate(arrays).view(type=cls)
     self.start = numpy.zeros(shape=len(arrays), dtype='u8')
     self.end = numpy.zeros(shape=len(arrays), dtype='u8')
     self.end[:] = L.cumsum()
@@ -360,7 +365,7 @@ class packarray(numpy.ndarray):
   @classmethod
   def adapt(cls, source, template):
     """ adapt source to a packarray according to the layout of template """
-    rt = source.view(type=packarray)
+    rt = source.view(type=cls)
     rt.start = template.start
     rt.end = template.end
     return rt
@@ -370,10 +375,13 @@ class packarray(numpy.ndarray):
       self.start = obj.start
       self.end = obj.end
     self.A = self.view(type=numpy.ndarray)
+
   def __array_wrap__(self, outarr, context=None):
     if context is None:
+      # reduction always return ndarray
       return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
-    return super(packarray, self).__array_wrap__(outarr, context)
+    # otherwise follow numpy tradition
+    return numpy.ndarray.__array_wrap__(self, outarr, context)
 
   def __repr__(self):
     return 'packarray: %s, start=%s, end=%s' % \
@@ -383,14 +391,14 @@ class packarray(numpy.ndarray):
     return repr(self)
 
   def copy(self):
-    rt = self.view(type=numpy.ndarray).copy().view(type=packarray)
+    rt = numpy.ndarray.copy(self).view(type=packarray)
     rt.start = self.start.copy()
     rt.end = self.end.copy()
     return rt
 
   def __getitem__(self, index):
     if isinstance(index, basestring):
-      return super(packarray, self).__getitem__(index)
+      return numpy.ndarray.__getitem__(self, index)
 
     if numpy.isscalar(index):
       return self.A[self.start[index]:self.end[index]]
@@ -406,6 +414,32 @@ class packarray(numpy.ndarray):
   def __iter__(self):
     for i in range(len(self.start)):
       yield self[i]
+
+class virtarray(numpy.ndarray):
+  """ A virtual array that saves and gets from given functions
+      instead of doing so from memory.
+      the values are also locally cached in memory.
+  """
+  def __new__(cls, shape, dtype, get, set):
+    self = numpy.empty(shape=shape, dtype=dtype).view(cls)
+    self._set = set
+    self._get = get
+    self.A = self.view(numpy.ndarray)
+    for i in range(len(self)):
+      self.A[i] = get(i)
+    return self
+    
+  def __setitem__(self, index, value):
+    self._set(index, value)
+    self.A[index] = value
+  def __getitem__(self, index):
+    value = self._get(index)
+    self.A[index] = value
+    return value
+
+  def __array_wrap__(self, outarr, context=None):
+    return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
+
 
 def n_(value, vmin=None, vmax=None):
   return normalize(value, vmin, vmax, logscale=False)
@@ -429,10 +463,13 @@ class normalize(numpy.ndarray):
 
     if logscale:
       numpy.log10(value, out)
+    else:
+      out[:] = value
 
     if out.shape[0] == 0:
+      out[...] = 1.0
       return out
-
+    
     if vmax is None:
       vmax = _fast.finitemax(out)
     elif isinstance(vmax, basestring) \
@@ -448,9 +485,12 @@ class normalize(numpy.ndarray):
         raise ValueError('vmin format is "?? db"')
 
     out[...] -= vmin
-    out[...] /= (vmax - vmin)
+    if vmin == vmax:
+      out[...] = 1.0
+    else:
+      out[...] /= (vmax - vmin)
     out.clip(0, 1, out=out)
-    self = out.view(type=normalize)
+    self = out.view(type=cls)
     self.vmin = vmin
     self.vmax = vmax
     self.logscale = logscale
@@ -458,12 +498,10 @@ class normalize(numpy.ndarray):
     return self
 
   def __array_wrap__(self, outarr, context=None):
-    if context is None:
-      return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
-    return super(normalize, self).__array_wrap__(outarr, context)
+    # any ufunc shall return a non-normalized result.
+    return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
 
   def __array_finalize__(self, obj):
-    #self.__array_priority__ = 0
     pass
 
   def __repr__(self):

@@ -18,6 +18,16 @@ def Reader(reader):
   reader = ReaderMeta(reader.__name__, (reader, object), dict(reader.__dict__))
   return reader
 
+class ConstBase:
+  from gaepsi.tools import virtarray
+  def __init__(self, header):
+    self.header = header
+  def __getitem__(self, item):
+    if hasattr(self, item):
+      return getattr(self, item)
+    if item in self.header.dtype.names:
+      return self.header[item]
+
 class Constants:
   """
     dict = {
@@ -134,6 +144,8 @@ class ReaderMeta(type):
 
     def _do_not_instantiate(cls):
       raise TypeError('%s is not instantiatable' % repr(cls))
+    if 'Constants' in dict:
+      dict['Constants'] = type('Constants', (dict['Constants'], ConstBase, object), {})
     dict['__init__'] = _do_not_instantiate
     return type.__new__(meta, name, base, dict)
 

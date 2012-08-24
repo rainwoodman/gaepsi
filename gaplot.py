@@ -21,13 +21,18 @@ def _fr10(n):
   exp = numpy.floor(numpy.log10(n))
   return n * 10 ** -exp, exp
 
-def image(color, cmap, luminosity=None, composite=False):
+def image(color, luminosity=None, cmap=None, composite=False):
     """converts (color, luminosity) to an rgba image,
        if composite is False, directly reduce luminosity
        on the RGBA channel by luminosity,
        if composite is True, reduce the alpha channel.
        color and luminosity needs to be normalized
     """
+    if cmap is None:
+      if luminosity is not None:
+        cmap = cm.coolwarm
+      else:
+        cmap = cm.gist_heat
     image = cmap(color, bytes=True)
     if luminosity is not None:
       luminosity = luminosity.copy()
@@ -44,6 +49,7 @@ def addspikes(image, x, y, s, color):
   for X, Y, S in zip(x, y, s):
     def work(image, XY, S, axis):
       S = int(S)
+      if S < 1: return
       XY = numpy.int32(XY)
       start = XY[axis] - S
       end = XY[axis] + S + 1
@@ -148,9 +154,13 @@ class GaplotContext(object):
     self.default_axes = ax
     return fig, ax
 
-  def invalidate(self):
-    pass
-
+  def invalidate(self, *ftypes):
+    """ clear the VT cache of a ftype """
+    for ftype in ftypes:
+      for key in list(self.VT.keys()):
+        if key[0] == ftype:
+          del self.VT[key]
+    
   @property
   def extent(self):
     return self.default_camera.extent
@@ -244,20 +254,19 @@ class GaplotContext(object):
         the return values can be normalized by
         nl_ or n_, then feed to imshow
     """
-    if color is not None:
-      acolor = self.F[ftype][color]
-    else:
-      acolor = None
-    if luminosity is not None:
-      aluminosity = self.F[ftype][luminosity]
-    else:
-      aluminosity = None
     CCD = numpy.zeros(self.shape, dtype=('f8',2))
+
     if sml is None:
-      if not (ftype, color, luminosity) in self.VT \
-      or self.VT[(ftype, color, luminosity)].tree != self.T[ftype]:
-        self.VT[(ftype, color, luminosity)] = VisTree(self.T[ftype], acolor, aluminosity)
-      vt = self.VT[(ftype, color, luminosity)]
+      key = (ftype, color, luminosity)
+      if key in self.VT and self.VT[key].tree == self.T[ftype]:
+        vt = self.VT[key]
+      else:
+        vt = VisTree(self.T[ftype], 
+             *self._getcomponent(ftype, color, luminosity))
+        if isinstance(color, basestring) \
+       and isinstance(luminosity, basestring):
+          self.VT[key] = vt
+
       for cam in self._mkcameras(camera):
         nodes = list(vt.find_large_nodes(cam, 0, 65536 * 2))
         with sharedmem.Pool(use_threads=True) as pool:
@@ -267,19 +276,42 @@ class GaplotContext(object):
               CCD[...] += _CCD
           pool.map(work, nodes)
     else:
-      if sml in self.F[ftype]:
-        sml = self.F[ftype][sml]
-      x,y,z=self.F[ftype]['locations'].T
+      locations, color, luminosity, sml = self._getcomponent(ftype,
+        'locations', color, luminosity, sml)
+      x, y, z = locations.T
       for cam in self._mkcameras(camera):
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity):
             _CCD = cam.paint(x,y,z,sml,color,luminosity)
             with pool.lock:
               CCD[...] += _CCD
-          pool.starmap(work, pool.zipsplit((x,y,z,sml,acolor,aluminosity)))
+          pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity)))
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
     
+  def _getcomponent(self, ftype, *components):
+    """
+      _getcomponent(Field(), 'locations') 
+      _getcomponent('gas', 'locations')
+      _getcomponent('gas', [1, 2, 3, 4, 5])
+      _getcomponent(Field(), [1, 2, 3, 4, 5]) 
+      _getcomponent(numpy.zeros((10, 3)), 'locations')
+      _getcomponent(numpy.zeros((10, 3)), numpy.zeros(10))
+    """
+    def one(component):
+      if isinstance(component, basestring):
+        if isinstance(ftype, Field):
+          field = ftype
+          return field[component]
+        elif isinstance(ftype, basestring):
+          field = self.F[ftype]
+          return field[component]
+        else:
+          return ftype
+      else:
+        return component
+    return [one(a) for a in components]
+
   def transform(self, ftype, luminosity=None, radius=0, camera=None):
     """ Find the CCD coordinate of objects inside the field of view. Objects are of 0 size, 
         r is the bounding radius of radius of the plotted object.
@@ -289,37 +321,34 @@ class GaplotContext(object):
           returns X, Y, B, where B is the apparent brightness according to the Camera [ depending fade is True or not ]
         otherwise
           returns X, Y, I where I is the index of object in the original field. One object may show up multiple times because of the periodic boundary condition.
-          
-        
     """
     X, Y, D, L, I = [], [], [], [], []
-    if luminosity is not None:
-      alum = self.F[ftype][luminosity]
-    else:
-      alum = None
+    locations, luminosity = self._getcomponent(ftype, 'locations', luminosity)
+    x, y, z = locations.T
     for cam in self._mkcameras(camera):
-      pos = self.F[ftype]['locations']
-      x,y,z = pos[:, 0], pos[:, 1], pos[:, 2]
       uvt = cam.transform(x, y, z)
       x = (uvt[:, 0] + 1.0) * 0.5 * self.shape[0]
       y = (uvt[:, 1] + 1.0) * 0.5 * self.shape[1]
-      mask = x >= -radius
-      mask&= y >= -radius
-      mask&= x <= self.shape[0]+radius
-      mask&= y <= self.shape[1]+radius
-      mask&= uvt[:,2] > -1
-      mask&= uvt[:,2] < 1
+      if radius is not None:
+        mask = x >= -radius
+        mask&= y >= -radius
+        mask&= x <= self.shape[0]+radius
+        mask&= y <= self.shape[1]+radius
+        mask&= uvt[:,2] > -1
+        mask&= uvt[:,2] < 1
+      else:
+        mask = numpy.ones(x.shape, dtype='?')
       X += [x[mask]]
       Y += [y[mask]]
-      if alum is not None:
-        d = ((pos - cam.pos)**2).sum(axis=-1)
+      if luminosity is not None:
+        d = ((locations - cam.pos)**2).sum(axis=-1)
         D += [d[mask]]
-        L += [alum[mask]]
+        L += [luminosity[mask]]
       else:
         I += [mask.nonzero()[0]]
     X = numpy.concatenate(X)
     Y = numpy.concatenate(Y)
-    if alum is not None:
+    if luminosity is not None:
       D = numpy.concatenate(D)
       L = numpy.concatenate(L)
       if cam.fade:
@@ -368,6 +397,29 @@ class GaplotContext(object):
            format = MyFormatter(color.logscale, color.vmin, color.vmax)
            )
 
+  def drawbox(self, center, size, color=[0, 1., 0], ax=None):
+    if ax is None: ax=self.default_axes
+    center = numpy.asarray(center)
+    color = numpy.asarray(color, dtype='f8')
+    bbox = (numpy.mgrid[0:2, 0:2, 0:2].reshape(3, -1).T - 0.5) * size \
+          + center[None, :]
+
+    X, Y, B = self.transform(bbox, numpy.ones(len(bbox)), radius=None)
+    l, r, b, t =self.extent
+    X = X / self.shape[0] * (r - l) + l
+    Y = Y / self.shape[1] * (t - b) + b
+
+    from matplotlib.collections import LineCollection
+    pairs = ((0,1), (2,3), (6,7), (4,5),
+         (1,5), (5,7), (7,3), (3,1),
+         (0,4), (4,6), (6,2), (2,0))
+    lines = [((X[a], Y[a]), (X[b], Y[b])) for a, b in pairs]
+    colors = numpy.ones((len(lines), 4))
+    colors[:, 0:3] *= color
+    colors[:, 3] *= n_([B[a] + B[b] for a, b in pairs]) * 0.7 + 0.3
+    ax.add_collection(LineCollection(lines, 
+          linewidth=0.5, colors=colors, antialiased=1))
+
   def imshow(self, color, luminosity=None, ax=None, **kwargs):
     """ shows an image on ax.
         always expecting color and luminosity
@@ -397,22 +449,60 @@ class GaplotContext(object):
       if luminosity is not None and not isinstance(luminosity, normalize):
         luminosity = nl_(luminosity)
       
-      im = image(color, cmap, luminosity)
+      im = image(color=color, luminosity=luminosity, cmap=cmap)
     else:
+      print 'using im'
       im = color
     ax.imshow(im.swapaxes(0,1), **realkwargs)
 
     self.last['color'] = color
 
-  def scatter(self, x, y, s, ax=None, **kwargs):
+  def scatter(self, x, y, s, ax=None, fancy=False, **kwargs):
+    x, y, s = numpy.asarray([x, y, s])
     if ax is None: ax=self.default_axes
-    x = x
-    y = y
     l, r, b, t =self.extent
-    x = x / self.shape[0] * (r - l) + l
-    y = y / self.shape[1] * (t - b) + b
-    ax.scatter(x, y, s, **kwargs)
+    X = x / self.shape[0] * (r - l) + l
+    Y = y / self.shape[1] * (t - b) + b
+    if not fancy:
+      return ax.scatter(x, y, s, **kwargs)
     
+    from matplotlib.markers import MarkerStyle
+    from matplotlib.patches import PathPatch
+    from matplotlib.transforms import Affine2D
+    def filter(image, dpi):
+      # this is problematic if the marker is clipped.
+      if image.shape[0] <=1 and image.shape[1] <=1: return image
+      xgrad = 1.0 \
+         - numpy.fabs(numpy.linspace(0, 2, 
+            image.shape[0], endpoint=True) - 1.0)
+      ygrad = 1.0 \
+         - numpy.fabs(numpy.linspace(0, 2, 
+            image.shape[1], endpoint=True) - 1.0)
+      image[..., 3] *= xgrad[:, None] ** 1.3
+      image[..., 3] *= ygrad[None, :] ** 1.3
+      return image, 0, 0
+
+    marker = kwargs.pop('marker', None)
+    verts = kwargs.pop('verts', None)
+    transform = kwargs.pop('transform', ax.transData)
+    # to be API compatible
+    if marker is None and not (verts is None):
+        marker = (verts, 0)
+        verts = None
+
+    marker_obj = MarkerStyle(marker)
+    path = marker_obj.get_path()
+
+    objs = []
+    for x,y,r in zip(X, Y, s):
+      patch_transform = Affine2D().scale(r).translate(x, y)
+      obj = PathPatch(path.transformed(patch_transform), transform=transform, **kwargs)
+      obj.set_agg_filter(filter)
+      obj.rasterized = True
+      objs += [obj]
+      ax.add_patch(obj)
+    return objs
+
   def schema(self, ftype, types, components):
     """ loc dtype is the base dtype of the locations."""
     reader = Reader(self.format)
@@ -465,13 +555,16 @@ class GaplotContext(object):
     self.periodic = periodic
     self.cosmology = Cosmology.from_snapshot(snap)
     self.redshift = self.C['redshift']
-    self.invalidate()
 
     self.schema('gas', 0, ['sml', 'mass'])
     self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
     self.schema('halo', 1, ['mass'])
     self.schema('star', 4, ['mass', 'sft'])
  
+  def saveas(self, ftypes, snapshots, np=None):
+    for ftype in _ensurelist(ftypes):
+      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype], np=np, save_and_clear=True)
+
   def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
       cut = Cut(origin=self.origin, size=self.boxsize)
@@ -499,7 +592,7 @@ class GaplotContext(object):
     for ftype in _ensurelist(ftypes):
       self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
       self.rebuildtree(ftype)
-    self.invalidate()
+      self.invalidate(ftype)
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
     """scale can be a dictionary or True.
@@ -561,7 +654,7 @@ class GaplotContext(object):
     from matplotlib.text import Text
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     if scale is None:
-      l = (self.size[0]) * 0.2
+      l = (self.extent[1] - self.extent[0]) * 0.2
     else:
       l = scale
       # always first put comoving distance to l

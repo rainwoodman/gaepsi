@@ -1,4 +1,4 @@
-class Reader(ReaderBase):
+class Reader:
     format = 'F'
     header = [
       ('N', ('u4', 6)),

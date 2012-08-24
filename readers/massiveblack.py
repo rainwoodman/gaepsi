@@ -1,4 +1,3 @@
-
 class Reader:
     format = 'F'
     header = [
@@ -50,6 +49,16 @@ class Reader:
       'flag_cool': 1,
       'flag_feedback': 1,
     }
+    class Constants:
+      OmegaB = 0.044
+      PhysDensThresh = 0.000831188
+      @property
+      def Ntot(self):
+        return self.virtarray(6, 'u8', 
+            lambda i: self['Ntot_low'][i] + (self['Ntot_high'].as_type('u8') << 32)[i],
+            lambda i, value: ( self['Ntot_low'].__setitem__(i, value),
+                               self['Ntot_high'].__setitem__(i, value >> 32))
+            )
     constants = {
      'N': 'N',
      'boxsize': 'boxsize',

@@ -95,7 +95,6 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
         # Note off-by-one counting because add_subplot uses the MATLAB 1-based
         # convention.
         if gridspec:
-            print i, j, kw
             axarr[i,j] = fig.add_subplot(gridspec[i, j], **kw)
         else:
             axarr[i,j] = fig.add_subplot(nrows, ncols, i * ncols + j + 1, **kw)
@@ -127,17 +126,25 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
 
     return ret
 
-def plot_with_fit(ax, x, y, symbol, color, label, fitfunc, p0=None):
+def plot_with_fit(ax, fitfunc, x, y, *args, **kwargs):
   from scipy.optimize import curve_fit
 
-  ax.plot(x, y, symbol, label=label, color=color)
+  p0 = kwargs.pop('p0', None)
+  s = x.argsort()
+  ax.plot(x[s], y[s], *args, **kwargs)
+  try: 
+    p, err = curve_fit(fitfunc, x, y, p0)
+    return ax.plot(x[s], fitfunc(x, *p)[s], **kwargs), (p, err)
+  except RuntimeError:
+    return ax.plot(x[s], fitfunc(x, *p0)[s], **kwargs), (p0, None)
+
+def plot_without_fit(ax, fitfunc, x, y, *args, **kwargs):
+  from scipy.optimize import curve_fit
+
+  p0 = kwargs.pop('p0', None)
   s = x.argsort()
   try: 
     p, err = curve_fit(fitfunc, x, y, p0)
-    return ax.plot(x[s], fitfunc(x, *p)[s], ':', color=color), (p, err)
+    return ax.plot(x[s], y[s], *args, **kwargs), (p, err)
   except RuntimeError:
-    return ax.plot(x[s], fitfunc(x, *p0)[s], ':', color=color), (p0, None)
-
-def plot_without_fit(ax, x, y, symbol, color, label, fitfunc):
-  s = x.argsort()
-  return ax.plot(x[s], y[s], symbol, label=label, color=color), (None, None)
+    return ax.plot(x[s], y[s], *args, **kwargs), (p0, None)
