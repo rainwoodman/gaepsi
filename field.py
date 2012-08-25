@@ -355,7 +355,6 @@ class Field(object):
         a mass conserving smoothing length, the weight is used as the mass.
     """
     # important to first zorder the tree because it reorders the components.
-    print self['locations'].shape
     tree = self.zorder(ztree=True)
     if weight is not None:
       weight = self[weight]

@@ -30,6 +30,7 @@ cdef class Tree:
   cdef readonly zorder.Digitize digitize
 
   cdef inline void get_node_pos(Tree self, intptr_t index, double pos[3]) nogil:
+    """ returns the topleft corner of the node """
     cdef int32_t ipos[3]
     zorder.decode(self._nodes[index].key, ipos)
     self.digitize.i2f(ipos, pos)

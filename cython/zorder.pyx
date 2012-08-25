@@ -77,15 +77,15 @@ cdef class Digitize:
       return klass(
         min=numpy.array([x.min(), y.min(), z.min()]),
         scale=numpy.array([ x.ptp(), y.ptp(), z.ptp()]),
-        bits=bits
-      )
+        bits=bits)
     else:
       return klass(
         min=numpy.array([0, 0, 0.]),
         scale=numpy.array([1, 1, 1.]),
-        bits = bits)
+        bits=bits)
 
   def __init__(self, min, scale, bits=30):
+    """ use the biggest scale for all axis """
     if bits > 30:
       raise ValueError("bits cannnot be bigger than 30 with 128bit integer, but 32bit xyz coordinates")
     self.min[:] = min

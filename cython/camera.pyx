@@ -1,7 +1,6 @@
 #cython: embedsignature=True
 #cython: cdivision=True
 import numpy
-cimport cpython
 cimport numpy
 cimport npyiter
 cimport ztree
@@ -9,11 +8,10 @@ cimport zorder
 cimport npyarray
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
-from libc.string cimport memcpy
 from warnings import warn
-cimport cython
 from zorder cimport zorder_t, _zorder_dtype
-import cython
+from geometry cimport DieseFunktion
+from geometry cimport DieseFunktionFrustum
 
 numpy.import_array()
 cdef float inf = numpy.inf
@@ -370,18 +368,7 @@ cdef class Camera:
     self._scale[2] = fabs(self.proj[2, 2] * self.proj[3, 3])
     self._scale[3] = fabs(self.proj[2, 3] * self.proj[3, 2])
     self.matrix[...] = numpy.dot(self.proj, self.model)
-    self.extract_frustum()
-
-  def extract_frustum(self):
-    """by -=sinuswutz=- from glTerrian"""
-
-    self.frustum[0,:] = self.matrix[3,:] - self.matrix[0,:] #rechte plane berechnen
-    self.frustum[1,:] = self.matrix[3,:] + self.matrix[0,:] #linke plane berechnen
-    self.frustum[2,:] = self.matrix[3,:] + self.matrix[1,:] #unten plane berechnen
-    self.frustum[3,:] = self.matrix[3,:] - self.matrix[1,:] #oben plane berechnen
-    self.frustum[4,:] = self.matrix[3,:] - self.matrix[2,:] #ferne plane berechnen
-    self.frustum[5,:] = self.matrix[3,:] + self.matrix[2,:] #nahe plane berechnen
-    self.frustum[...] /= ((self.frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
+    DieseFunktionFrustum(self.frustum, self.matrix)
   
   cdef int mask_object_one(self, double center[3], double r[3]) nogil:
     cdef int j
@@ -390,37 +377,7 @@ cdef class Camera:
       AABB[j][0] = center[0] + r[0] * _AABBshifting[j][0]
       AABB[j][1] = center[1] + r[1] * _AABBshifting[j][1]
       AABB[j][2] = center[2] + r[2] * _AABBshifting[j][2]
-    return self.mask_object_one_AABB(AABB)
-
-  cdef inline int mask_object_one_AABB(self, double AABB[8][3]) nogil:
-    """ Diese Funktion liefert 
-        0 zurück, wenn die geprüften coordinaten nicht sichtbar sind,
-        1 zurück, wenn die coords teilweise sichtbar sind und 
-        2 zurück, wenn alle coords sichtbar sind  
-        by -=sinuswutz=- from glTerrian
-    """
-    cdef int cnt=0, vor=0, i, j
-    #cnt : zählt, bei wie vielen ebenen alle punkte davor liegen, 
-    #vor: zählt für jede ebene, wieviele punkte davor liegen
-    for i in range(6):  #für alle ebenen...
-      vor = 0 
-      for j in range(8):   #für alle punkte...
-        if AABB[j][0] * self._frustum[i][0] \
-         + AABB[j][1] * self._frustum[i][1] \
-         + AABB[j][2] * self._frustum[i][2] \
-         + self._frustum[i][3] > 0: 
-          vor = vor + 1
-
-      # alle ecken hinter der ebene, ist nicht sichtbar!
-      if vor == 0: return 0 
-      # alle vor der ebene, merken und weitermachen    
-      if vor == 8: cnt = cnt + 1 
-
-    #liegt komplett im frustum
-    if cnt == 6: return 2  
-  
-    # liegt teilweise im frustum;
-    return 1  
+    return DieseFunktion(self._frustum, AABB)
   
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
@@ -610,7 +567,7 @@ cdef class Camera:
 
     self.model[...] = m2[...]
     self.matrix[...] = numpy.dot(self.proj, self.model)
-    self.extract_frustum()
+    DieseFunktionFrustum(self.frustum, self.matrix)
 
   cdef inline void transform_size_one(self, double r[3], float c3inv, float whl[3]) nogil:
     whl[0] = r[0] * self._scale[0] * c3inv

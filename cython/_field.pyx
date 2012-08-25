@@ -79,13 +79,12 @@ cdef float solve_sml_one(float * r, float * w, int NGB, float mean) nogil:
 
 @cython.boundscheck(False)
 def solve_sml(pos, pweight, locations, weight, out, ztree.Tree tree, int NGB):
-    if len(pos) == 0: return
     iter = numpy.nditer(
           [pos[..., 0], pos[..., 1], pos[..., 2], pweight, out], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readwrite']], 
      op_dtypes=['f8', 'f8', 'f8', 'f4', 'f4'],
-         flags=['buffered', 'external_loop'], 
+         flags=['buffered', 'external_loop', 'zerosize_ok'], 
        casting='unsafe')
 
     cdef npyiter.CIter citer

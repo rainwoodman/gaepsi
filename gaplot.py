@@ -26,7 +26,8 @@ def image(color, luminosity=None, cmap=None, composite=False):
        if composite is False, directly reduce luminosity
        on the RGBA channel by luminosity,
        if composite is True, reduce the alpha channel.
-       color and luminosity needs to be normalized
+       color and luminosity needs to be normalized/clipped to (0, 1), 
+       otherwise will give nonsense results.
     """
     if cmap is None:
       if luminosity is not None:
@@ -44,6 +45,9 @@ def image(color, luminosity=None, cmap=None, composite=False):
     return image
 
 def addspikes(image, x, y, s, color):
+  """deprecated method to directly add spikes to a raw image. 
+     use context.scatter(fancy=True) instead
+  """
   from matplotlib.colors import colorConverter
   color = numpy.array(colorConverter.to_rgba(color))
   for X, Y, S in zip(x, y, s):
@@ -132,20 +136,25 @@ class GaplotContext(object):
     if not isinstance(value, Field):
       raise TypeError('need a Field')
     self.F[ftype] = value
-    self.rebuildtree(ftype)
+    self._rebuildtree(ftype)
 
-  def rebuildtree(self, ftype, thresh=32):
+  def image(self, color, luminosity=None, cmap=None, composite=False):
+    # a convenient wrapper
+    return image(color, luminosity=None, cmap=None, composite=False)
+
+  def _rebuildtree(self, ftype, thresh=32):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
     if ftype in self.VT:
       del self.VT[ftype]
 
   def print_png(self, *args, **kwargs):
+    """ save the default figure to a png file """
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     canvas = FigureCanvasAgg(self.default_axes.figure)
     canvas.print_png(*args, **kwargs)
 
   def figure(self, dpi=200., axes=[0, 0, 1, 1.]):
-    """ setup a figure and a default axes """
+    """ setup a default figure and a default axes """
     from matplotlib.figure import Figure
     width = self.shape[0] / dpi
     height = self.shape[1] / dpi
@@ -163,7 +172,13 @@ class GaplotContext(object):
     
   @property
   def extent(self):
-    return self.default_camera.extent
+    return self.camera.extent
+
+  @property
+  def default_camera(self):
+    """ use camera instead """
+    warnings.warn('default_camera deprecated. use camera instead')
+    return self.camera
 
   def view(self, center=None, size=None, up=None, dir=None, method=None, fade=None):
     """ 
@@ -196,7 +211,7 @@ class GaplotContext(object):
     if fade is not None:
       self.fade = fade
 
-    self.default_camera = self._mkcamera(self.method, self.fade)
+    self.camera = self._mkcamera(self.method, self.fade)
 
   def _mkcamera(self, method, fade):
     """ make a camera, method can be ortho or persp
@@ -222,7 +237,7 @@ class GaplotContext(object):
 
   def _mkcameras(self, camera=None):
     if not camera:
-      camera = self.default_camera
+      camera = self.camera
     if not self.periodic:
       yield camera
       return
@@ -241,7 +256,6 @@ class GaplotContext(object):
         yield c
       else:
         continue
-
 
   def paint(self, ftype, color, luminosity, sml=None, camera=None):
     """ paint field to CCD, returns
@@ -458,13 +472,17 @@ class GaplotContext(object):
     self.last['color'] = color
 
   def scatter(self, x, y, s, ax=None, fancy=False, **kwargs):
+    """ takes CCD coordinate x, y and plot them to a data coordinate axes,
+        s is the radius in points(72 points = 1 inch). 
+        When fancy is True, apply a radient filter so that the 
+        edge is blent into the background; better with marker='o' or marker='+'. """
     x, y, s = numpy.asarray([x, y, s])
     if ax is None: ax=self.default_axes
     l, r, b, t =self.extent
     X = x / self.shape[0] * (r - l) + l
     Y = y / self.shape[1] * (t - b) + b
     if not fancy:
-      return ax.scatter(x, y, s, **kwargs)
+      return ax.scatter(x, y, s*s, **kwargs)
     
     from matplotlib.markers import MarkerStyle
     from matplotlib.patches import PathPatch
@@ -494,8 +512,11 @@ class GaplotContext(object):
     path = marker_obj.get_path()
 
     objs = []
+    m = transform.get_affine().get_matrix()
+    sx = m[0, 0]
+    sy = m[1, 1]
     for x,y,r in zip(X, Y, s):
-      patch_transform = Affine2D().scale(r).translate(x, y)
+      patch_transform = Affine2D().scale(r / 72. * sx, r / 72. * sy).translate(x, y)
       obj = PathPatch(path.transformed(patch_transform), transform=transform, **kwargs)
       obj.set_agg_filter(filter)
       obj.rasterized = True
@@ -591,7 +612,7 @@ class GaplotContext(object):
     
     for ftype in _ensurelist(ftypes):
       self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
-      self.rebuildtree(ftype)
+      self._rebuildtree(ftype)
       self.invalidate(ftype)
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):

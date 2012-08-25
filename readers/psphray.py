@@ -56,7 +56,7 @@ class Reader:
       ('ngammas', 'f8', [5], []),
       ('spec', 'u8', [5], []),
     ]
-    class constants(_gadgetbase.constants):
+    class constants:
       OmegaB = 0.044
       PhysDensThresh = 0.000831188
       flag_sfr = 1
@@ -72,3 +72,9 @@ class Reader:
       flag_rec = 0
       flag_cloudy = 0
       flag_eos = 0
+      def _getNtot(self, i):
+        return self['Ntot_low'][i] + (int(self['Ntot_high'][i]) << 32)
+      def _setNtot(self, i, value):
+        self['Ntot_low'][i] = value
+        self['Ntot_high'][i] = (value >> 32)
+      Ntot = (('u8', 6), _getNtot, _setNtot)

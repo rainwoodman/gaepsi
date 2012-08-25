@@ -43,11 +43,37 @@ cdef class freeobj:
   def __dealloc__(self):
     free(self.pointer)
    
+cdef void construct_arrays(numpy.ndarray pointers, numpy.ndarray used, int type):
+    """ convert pointers to array of numpy arrays """
+    iter = numpy.nditer([pointers, used], 
+       op_flags= [['readwrite'], ['readonly']],
+          flags=['buffered', 'external_loop', 'refs_ok'], 
+      casting='unsafe', 
+      op_dtypes=['intp'] * 2)
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef void * temp
+    while size > 0:
+      while size > 0:
+        temp = (<void**>citer.data[0])[0]
+        arr = numpy.PyArray_SimpleNewFromData(1, <numpy.intp_t*>citer.data[1], 
+                type, temp)
+        obj = freeobj()
+        numpy.set_array_base(arr, obj)
+        obj.pointer = temp
+        (<void **>citer.data[0])[0] = <void *>arr
+        cpython.Py_INCREF(arr)
+        npyiter.advance(&citer)
+      size = npyiter.next(&citer)
+
 cdef class Query:
 
   def __cinit__(self, int limit, int weighted):
-    """ if weighted is True, limit is the limit,
-        if weighted is False, limit is the initial value
+    """ if weighted is True, a weighted search is performed.
+           limit is the total number of particles to return, the particles with
+           less weight is returned.
+        if weighted is False, limit is the initial size of the buffer,
+           all particles are returned.
     """
     self._weighted = weighted
     if weighted:
@@ -73,7 +99,9 @@ cdef class Query:
         yield self._items[i]
 
   def __call__(self, tree, pos, size=None):
-    """ size is half size of the box, for a weighted search, size is ignored """
+    """ For a unweighted search, size is half size of the AABB box.
+        For a weighted search, do not give size because it is not used;
+         we return 'limit' number of particles instead. """
     if self._weighted:
       return self._execute_weighted(tree, pos)
     else:
@@ -81,24 +109,25 @@ cdef class Query:
 
   def _execute_straight(self, Tree tree, pos, s):
     out = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='object')
+    used = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='intp')
+    outintp = out.view(dtype='intp')
     ops = [pos[..., i] for i in range(3)]
     try: ops += [s[..., i] for i in range(3)]
     except:
       try: ops += [s[..., 0] for i in range(3)]
       except:
         ops += [s for i in range(3)]
-    ops += [out]
+    ops += [out, used]
     iter = numpy.nditer(
        ops, 
-       op_flags= [['readonly']] * 6 + [['writeonly']],
+       op_flags= [['readonly']] * 6 + [['writeonly']] * 2,
           flags=['buffered', 'external_loop', 'refs_ok'], 
       casting='unsafe', 
-      op_dtypes=['f8'] * 6 + ['object'])
+      op_dtypes=['f8'] * 6 + ['intp'] * 2)
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double fpos[3], fsize[3]
-    cdef numpy.intp_t dims[1]
     cdef intptr_t * temp
     cdef int d
     with nogil:
@@ -109,19 +138,15 @@ cdef class Query:
             fsize[d] = (<double *>citer.data[d+3])[0]
           self.execute_one(tree, fpos, fsize)
           # gonna be before stealing, because self.used is reset!
-          dims[0] = self.used
-          temp = self.steal()
-          with gil:
-            arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_INTP, temp)
-            obj = freeobj()
-            numpy.set_array_base(arr, obj)
-            obj.pointer = temp
-            (<void **>citer.data[6])[0] = <void *>arr
-            cpython.Py_INCREF(arr)
+          (<intptr_t *>citer.data[7])[0] = self.used
+          (<void **>citer.data[6])[0] = <void *> (self.steal())
           npyiter.advance(&citer)
           size = size -1
         size = npyiter.next(&citer)
+
+    construct_arrays(outintp, used, numpy.NPY_INTP)
     return out
+
   def _execute_weighted(self, Tree tree, pos):
     out = numpy.empty(numpy.broadcast(pos, pos).shape[:-1], dtype=[('', ('intp', self.size))])
     ops = [pos[..., i] for i in range(3)]
@@ -171,6 +196,46 @@ cdef class Query:
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
+    return out
+
+  def _execute_raytrace(self, Tree tree, pos, dir, max):
+    out = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='object')
+    used = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
+    outintp = out.view(dtype='intp')
+
+    ops = [pos[..., i] for i in range(3)]
+    ops += [dir[..., i] for i in range(3)]
+    ops += [max]
+    ops += [outintp, used]
+
+    iter = numpy.nditer(
+       ops, 
+       op_flags=[['readonly']] * 7 + [ ['writeonly']] * 2, 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
+      casting='unsafe', 
+      op_dtypes=['f8'] * 7 + ['intp'] * 2)
+
+    cdef double fpos[3], fdir[3], tE, tL, tLmax
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef int d
+    with nogil:
+      while size > 0:
+        while size > 0:
+          for d in range(3):
+            fpos[d] = (<double *>citer.data[d])[0]
+            fdir[d] = (<double *>citer.data[d+3])[0]
+          tL = 0
+          tE = (<double *>citer.data[6])[0]
+          ###### do something here!
+          # gonna be before stealing, because self.used is reset!
+          (<intptr_t *>citer.data[8])[0] = self.used
+          (<void **>citer.data[7])[0] = <void *> (self.steal())
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+
+    construct_arrays(outintp, used, numpy.NPY_INTP)
     return out
 
   property weight:
