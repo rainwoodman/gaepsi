@@ -1,15 +1,18 @@
+#cython: embedsignature=True
+#cython: cdivision=True
 import numpy
 cimport numpy
 cimport cpython
-from ztree cimport Tree
+from ztree cimport Tree, node_t
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport zorder
 from zorder cimport zorder_t
 cimport npyiter
 from libc.math cimport sqrt
-numpy.import_array()
+from geometry cimport LiangBarsky
 
+numpy.import_array()
 cdef extern from 'zquery_internal.c':
   ctypedef struct Heap:
     int (*cmp_lt)(int i, int j, void* weight)
@@ -43,13 +46,14 @@ cdef class freeobj:
   def __dealloc__(self):
     free(self.pointer)
    
-cdef void construct_arrays(numpy.ndarray pointers, numpy.ndarray used, int type):
+cdef numpy.ndarray construct_arrays(numpy.ndarray pointers, numpy.ndarray used, int type):
     """ convert pointers to array of numpy arrays """
-    iter = numpy.nditer([pointers, used], 
-       op_flags= [['readwrite'], ['readonly']],
+    out = numpy.empty_like(pointers, dtype='object')
+    iter = numpy.nditer([pointers, used, out], 
+       op_flags= [['readonly'], ['readonly'], ['writeonly']],
           flags=['buffered', 'external_loop', 'refs_ok'], 
       casting='unsafe', 
-      op_dtypes=['intp'] * 2)
+      op_dtypes=['intp'] * 2 + ['object'])
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef void * temp
@@ -61,14 +65,18 @@ cdef void construct_arrays(numpy.ndarray pointers, numpy.ndarray used, int type)
         obj = freeobj()
         numpy.set_array_base(arr, obj)
         obj.pointer = temp
-        (<void **>citer.data[0])[0] = <void *>arr
+        (<void **>citer.data[2])[0] = <void *>arr
         cpython.Py_INCREF(arr)
         npyiter.advance(&citer)
+        size = size - 1
       size = npyiter.next(&citer)
+    if len(out.shape) == 0:
+      return out[()]
+    else: return out
 
 cdef class Query:
 
-  def __cinit__(self, int limit, int weighted):
+  def __cinit__(self, int limit, bint weighted):
     """ if weighted is True, a weighted search is performed.
            limit is the total number of particles to return, the particles with
            less weight is returned.
@@ -87,6 +95,7 @@ cdef class Query:
       self.used = 0
       self._weight = NULL
       self._items = <intptr_t *> malloc(sizeof(intptr_t) * self.size)
+
   def __dealloc__(self):
     if self._weight: free(self._weight)
     if self._items: free(self._items)
@@ -108,16 +117,18 @@ cdef class Query:
       return self._execute_straight(tree, pos, size)
 
   def _execute_straight(self, Tree tree, pos, s):
-    out = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='object')
+    pos = numpy.asarray(pos)
+    s = numpy.asarray(s)
+
+    outintp = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='intp')
     used = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='intp')
-    outintp = out.view(dtype='intp')
     ops = [pos[..., i] for i in range(3)]
     try: ops += [s[..., i] for i in range(3)]
     except:
       try: ops += [s[..., 0] for i in range(3)]
       except:
         ops += [s for i in range(3)]
-    ops += [out, used]
+    ops += [outintp, used]
     iter = numpy.nditer(
        ops, 
        op_flags= [['readonly']] * 6 + [['writeonly']] * 2,
@@ -128,7 +139,6 @@ cdef class Query:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double fpos[3], fsize[3]
-    cdef intptr_t * temp
     cdef int d
     with nogil:
       while size > 0:
@@ -144,10 +154,10 @@ cdef class Query:
           size = size -1
         size = npyiter.next(&citer)
 
-    construct_arrays(outintp, used, numpy.NPY_INTP)
-    return out
+    return construct_arrays(outintp, used, numpy.NPY_INTP)
 
   def _execute_weighted(self, Tree tree, pos):
+    pos = numpy.asarray(pos)
     out = numpy.empty(numpy.broadcast(pos, pos).shape[:-1], dtype=[('', ('intp', self.size))])
     ops = [pos[..., i] for i in range(3)]
     ops += [out]
@@ -161,20 +171,19 @@ cdef class Query:
 
     cdef double fpos[3], fsize[3]
     cdef npyiter.CIter citer
-    cdef intptr_t * temp
     cdef intptr_t k = 0
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double w
     cdef int d
-    cdef intptr_t leaf
+    cdef node_t node 
     cdef found_last_time = 0
     with nogil:
       while size > 0:
         while size > 0:
           for d in range(3):
             fpos[d] = (<double *>citer.data[d])[0]
-          leaf = tree.get_container(fpos, 0)
-          tree.get_node_size(leaf, fsize)
+          node = tree.get_container(fpos, 0)
+          tree.get_node_size(node, fsize)
           while True:
             self.execute_one(tree, fpos, fsize)
             if self.used < self.size: 
@@ -199,9 +208,10 @@ cdef class Query:
     return out
 
   def _execute_raytrace(self, Tree tree, pos, dir, max):
-    out = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='object')
+    pos = numpy.asarray(pos)
+    dir = numpy.asarray(dir)
+    outintp = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
     used = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
-    outintp = out.view(dtype='intp')
 
     ops = [pos[..., i] for i in range(3)]
     ops += [dir[..., i] for i in range(3)]
@@ -215,6 +225,9 @@ cdef class Query:
       casting='unsafe', 
       op_dtypes=['f8'] * 7 + ['intp'] * 2)
 
+    self.AABBkey[0] = 0
+    self.AABBkey[1] = -1
+
     cdef double fpos[3], fdir[3], tE, tL, tLmax
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
@@ -225,9 +238,10 @@ cdef class Query:
           for d in range(3):
             fpos[d] = (<double *>citer.data[d])[0]
             fdir[d] = (<double *>citer.data[d+3])[0]
-          tL = 0
-          tE = (<double *>citer.data[6])[0]
+          tE = 0
+          tL = (<double *>citer.data[6])[0]
           ###### do something here!
+          self.raytrace_one_r(tree, 0, fpos, fdir, tE, tL)
           # gonna be before stealing, because self.used is reset!
           (<intptr_t *>citer.data[8])[0] = self.used
           (<void **>citer.data[7])[0] = <void *> (self.steal())
@@ -235,8 +249,8 @@ cdef class Query:
           size = size - 1
         size = npyiter.next(&citer)
 
-    construct_arrays(outintp, used, numpy.NPY_INTP)
-    return out
+    return construct_arrays(outintp, used, numpy.NPY_INTP)
+
 
   property weight:
     def __get__(self):
@@ -273,6 +287,22 @@ cdef class Query:
     self.used = 0
     return rt
 
+  cdef void raytrace_one_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil:
+    cdef double pos[3], size[3]
+    cdef double ttE, ttL
+    cdef int i
+    cdef int nchildren
+    ttE = tE
+    ttL = tL
+    tree.get_node_pos(node, pos)
+    tree.get_node_size(node, size)
+    if LiangBarsky(pos, size, p0, dir, &ttE, &ttL):
+      children = tree.get_node_children(node, &nchildren)
+      if nchildren == 0:
+        self._add_node_straight(tree, node)
+      for i in range(nchildren):
+        self.raytrace_one_r(tree, children[i], p0, dir, tE, tL)
+
   cdef void execute_one(Query self, Tree tree, double pos[3], double size[3]) nogil:
     cdef int32_t ipos[3]
     cdef int d
@@ -292,23 +322,25 @@ cdef class Query:
     self.used = 0
     self.execute_r(tree, 0)
 
-  cdef void execute_r(Query self, Tree tree, intptr_t node) nogil:
+  cdef void execute_r(Query self, Tree tree, node_t node) nogil:
     cdef int k
     cdef zorder_t key = tree._nodes[node].key
     cdef int order = tree._nodes[node].order
     cdef int flag = zorder.AABBtest(key, order, self.AABBkey)
+    cdef int nchildren
     if flag == 0:
       return
-    if flag == 2 or tree._nodes[node].child_length == 0:
+    children = tree.get_node_children(node, &nchildren)
+    if flag == 2 or nchildren == 0:
       if self._weighted:
         self._add_node_weighted(tree, node)
       else:
         self._add_node_straight(tree, node)
     else:
-      for k in range(tree._nodes[node].child_length):
-        self.execute_r(tree, tree._nodes[node].child[k])
+      for k in range(nchildren):
+        self.execute_r(tree, children[k])
 
-  cdef void _add_node_straight(self, Tree tree, intptr_t node) nogil:
+  cdef void _add_node_straight(self, Tree tree, node_t node) nogil:
     cdef intptr_t i
     while self.size < self.used + tree._nodes[node].npar:
       if self.size < 1048576:
@@ -327,7 +359,7 @@ cdef class Query:
         self._items[self.used] = i
         self.used = self.used + 1
 
-  cdef void _add_node_weighted(self, Tree tree, intptr_t node) nogil:
+  cdef void _add_node_weighted(self, Tree tree, node_t node) nogil:
     cdef intptr_t item
     cdef int32_t id[3]
     cdef double fd[3], weight

@@ -347,7 +347,7 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, weight='mass', NGB=0):
+  def smooth(self, tree, weight='mass', NGB=0):
     """ smooth a field. when NGB<=0, a quick method is used to give
         a smoothing length estimated from the nearest tree node size; 
         the weight is not used.
@@ -355,7 +355,6 @@ class Field(object):
         a mass conserving smoothing length, the weight is used as the mass.
     """
     # important to first zorder the tree because it reorders the components.
-    tree = self.zorder(ztree=True)
     if weight is not None:
       weight = self[weight]
     else:

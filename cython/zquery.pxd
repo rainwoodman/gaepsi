@@ -1,5 +1,5 @@
 from libc.stdint cimport *
-from ztree cimport Tree
+from ztree cimport Tree, node_t
 from zorder cimport zorder_t
 cdef class Query:
   cdef readonly size_t used
@@ -13,6 +13,7 @@ cdef class Query:
 
   cdef intptr_t * steal(Query self) nogil
   cdef void execute_one(Query self, Tree tree, double pos[3], double size[3]) nogil
-  cdef void execute_r(Query self, Tree tree, intptr_t node) nogil
-  cdef void _add_node_straight(self, Tree tree, intptr_t node) nogil
-  cdef void _add_node_weighted(self, Tree tree, intptr_t node) nogil
+  cdef void execute_r(Query self, Tree tree, node_t node) nogil
+  cdef void _add_node_straight(self, Tree tree, node_t node) nogil
+  cdef void _add_node_weighted(self, Tree tree, node_t node) nogil
+  cdef void raytrace_one_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil

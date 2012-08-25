@@ -132,7 +132,7 @@ cdef class Tree:
         
         
   @cython.boundscheck(False)
-  cdef intptr_t _create_child(self, intptr_t first_par, intptr_t parent) nogil:
+  cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil:
     # creates a child of parent from first_par, returns the new child */
     self._nodes[self.used].first = first_par
     self._nodes[self.used].npar = 1
@@ -148,7 +148,7 @@ cdef class Tree:
     self._nodes[parent].child_length = self._nodes[parent].child_length + 1
     if self._nodes[parent].child_length > 8:
       return -1
-    cdef intptr_t rt = self.used
+    cdef node_t rt = self.used
     self.used = self.used + 1
     if self.used == self.size:
       self._grow()

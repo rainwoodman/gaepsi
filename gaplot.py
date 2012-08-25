@@ -99,6 +99,8 @@ class GaplotContext(object):
     self.T = {}
     # VT cache
     self.VT = {}
+    # empty C avoiding __getattr__ recusive before first time use is called.
+    self.C = {}
 
     self.periodic = False
     self.origin = numpy.array([0, 0, 0.])
@@ -113,6 +115,7 @@ class GaplotContext(object):
     self.last = {}
 
   def __getattr__(self, attr):
+    
     if attr in self.C:
       return self.C[attr]
     else: raise AttributeError('attribute %s not found' % attr)

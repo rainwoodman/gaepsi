@@ -54,8 +54,9 @@ cdef inline int LiangBarskyClip(double num, double denom, double * tE, double * 
    else:
      if t < tL[0]: tL[0] = t
      if t < tE[0]: return 0
-   
-cdef inline int LiangBarsky(double pos[3], double size[3], double p0[3], double dir[3], double * tL, double * tE) nogil:
+   return 1
+
+cdef inline int LiangBarsky(double pos[3], double size[3], double p0[3], double dir[3], double * tE, double * tL) nogil:
    """ LiangBarksy test for line from p0 towards dir with box corner at 'pos' of size 'size',
        returns 1 if intersects, and set tL, tE to the lower and upper bound of t.
        otherwise returns 0 and put junk in tL and tE.
