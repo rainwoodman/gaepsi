@@ -52,8 +52,8 @@ cdef class VisTree:
 
   def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
     self.tree = tree
-    self.node_lum = numpy.empty(shape=tree.used, dtype='f4')
-    self.node_color = numpy.empty(shape=tree.used, dtype='f4')
+    self.node_lum = numpy.empty(shape=tree.get_length(), dtype='f4')
+    self.node_color = numpy.empty(shape=tree.get_length(), dtype='f4')
     self.node_lum[...] = -1
     self.node_color[...] = -1
 
@@ -156,6 +156,7 @@ cdef class VisTree:
     nodenpar = self.tree.get_node_npar(node)
     if nodenpar == 0 or \
       0 == camera.mask_object_one(pos, r):
+      print nodenpar, camera.mask_object_one(pos, r), pos[0], pos[1], pos[2], r[0], r[1], r[2]
       return
 
     cdef int nchildren

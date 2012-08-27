@@ -286,9 +286,12 @@ class GaplotContext(object):
 
       for cam in self._mkcameras(camera):
         nodes = list(vt.find_large_nodes(cam, 0, 65536 * 2))
+        print 'doing nodes', nodes
         with sharedmem.Pool(use_threads=True) as pool:
           def work(node):
-            _CCD = vt.paint(cam, node)
+            profile = {}
+            _CCD = vt.paint(cam, node, profile=profile)
+            print profile
             with pool.lock:
               CCD[...] += _CCD
           pool.map(work, nodes)

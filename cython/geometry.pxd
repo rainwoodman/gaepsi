@@ -13,7 +13,7 @@ cdef inline void DieseFunktionFrustum(numpy.ndarray frustum, numpy.ndarray matri
     frustum[5,:] = matrix[3,:] + matrix[2,:] #nahe plane berechnen
     frustum[...] /= ((frustum[:,:-1] ** 2).sum(axis=-1)**0.5)[:, None]
   
-cdef inline int DieseFunktion(double frustum[6][3], double AABB[8][3]) nogil:
+cdef inline int DieseFunktion(double frustum[6][4], double AABB[8][3]) nogil:
     """ Diese Funktion liefert 
         0 zurück, wenn die geprüften coordinaten nicht sichtbar sind,
         1 zurück, wenn die coords teilweise sichtbar sind und 
