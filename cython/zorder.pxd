@@ -14,6 +14,7 @@ ctypedef __int128_t zorder_t
 
 cdef numpy.dtype _zorder_dtype
 cdef void decode(zorder_t key, int32_t point[3]) nogil
+cdef zorder_t truncate(zorder_t key, int order) nogil
 cdef zorder_t encode(int32_t point[3]) nogil
 cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil 
 cdef int AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 

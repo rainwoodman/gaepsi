@@ -153,6 +153,10 @@ static uint8_t ctab[256] = {
 0xf6,  0xf7,  0xfe,  0xff, 
 };
 
+static inline zorder_t _truncate(zorder_t key, int order) {
+  return (key >> (order * 3)) << (order * 3);
+}
+
 static inline zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
     zorder_t ind = 0;
     x &= (1 << BITS) - 1;

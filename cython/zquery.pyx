@@ -107,7 +107,7 @@ cdef class Query:
       else:
         yield self._items[i]
 
-  def __call__(self, tree, pos, size=None):
+  def __call__(self, tree, mode, pos, dir=None, size=None,):
     """ For a unweighted search, size is half size of the AABB box.
         For a weighted search, do not give size because it is not used;
          we return 'limit' number of particles instead. """
@@ -116,18 +116,23 @@ cdef class Query:
     else:
       return self._execute_straight(tree, pos, size)
 
-  def _execute_straight(self, Tree tree, pos, s):
+  def execute_straight(self, Tree tree, pos, radius):
+    """ find particles within a box at pos +-s.
+        return array of array of intp.
+        if pos is 1 dim, return array of intp.
+        size
+    """
     pos = numpy.asarray(pos)
-    s = numpy.asarray(s)
+    radius = numpy.asarray(radius)
 
-    outintp = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='intp')
-    used = numpy.empty(numpy.broadcast(pos, s).shape[:-1], dtype='intp')
+    outintp = numpy.empty(numpy.broadcast(pos, radius).shape[:-1], dtype='intp')
+    used = numpy.empty(numpy.broadcast(pos, radius).shape[:-1], dtype='intp')
     ops = [pos[..., i] for i in range(3)]
-    try: ops += [s[..., i] for i in range(3)]
+    try: ops += [radius[..., i] for i in range(3)]
     except:
-      try: ops += [s[..., 0] for i in range(3)]
+      try: ops += [radius[..., 0] for i in range(3)]
       except:
-        ops += [s for i in range(3)]
+        ops += [radius for i in range(3)]
     ops += [outintp, used]
     iter = numpy.nditer(
        ops, 
@@ -156,7 +161,11 @@ cdef class Query:
 
     return construct_arrays(outintp, used, numpy.NPY_INTP)
 
-  def _execute_weighted(self, Tree tree, pos):
+  def execute_weighted(self, Tree tree, pos):
+    """ find nearest self.limit particles around pos.
+        return array of (pos.shape, limit).
+        when pos has one item, return array with length of (limit)
+    """
     pos = numpy.asarray(pos)
     out = numpy.empty(numpy.broadcast(pos, pos).shape[:-1], dtype=[('', ('intp', self.size))])
     ops = [pos[..., i] for i in range(3)]
@@ -207,7 +216,13 @@ cdef class Query:
         size = npyiter.next(&citer)
     return out
 
-  def _execute_raytrace(self, Tree tree, pos, dir, max):
+  def execute_raytrace_lcn(self, Tree tree, pos, dir, max):
+    """ find largest complete nodes(LCN) that are inside a node that intersects a ray.
+        return array of arrays of intp.
+        when pos has one item, return array of intp.
+ 
+        an lcn is the topmost level node that has 8 or 0 children.
+    """
     pos = numpy.asarray(pos)
     dir = numpy.asarray(dir)
     outintp = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
@@ -240,8 +255,55 @@ cdef class Query:
             fdir[d] = (<double *>citer.data[d+3])[0]
           tE = 0
           tL = (<double *>citer.data[6])[0]
-          ###### do something here!
-          self.raytrace_one_r(tree, 0, fpos, fdir, tE, tL)
+          self.raytrace_lcn_r(tree, 0, fpos, fdir, tE, tL)
+          # gonna be before stealing, because self.used is reset!
+          (<intptr_t *>citer.data[8])[0] = self.used
+          (<void **>citer.data[7])[0] = <void *> (self.steal())
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+
+    return construct_arrays(outintp, used, numpy.NPY_INTP)
+
+    
+  def execute_raytrace(self, Tree tree, pos, dir, max, node_t root=0):
+    """ find particles that are inside a node that intersects a ray.
+        return array of arrays of intp.
+        when pos has one item, return array of intp.
+    """
+    pos = numpy.asarray(pos)
+    dir = numpy.asarray(dir)
+    outintp = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
+    used = numpy.empty(numpy.broadcast(pos, dir).shape[:-1], dtype='intp')
+
+    ops = [pos[..., i] for i in range(3)]
+    ops += [dir[..., i] for i in range(3)]
+    ops += [max]
+    ops += [outintp, used]
+
+    iter = numpy.nditer(
+       ops, 
+       op_flags=[['readonly']] * 7 + [ ['writeonly']] * 2, 
+          flags=['buffered', 'external_loop', 'zerosize_ok'], 
+      casting='unsafe', 
+      op_dtypes=['f8'] * 7 + ['intp'] * 2)
+
+    self.AABBkey[0] = 0
+    self.AABBkey[1] = -1
+
+    cdef double fpos[3], fdir[3], tE, tL, tLmax
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef int d
+    with nogil:
+      while size > 0:
+        while size > 0:
+          for d in range(3):
+            fpos[d] = (<double *>citer.data[d])[0]
+            fdir[d] = (<double *>citer.data[d+3])[0]
+          tE = 0
+          tL = (<double *>citer.data[6])[0]
+          self.raytrace_one_r(tree, root, fpos, fdir, tE, tL)
           # gonna be before stealing, because self.used is reset!
           (<intptr_t *>citer.data[8])[0] = self.used
           (<void **>citer.data[7])[0] = <void *> (self.steal())
@@ -287,6 +349,23 @@ cdef class Query:
     self.used = 0
     return rt
 
+  cdef void raytrace_lcn_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil:
+    cdef double pos[3], size[3]
+    cdef double ttE, ttL
+    cdef int i
+    cdef int nchildren
+    ttE = tE
+    ttL = tL
+    children = tree.get_node_children(node, &nchildren)
+    if nchildren < 8 and nchildren > 0:
+      for i in range(nchildren):
+        self.raytrace_lcn_r(tree, children[i], p0, dir, tE, tL)
+    else:
+      tree.get_node_pos(node, pos)
+      tree.get_node_size(node, size)
+      if LiangBarsky(pos, size, p0, dir, &ttE, &ttL):
+        self._add_node_lcn(tree, node)
+
   cdef void raytrace_one_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil:
     cdef double pos[3], size[3]
     cdef double ttE, ttL
@@ -324,8 +403,8 @@ cdef class Query:
 
   cdef void execute_r(Query self, Tree tree, node_t node) nogil:
     cdef int k
-    cdef zorder_t key = tree._nodes[node].key
-    cdef int order = tree._nodes[node].order
+    cdef zorder_t key = tree.get_node_key(node)
+    cdef int order = tree.get_node_order(node)
     cdef int flag = zorder.AABBtest(key, order, self.AABBkey)
     cdef int nchildren
     if flag == 0:
@@ -340,21 +419,30 @@ cdef class Query:
       for k in range(nchildren):
         self.execute_r(tree, children[k])
 
+  cdef void _add_node_lcn(self, Tree tree, node_t node) nogil:
+    while self.size == self.used:
+      self.size *= 2
+      self._items = <intptr_t *> realloc(self._items, sizeof(intptr_t) * self.size)
+    self._items[self.used] = node
+    self.used = self.used + 1
+
   cdef void _add_node_straight(self, Tree tree, node_t node) nogil:
     cdef intptr_t i
-    while self.size < self.used + tree._nodes[node].npar:
+    cdef size_t nodenpar = tree.get_node_npar(node)
+    cdef intptr_t nodefirst = tree.get_node_first(node)
+    while self.size < self.used + nodenpar:
       if self.size < 1048576:
         self.size = self.size * 2
       else:
-        if tree._nodes[node].npar > 1048576:
-          self.size += tree._nodes[node].npar
+        if nodenpar > 1048576:
+          self.size += nodenpar
         else:
           self.size += self.size / 4
 
       self._items = <intptr_t *> realloc(self._items, sizeof(intptr_t) * self.size)
 
-    for i in range(tree._nodes[node].first, 
-         tree._nodes[node].first + tree._nodes[node].npar, 1):
+    for i in range(nodefirst, 
+         nodefirst + nodenpar, 1):
       if zorder.AABBtest(tree._zkey[i], 0, self.AABBkey):
         self._items[self.used] = i
         self.used = self.used + 1
@@ -364,8 +452,10 @@ cdef class Query:
     cdef int32_t id[3]
     cdef double fd[3], weight
     cdef Heap heap
-    for item in range(tree._nodes[node].first, 
-         tree._nodes[node].first + tree._nodes[node].npar, 1):
+    cdef size_t nodenpar = tree.get_node_npar(node)
+    cdef intptr_t nodefirst = tree.get_node_first(node)
+    for item in range(nodefirst, 
+         nodefirst + nodenpar, 1):
       zorder.diff(self.centerkey, tree._zkey[item], id)
       tree.digitize.i2f0(id, fd)
       weight = fd[0] * fd[0] + fd[1] * fd[1] + fd[2] * fd[2]

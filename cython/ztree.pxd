@@ -41,6 +41,18 @@ cdef class Tree:
     zorder.decode(self._zkey[index], ipos)
     self.digitize.i2f(ipos, pos)
 
+  cdef inline size_t get_node_npar(Tree self, node_t index) nogil:
+    return self._nodes[index].npar
+
+  cdef inline intptr_t get_node_first(Tree self, node_t index) nogil:
+    return self._nodes[index].first
+
+  cdef inline zorder_t get_node_key(Tree self, node_t index) nogil:
+    return self._nodes[index].key
+
+  cdef inline int get_node_order(Tree self, node_t index) nogil:
+    return self._nodes[index].order
+
   cdef inline node_t * get_node_children(Tree self, node_t index, int * count) nogil:
     count[0] = self._nodes[index].child_length
     return self._nodes[index].child

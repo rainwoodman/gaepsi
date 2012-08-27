@@ -16,6 +16,7 @@ from warnings import warn
 
 cdef extern from 'zorder_internal.c':
   cdef zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
+  cdef zorder_t _truncate(zorder_t ind, int order) nogil 
   cdef void _ind2xyz (zorder_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
   cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
   cdef int _AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 
@@ -54,6 +55,9 @@ zorder_dtype = _zorder_dtype
 
 cdef void decode(zorder_t key, int32_t point[3]) nogil:
     _ind2xyz(key, point, point+1, point+2)
+cdef zorder_t truncate(zorder_t key, int order) nogil:
+    return _truncate(key, order)
+
 cdef zorder_t encode(int32_t point[3]) nogil:
     return _xyz2ind(point[0], point[1], point[2])
 cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil:

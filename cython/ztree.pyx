@@ -139,13 +139,12 @@ cdef class Tree:
     self._nodes[self.used].parent = parent
     self._nodes[self.used].child_length = 0
     self._nodes[self.used].order = self._nodes[parent].order - 1
-    #/* the lower bits of a sqkey is cleared off but I don't think it is necessary */
-#    self._nodes[self.used].key = (self._zkey[first_par] >> (self._nodes[self.used].order * 3)) << (self._nodes[self.used].order * 3)
-    # the above code causes problem when zorder is not an integral type
-    # thus we do not clear the lower bits.
-    self._nodes[self.used].key = self._zkey[first_par]
+    # the lower bits of a sqkey is cleared off, so that get_node_pos returns 
+    # correct corner coordinates
+    self._nodes[self.used].key = zorder.truncate(self._zkey[first_par], self._nodes[self.used].order)
     self._nodes[parent].child[self._nodes[parent].child_length] = self.used
     self._nodes[parent].child_length = self._nodes[parent].child_length + 1
+
     if self._nodes[parent].child_length > 8:
       return -1
     cdef node_t rt = self.used

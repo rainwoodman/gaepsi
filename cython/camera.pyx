@@ -36,7 +36,6 @@ cdef extern from "math.h":
 
 cdef class VisTree:
   cdef readonly ztree.Tree tree
-  cdef ztree.NodeInfo * _nodes
   cdef readonly numpy.ndarray node_lum
   cdef readonly numpy.ndarray node_color
   cdef float * _node_lum
@@ -60,7 +59,6 @@ cdef class VisTree:
 
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
-    self._nodes = tree._nodes
     if luminosity is None:
       self.fd[0] = -1
       self.luminosity = numpy.array(1.0)
@@ -88,14 +86,18 @@ cdef class VisTree:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef node_t node = -1, i
+    cdef zorder_t nodekey
+    cdef int order
     cdef zorder_t key
     cdef float lum
     with nogil:
       while size > 0:
         while size > 0:
           key = (<zorder_t*>citer.data[2])[0]
+          nodekey = self.tree.get_node_key(node)
+          nodeorder = self.tree.get_node_order(node)
           if node == -1 or \
-             not zorder.boxtest(self._nodes[node].key, self._nodes[node].order, key):
+             not zorder.boxtest(nodekey, nodeorder, key):
             node = self.tree.get_container_by_key(key, 0)
           lum = (<float*>citer.data[0])[0]
           self._node_lum[node] += lum
@@ -116,6 +118,9 @@ cdef class VisTree:
     cdef int k, child
     cdef float l, c
     cdef int nchildren
+    cdef size_t nodenpar
+    cdef intptr_t nodefirst
+
     children = self.tree.get_node_children(node, &nchildren)
     if nchildren > 0:
       for k in range(nchildren):
@@ -123,8 +128,10 @@ cdef class VisTree:
         luminosity[0] += l
         color[0] += c
     else:
-      for k in range(self._nodes[node].npar):
-        child = self._nodes[node].first + k
+      nodenpar = self.tree.get_node_npar(node)
+      nodefirst = self.tree.get_node_first(node)
+      for k in range(nodenpar):
+        child = nodefirst + k
         npyarray.flat(&self._luminosity, child, &l)
         npyarray.flat(&self._color, child, &c)
         luminosity[0] += l
@@ -137,6 +144,7 @@ cdef class VisTree:
     cdef double pos[3]
     cdef double r[3]
     cdef int d, k
+    cdef size_t nodenpar
 
     self.tree.get_node_pos(node, pos)
     self.tree.get_node_size(node, r)
@@ -145,7 +153,8 @@ cdef class VisTree:
       r[d] *= 0.5
       pos[d] += r[d]
 
-    if self._nodes[node].npar == 0 or \
+    nodenpar = self.tree.get_node_npar(node)
+    if nodenpar == 0 or \
       0 == camera.mask_object_one(pos, r):
       return
 
@@ -153,7 +162,7 @@ cdef class VisTree:
     children = self.tree.get_node_children(node, &nchildren)
 
     cdef node_t subnode
-    if nchildren > 0 and self._nodes[node].npar > thresh:
+    if nchildren > 0 and nodenpar > thresh:
       for k in range(nchildren):
         for subnode in self.find_large_nodes(camera, children[k], thresh):
           yield subnode
@@ -185,20 +194,25 @@ cdef class VisTree:
     cdef int nchildren
     children = self.tree.get_node_children(node, &nchildren)
 
+    cdef size_t nodenpar
+    cdef intptr_t nodefirst
+
+    nodenpar = self.tree.get_node_npar(node)
+    nodefirst = self.tree.get_node_first(node)
     if False and (r[0] / (camera.far - camera.near) < 0.1) and \
       (whl[0] * camera._hshape[0] < 0.1 and whl[1] * camera._hshape[1] < 0.1):
       self.ensure_node_value_r(node, &luminosity, &color)
       camera.paint_object_one(pos, uvt, whl, color/luminosity, luminosity, ccd)
     elif nchildren == 0:
-      for k in range(self._nodes[node].npar):
-        self.tree.get_leaf_pos(self._nodes[node].first+k, pos)
+      for k in range(nodenpar):
+        self.tree.get_leaf_pos(nodefirst+k, pos)
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r , c3inv, whl)
-        npyarray.flat(&self._luminosity, self._nodes[node].first+k, &luminosity)
-        npyarray.flat(&self._color, self._nodes[node].first+k, &color)
+        npyarray.flat(&self._luminosity, nodefirst+k, &luminosity)
+        npyarray.flat(&self._color, nodefirst+k, &color)
         camera.paint_object_one(pos, 
           uvt, whl, color, luminosity, ccd)
-      return self._nodes[node].npar
+      return nodenpar
     else:
       for k in range(nchildren):
         rt += self.paint_node(camera, children[k], ccd)

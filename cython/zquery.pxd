@@ -16,4 +16,6 @@ cdef class Query:
   cdef void execute_r(Query self, Tree tree, node_t node) nogil
   cdef void _add_node_straight(self, Tree tree, node_t node) nogil
   cdef void _add_node_weighted(self, Tree tree, node_t node) nogil
+  cdef void _add_node_lcn(self, Tree tree, node_t node) nogil
   cdef void raytrace_one_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil
+  cdef void raytrace_lcn_r(Query self, Tree tree, node_t node, double p0[3], double dir[3], double tE, double tL) nogil
