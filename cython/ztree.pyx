@@ -19,6 +19,7 @@ cdef class Tree:
 
   def __cinit__(self):
     flexarray.init(&self._nodes, <void**>&self.nodes, sizeof(Node), 1024)
+    flexarray.init(&self._leafnodes, <void**>&self.leafnodes, sizeof(LeafNode), 1024)
 
   def __init__(self, zkey, digitize, thresh=100):
     """ digitize is an zorder.Digitize object.
@@ -48,13 +49,12 @@ cdef class Tree:
     cdef node_t * children
     children = self.get_node_children(ind, &nchildren)
     dims[0] = nchildren
-    arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_INT, children)
-    numpy.set_array_base(arr, self)
-    rt = dict(key=self.get_node_key(ind),
-            order=self.get_node_order(ind),
-           parent=self.get_node_parent(ind),
-            index=ind,
-         children=arr)
+    #FIXME: watchout!! NPY_INT
+    if children != NULL:
+      arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_INT, children)
+      numpy.set_array_base(arr, self)
+    else:
+      arr = numpy.PyArray_SimpleNew(1, dims, numpy.NPY_INT)
 
     cdef numpy.ndarray pos
     cdef numpy.ndarray size
@@ -63,18 +63,28 @@ cdef class Tree:
     self.get_node_pos(ind, <double*>pos.data)
     self.get_node_size(ind, <double*>size.data)
 
-    rt.update(dict(pos=pos, size=size))
 
-    rt.update(dict(first=self.get_node_first(ind), 
-                      last=self.get_node_npar(ind) + self.get_node_first(ind)
-             ))
+    rt = dict(key=self.get_node_key(ind),
+            order=self.get_node_order(ind),
+           parent=self.get_node_parent(ind),
+            index=ind,
+        nchildren=nchildren,
+        leafindex=self.leafnode_index(ind),
+            first=self.get_node_first(ind), 
+             last=self.get_node_npar(ind) + self.get_node_first(ind),
+             npar=self.get_node_npar(ind),
+              pos=pos, 
+             size=size,
+         children=arr)
+
+
     return rt
     
 
   cdef int _tree_build(Tree self) nogil:
       cdef intptr_t j = 0
       cdef intptr_t i = 0
-      cdef intptr_t step = 0
+      cdef intptr_t extrastep = 0
       flexarray.append(&self._nodes, 1)
       self.nodes[0].key = 0
       self.nodes[0].first = 0
@@ -83,62 +93,106 @@ cdef class Tree:
       self.nodes[0].parent = -1
       self.nodes[0].child_length = 0
       while i < self._zkey_length:
-        while not zorder.boxtest(self.nodes[j].key, self.nodes[j].order, self._zkey[i]):
+        while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
           # close the nodes by filling in the npar, because we already scanned over
           # all particles in these nodes.
-          self.nodes[j].npar = i - self.nodes[j].first
-          j = self.nodes[j].parent
+          self.set_node_npar(j, i - self.get_node_first(j))
+          j = self.get_node_parent(j)
           # because we are on a morton key ordered list, no need to deccent into children 
         # NOTE: will never go beyond 8 children per node, 
         # for the child_length > 0 branch is called less than 8 times on the parent, 
-        # the point fails in_square of the current node
-        if self.nodes[j].child_length > 0:
+
+        # ASSERTION: the point(i) fails boxtest of the current node(j)
+        if self.get_node_nchildren(j) > 0:
           # already not a leaf, create new child
           j = self._create_child(i, j) 
-        elif (self.nodes[j].npar > self.thresh and self.nodes[j].order > 0):
+        elif (self.get_node_npar(j) >= self.thresh and self.get_node_order(j) > 0):
           # too many points in the leaf, split it
           # NOTE: i is rewinded, because now some of the particles are no longer
           # in the new node.
-          i = self.nodes[j].first
+          i = self.get_node_first(j)
           j = self._create_child(i, j) 
         else:
           # put the particle into the leaf.
-          self.nodes[j].npar = self.nodes[j].npar + 1
-        if j == -1: return -1
+          pass
+        # particle i is not in node j yet.
+        # next particle to be considered is i+1,
+        if j == -1: 
+          return -1
         # now we try to fast forword to the first particle that is not in the current node
-        step = self.thresh
-        if i + step < self._zkey_length:
-          while not zorder.boxtest(self.nodes[j].key, self.nodes[j].order, self._zkey[i + step]):
-            step >>= 1
-          if step > 0:
-            self.nodes[j].npar = self.nodes[j].npar + step
-            i = i + step
-        i = i + 1
+        extrastep = self.thresh - self.get_node_npar(j) - 1
+        if extrastep > 0 and i + extrastep < self._zkey_length:
+          while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i + extrastep]):
+            extrastep >>= 1
+        else:
+          extrastep = 0
+        self.set_node_npar(j, self.get_node_npar(j) + extrastep + 1)
+        i = i + 1 + extrastep
       # now close the remaining open nodes
-      while j >= 0:
-        self.nodes[j].npar = i - self.nodes[j].first
-        j = self.nodes[j].parent
-        
+      while j != -1:
+        self.set_node_npar(j, i - self.get_node_first(j))
+        j = self.get_node_parent(j)
         
   cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil:
-    cdef intptr_t index = flexarray.append(&self._nodes, 1)
+    cdef intptr_t fullparent 
+    cdef node_t index
+    cdef int k
+    if self.is_leafnode(parent):
+      index = self.leafnode_index(parent)
+      # we need to move the parent from leafnode to the node storage pool
+      fullparent = flexarray.append(&self._nodes, 1)
+      # first copy
+      self.nodes[fullparent].key = self.leafnodes[index].key
+      self.nodes[fullparent].first = self.leafnodes[index].first
+      self.nodes[fullparent].order = self.leafnodes[index].order
+      self.nodes[fullparent].npar = self.leafnodes[index].npar
+      self.nodes[fullparent].parent = self.leafnodes[index].parent
+      self.nodes[fullparent].child_length = 0
+      # now replace in the grandparent's children.
+      grandparent = self.nodes[fullparent].parent
+      for k in range(8):
+        if self.nodes[grandparent].child[k] == parent:
+          self.nodes[grandparent].child[k] = fullparent
+          break
+      if index != self._leafnodes.used - 1:
+        with gil:
+          raise Exception('consistency %d != %d' %(parent, self._leafnodes.used - 1))
+      parent = fullparent
+      flexarray.remove(&self._leafnodes, 1)
+
+    index = flexarray.append(&self._leafnodes, 1)
     # creates a child of parent from first_par, returns the new child */
-    self.nodes[index].first = first_par
-    self.nodes[index].npar = 1
-    self.nodes[index].parent = parent
-    self.nodes[index].child_length = 0
-    self.nodes[index].order = self.nodes[parent].order - 1
+    self.leafnodes[index].first = first_par
+    self.leafnodes[index].npar = 0
+    self.leafnodes[index].order = self.nodes[parent].order - 1
     # the lower bits of a sqkey is cleared off, so that get_node_pos returns 
     # correct corner coordinates
-    self.nodes[index].key = zorder.truncate(self._zkey[first_par], self.nodes[index].order)
+    self.leafnodes[index].key = zorder.truncate(self._zkey[first_par], self.leafnodes[index].order)
+    self.leafnodes[index].parent = parent
+
+    index = index | (<int> 1 << 31)
     self.nodes[parent].child[self.nodes[parent].child_length] = index
     self.nodes[parent].child_length = self.nodes[parent].child_length + 1
 
     if self.nodes[parent].child_length > 8:
+      with gil: raise RuntimeError("child_length > 8")
       return -1
-    return index
+
+    return index 
+
+  def __len__(self):
+    return self.get_length()
+
+  property node_length:
+    def __get__(self):
+      return self._nodes.used
+    
+  property leaf_length:
+    def __get__(self):
+      return self._leafnodes.used
 
   def __dealloc__(self):
     flexarray.destroy(&self._nodes)
+    flexarray.destroy(&self._leafnodes)
 
 

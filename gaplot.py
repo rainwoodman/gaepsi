@@ -21,7 +21,7 @@ def _fr10(n):
   exp = numpy.floor(numpy.log10(n))
   return n * 10 ** -exp, exp
 
-def image(color, luminosity=None, cmap=None, composite=False):
+def _image(color, luminosity=None, cmap=None, composite=False):
     """converts (color, luminosity) to an rgba image,
        if composite is False, directly reduce luminosity
        on the RGBA channel by luminosity,
@@ -43,6 +43,8 @@ def image(color, luminosity=None, cmap=None, composite=False):
         numpy.multiply(image[...,:3], luminosity[..., None], image[..., :3], casting='unsafe')
 
     return image
+
+image = _image
 
 def addspikes(image, x, y, s, color):
   """deprecated method to directly add spikes to a raw image. 
@@ -143,7 +145,7 @@ class GaplotContext(object):
 
   def image(self, color, luminosity=None, cmap=None, composite=False):
     # a convenient wrapper
-    return image(color, luminosity=None, cmap=None, composite=False)
+    return _image(color, luminosity=None, cmap=None, composite=False)
 
   def _rebuildtree(self, ftype, thresh=32):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
@@ -469,7 +471,7 @@ class GaplotContext(object):
       if luminosity is not None and not isinstance(luminosity, normalize):
         luminosity = nl_(luminosity)
       
-      im = image(color=color, luminosity=luminosity, cmap=cmap)
+      im = self.image(color=color, luminosity=luminosity, cmap=cmap)
     else:
       print 'using im'
       im = color
