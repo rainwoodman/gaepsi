@@ -165,6 +165,9 @@ def bolemetric(Lbol, band, cosmology=HOPKINS2007):
     else:
       Lband = Lbol / ratio
     return Lband
+def eddington(U, mdot, factor=3.):
+  """ returns the eddington limited growth rate """
+  return 4 * numpy.pi * U.G * U.C * U.PROTONMASS / (0.1 * U.C ** 2 * U.THOMSON_CROSSSECTION) * factor * mdot
 
 if False:
   def QSObol(U, mdot, type):

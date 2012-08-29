@@ -34,6 +34,9 @@ cdef class Tree:
     if -1 == self._tree_build():
       raise ValueError("tree build failed. Is the input zkey sorted?")
 
+  def optimize(self):
+    while self._optimize() > 0: continue
+
   def transverse(self, prefunc=None, postfunc=None, index=0):
     node = self[index]
     if prefunc:    prefunc(node)
@@ -42,8 +45,12 @@ cdef class Tree:
         self.transverse(prefunc=prefunc, postfunc=postfunc, index=i)
     if postfunc: postfunc(node)
     
-  def __getitem__(self, ind):
-    """ returns a dictionary of the tree node by ind """
+  def getnode(self, ind):
+    """ returns a dictionary of the tree node by ind,
+        or if ind is 
+           'npar', 'first', 'last', 'pos', 'size', 'parent'
+        return array
+    """
     cdef numpy.intp_t dims[1]
     cdef int nchildren
     cdef node_t * children
@@ -77,10 +84,90 @@ cdef class Tree:
              size=size,
          children=arr)
 
-
     return rt
     
+  def getprop(self, prop):
+    cdef intptr_t i
+    cdef intptr_t method 
+    actions = {
+       'key':('object', <intptr_t> self.get_node_key),
+       'mask':('?', <intptr_t> -1),
+       'order':('i2', <intptr_t> self.get_node_order),
+       'first':('intp', <intptr_t> self.get_node_first),
+       'npar':('intp', <intptr_t> self.get_node_npar),
+       'parent':('intp', <intptr_t> self.get_node_parent),
+       'nchildren':('i2', <intptr_t> self.get_node_nchildren),
+       'pos':(('f8', 3), <intptr_t> self.get_node_pos),
+       'size':(('f8', 3), <intptr_t> self.get_node_size)
+    }
 
+    dtype, method = actions[prop]
+    
+    out = numpy.empty(len(self), dtype=dtype)
+    if isinstance(dtype, tuple):
+     ops = [out[..., d] for d in range(dtype[1])]
+     op_flags = [['writeonly']] * dtype[1]
+     op_dtypes = [dtype[0]] * dtype[1]
+    else:
+     ops = [out]
+     op_flags = [['writeonly']]
+     op_dtypes = [dtype]
+
+    iter = numpy.nditer(
+        ops,
+        op_flags=op_flags,
+        flags = ['buffered', 'external_loop', 'refs_ok'],
+        casting='unsafe',
+        op_dtypes=op_dtypes)
+      
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef double fdata[3]
+    cdef object obj
+    i = 0
+    while size > 0:
+      while size > 0:
+        if method == <intptr_t> -1:
+          (<bint *>(citer.data[0]))[0] = (self.get_node_first(i) != -1)
+        if method == <intptr_t>self.get_node_key:
+          obj = self.get_node_key(i)
+          (<void**>(citer.data[0]))[0] = <void*>obj
+          cpython.Py_INCREF(obj)
+        elif method == <intptr_t>self.get_node_first:
+          (<intptr_t *>(citer.data[0]))[0] = self.get_node_first(i)
+        elif method == <intptr_t>self.get_node_parent:
+          (<intptr_t *>(citer.data[0]))[0] = self.get_node_parent(i)
+        elif method == <intptr_t>self.get_node_npar:
+          (<intptr_t *>(citer.data[0]))[0] = self.get_node_npar(i)
+        elif method == <intptr_t>self.get_node_nchildren:
+          (<short int *>(citer.data[0]))[0] = self.get_node_nchildren(i)
+        elif method == <intptr_t>self.get_node_order:
+          (<short int *>(citer.data[0]))[0] = self.get_node_order(i)
+        elif method == <intptr_t>self.get_node_pos:
+          self.get_node_pos(i, fdata)
+          (<double *>(citer.data[0]))[0] = fdata[0]
+          (<double *>(citer.data[1]))[0] = fdata[1]
+          (<double *>(citer.data[2]))[0] = fdata[2]
+        elif method == <intptr_t>self.get_node_size:
+          self.get_node_size(i, fdata)
+          (<double *>(citer.data[0]))[0] = fdata[0]
+          (<double *>(citer.data[1]))[0] = fdata[1]
+          (<double *>(citer.data[2]))[0] = fdata[2]
+
+        npyiter.advance(&citer)
+        size = size - 1
+        i = i + 1
+      size = npyiter.next(&citer) 
+    return out
+  def __getitem__(self, item):
+    if isinstance(item, basestring):
+      return self.getprop(item)
+    elif isinstance(item, slice):
+      start, stop, step = slice.indices(len(self))
+      return [self.getnode(i) for i in range(start, stop, step)]
+    else:
+      return self.getnode(item)
+    
   cdef int _tree_build(Tree self) nogil:
       cdef intptr_t j = 0
       cdef intptr_t i = 0
@@ -179,6 +266,70 @@ cdef class Tree:
       return -1
 
     return index 
+
+  cdef intptr_t _optimize(Tree self) nogil:
+    # merge the immediate parent of leaf nodes if it is incomplete.
+    cdef intptr_t j
+    cdef intptr_t changed = 0
+    cdef node_t parent
+    cdef node_t * children
+    cdef int nchildren
+    cdef node_t grandparent
+    cdef intptr_t index
+    cdef node_t freechild
+    cdef int notimmediate
+
+    for j in range(self._leafnodes.used):
+      if self.leafnodes[j].first == -1: continue
+      parent = self.leafnodes[j].parent
+      nchildren = self.nodes[parent].child_length
+      grandparent = self.nodes[parent].parent
+      if grandparent == -1:
+        if parent != 0:
+          with gil:
+            raise RuntimeError("visiting a parent twice %d" % parent)
+        continue
+
+      if nchildren == 8: continue
+        
+      children = self.nodes[parent].child
+      notimmediate = 0
+      for k in range(nchildren):
+        index = self.leafnode_index(children[k])
+        if index == -1: 
+          notimmediate = 1
+          break
+         
+      # only do nodes with all leaf type children
+      if notimmediate: continue
+
+      changed = changed + 1
+      # first mark the children reclaimable
+      for k in range(nchildren):
+        index = self.leafnode_index(children[k])
+        if index == -1: continue
+        self.leafnodes[index].first = -1
+        self.leafnodes[index].parent = -1
+        self.leafnodes[index].npar = 0
+
+      # j points to a good leafnode, b/c it has been merged
+      # then copy the parent node to a leafnode(replace the first children)
+      self.leafnodes[j].key = self.nodes[parent].key
+      self.leafnodes[j].first = self.nodes[parent].first
+      self.leafnodes[j].order = self.nodes[parent].order
+      self.leafnodes[j].npar = self.nodes[parent].npar
+      self.leafnodes[j].parent = grandparent
+
+      # update the grandparent
+      for k in range(self.nodes[grandparent].child_length):
+        if self.nodes[grandparent].child[k] == parent:
+          self.nodes[grandparent].child[k] = j | (<int>1 << 31)
+
+      # mark old parent node reclaimable
+      self.nodes[parent].first = -1
+      self.nodes[parent].npar = 0
+      self.nodes[parent].parent = -1
+    return changed
 
   def __len__(self):
     return self.get_length()

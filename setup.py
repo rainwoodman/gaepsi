@@ -24,7 +24,7 @@ setup(name="gaepsi", version="0.2",
       ext_modules = [
         Extension("gaepsi.%s" % name, 
              [ name.replace('.', '/') + '.c',],
-             extra_compile_args=['-O3', '-Dintp=npy_intp'],
+             extra_compile_args=['-O0', '-g', '-Dintp=npy_intp'],
              libraries=[],
              include_dirs=[get_include()],
              depends = extra

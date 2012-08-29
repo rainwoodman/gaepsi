@@ -15,7 +15,7 @@ from flexarray cimport FlexArray
 
 cdef packed struct Node:
   zorder_t key # from key and level to derive the bot and top limits
-  intptr_t first
+  intptr_t first # if first is -1, this node is unused/reclaimable.
   intptr_t npar
   short order
   short child_length
@@ -24,7 +24,7 @@ cdef packed struct Node:
 
 cdef packed struct LeafNode:
   zorder_t key # from key and level to derive the bot and top limits
-  intptr_t first
+  intptr_t first # if first is -1, this node is unused/reclaimable.
   short order
   short npar
   node_t parent
@@ -144,5 +144,6 @@ cdef class Tree:
     return this
 
   cdef int _tree_build(Tree self) nogil
+  cdef intptr_t _optimize(Tree self) nogil
   cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil
 

@@ -149,6 +149,7 @@ class GaplotContext(object):
 
   def _rebuildtree(self, ftype, thresh=32):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
+    self.T[ftype].optimize()
     if ftype in self.VT:
       del self.VT[ftype]
 
