@@ -106,6 +106,7 @@ cdef class VisTree:
     # note that this function is thread safe even though no locking is used.
     # in case there is a race condition it will do redundant work
     
+    node = self.tree.node_index(node)
     if self._node_lum[node] != -1:
       luminosity[0] = self._node_lum[node]
       color[0] = self._node_color[node]
