@@ -263,13 +263,16 @@ class Field(object):
 
   def __getitem__(self, index):
     if isinstance(index, basestring):
-      if index == 'x':
+      if index in self.dict:
+        return self.dict[index]
+      elif index == 'x':
         return self.dict['locations'][:, 0]
       elif index == 'y':
         return self.dict['locations'][:, 1]
       elif index == 'z':
         return self.dict['locations'][:, 2]
-      return self.dict[index]
+      else:
+        raise KeyError('index %s not found' % index)
     elif isinstance(index, slice):
       subfield = Field()
       start, stop, step = index.indices(self.numpoints)
@@ -328,6 +331,16 @@ class Field(object):
   def __contains__(self, index):
     if isinstance(index, basestring):
       return index in self.dict
+
+  @property
+  def dtype(self):
+    dtype = []
+    for n in self.names:
+      if len(self[n].shape) > 1:
+        dtype += [(n,  (self[n].dtype, self[n].shape[1:]))]
+      else:
+        dtype += [(n,  self[n].dtype)]
+    return numpy.dtype(dtype)
 
   def __repr__(self):
     d = {}

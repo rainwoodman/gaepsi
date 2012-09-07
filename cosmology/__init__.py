@@ -8,14 +8,13 @@ def sphdist(ra1, dec1, ra2, dec2, out=None):
   return _cosmology.sphdist(ra1, dec1, ra2, dec2, out)
 def radec2vec(ra, dec):
   c = numpy.cos(dec)
-  return numpy.asarray([c * numpy.cos(ra), c * numpy.sin(ra), numpy.sin(dec)])
+  return numpy.asarray([c * numpy.cos(ra), c * numpy.sin(ra), numpy.sin(dec)]).T
 
-def sphrotate(ref, new, ra, dec):
+def sphrotate(ra, dec, ref, new=(0, 0)):
   """ rotate ra dec, according to ref -> new, where ref=(ra, dec), new=(ra,dec)"""
   # modified from http://tir.astro.utoledo.edu/idl/spherical_coord_rotate.pro
   vref = radec2vec(*ref)
   vnew = radec2vec(*new)
-  X,Y,Z = radec2vec(ra, dec)
   ex = vref
   # old frame, ex -> ref, ez -> rotation axis
   ez = numpy.cross(vnew, vref)
@@ -26,7 +25,7 @@ def sphrotate(ref, new, ra, dec):
   ex2 = vnew
   ey2 = numpy.cross(ez, ex2)
   ey2 /= ey2.dot(ey2) ** 0.5
-  V = numpy.array([X, Y, Z])
+  V = radec2vec(ra, dec).T
   V = ex.dot(V) * ex2[:, None] + ey.dot(V) * ey2[:, None] + ez.dot(V) * ez[:, None]
   dec = numpy.arcsin(V[2])
   ra = numpy.arctan2(V[1], V[0])
@@ -235,12 +234,21 @@ class Cosmology(object):
   def Tvir(self, m, z, Deltac=200, Xh=0.76, ye=1.16):
     return 0.5 * self.Vvir(m,z, Deltac) ** 2 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
 
+  def ie2P(self, Xh, ie, ye, mass, out=None):
+    """ from gadget internal energy per mass and density to 
+       pressure integrated per particle volume(not the pressure)"""
+    GAMMA = 5 / 3.
+    mu = 1.0 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
+    return ie * mass * (Xh * (GAMMA - 1)) * ye * mu
+
   def ie2T(self, Xh, ie, ye, out=None):
     """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
        multiply by units.TEMPERATURE to SI"""
     fac = self.units.PROTONMASS / self.units.BOLTZMANN
+    GAMMA = 5 / 3.
+    mu = 1.0 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
     if out != None:
-      out[:] = ie[:] / (ye[:] * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
+      out[:] = ie[:] * mu * (GAMMA - 1) * fac
       return out
     else:
       return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac

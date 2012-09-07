@@ -12,6 +12,8 @@ import warnings
 import matplotlib
 from matplotlib import cm
 
+DEG = numpy.pi / 180.
+
 def _ensurelist(a):
   if numpy.isscalar(a):
     return (a,)
@@ -38,10 +40,9 @@ def _image(color, luminosity=None, cmap=None, composite=False):
     if luminosity is not None:
       luminosity = luminosity.copy()
       if composite:
-        numpy.multiply(luminosity, 255.999, image[..., :3], casting='unsafe')
+        numpy.multiply(luminosity, 255.999, image[..., 3], casting='unsafe')
       else:
         numpy.multiply(image[...,:3], luminosity[..., None], image[..., :3], casting='unsafe')
-
     return image
 
 image = _image
@@ -92,7 +93,7 @@ def addspikes(image, x, y, s, color):
 class GaplotContext(object):
   def __init__(self, shape = (600,600)):
     self.default_axes = None
-    self.format = None
+    self._format = None
     # fields
     self.F = {}
     # ptypes
@@ -109,6 +110,7 @@ class GaplotContext(object):
     self.boxsize = numpy.array([1, 1, 1.])
 
     self._shape = shape
+    self.camera = Camera(width=self.shape[0], height=self.shape[1])
     self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=False, method='ortho')
     from gaepsi.cosmology import default
     self.cosmology = default
@@ -145,7 +147,7 @@ class GaplotContext(object):
 
   def image(self, color, luminosity=None, cmap=None, composite=False):
     # a convenient wrapper
-    return _image(color, luminosity=None, cmap=None, composite=False)
+    return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
   def _rebuildtree(self, ftype, thresh=32):
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
@@ -164,10 +166,10 @@ class GaplotContext(object):
     from matplotlib.figure import Figure
     width = self.shape[0] / dpi
     height = self.shape[1] / dpi
-    fig = Figure((width, height), dpi=dpi)
-    ax = fig.add_axes(axes)
+    figure = Figure((width, height), dpi=dpi)
+    ax = figure.add_axes(axes)
     self.default_axes = ax
-    return fig, ax
+    return figure, ax
 
   def invalidate(self, *ftypes):
     """ clear the VT cache of a ftype """
@@ -186,7 +188,7 @@ class GaplotContext(object):
     warnings.warn('default_camera deprecated. use camera instead')
     return self.camera
 
-  def view(self, center=None, size=None, up=None, dir=None, method=None, fade=None):
+  def view(self, center=None, size=None, up=None, dir=None, method='ortho', fade=None):
     """ 
        if center is a field type, 
          center will be calcualted from that field type
@@ -194,7 +196,6 @@ class GaplotContext(object):
 
        in all othercases, anything non-none will be overwritten,
 
-       A new default camera is always made:w
     """
     if isinstance(center, basestring):
       ftype = center
@@ -212,12 +213,10 @@ class GaplotContext(object):
       self.up = numpy.ones(3) * up
     if dir is not None:
       self.dir = numpy.ones(3) * dir
-    if method is not None:
-      self.method = method
     if fade is not None:
       self.fade = fade
 
-    self.camera = self._mkcamera(self.method, self.fade)
+    self._mkcamera(method, self.fade)
 
   def _mkcamera(self, method, fade):
     """ make a camera, method can be ortho or persp
@@ -229,17 +228,15 @@ class GaplotContext(object):
     target = self.center
     distance = self.size[2]
 
-    camera = Camera(width=self.shape[0], height=self.shape[1])
-    camera.lookat(target=target,
+    self.camera.lookat(target=target,
        pos=target - self.dir * distance, up=self.up)
     if method == 'ortho':
-      camera.ortho(extent=(-self.size[0] * 0.5, self.size[0] * 0.5, -self.size[1] * 0.5, self.size[1] * 0.5), near=distance - 0.5 * self.size[2], far=distance + 0.5 *self.size[2])
+      self.camera.ortho(extent=(-self.size[0] * 0.5, self.size[0] * 0.5, -self.size[1] * 0.5, self.size[1] * 0.5), near=distance - 0.5 * self.size[2], far=distance + 0.5 *self.size[2])
     elif method == 'persp':
       fov = numpy.arctan2(self.size[1] * 0.5, distance) * 2
       aspect = self.size[0] / self.size[1]
-      camera.persp(fov=fov, aspect=aspect, near=distance - 0.5 * self.size[2], far=distance + 0.5*self.size[2])
-    camera.fade = fade
-    return camera
+      self.camera.persp(fov=fov, aspect=aspect, near=distance - 0.5 * self.size[2], far=distance + 0.5*self.size[2])
+    self.camera.fade = fade
 
   def _mkcameras(self, camera=None):
     if not camera:
@@ -288,13 +285,15 @@ class GaplotContext(object):
           self.VT[key] = vt
 
       for cam in self._mkcameras(camera):
-        nodes = list(vt.find_large_nodes(cam, 0, 65536 * 2))
+        count = vt.tree[0]['npar'] / sharedmem.cpu_count()
+        if count < 1024: count = 1024
+        nodes = list(vt.find_large_nodes(cam, 0, count))
         print 'doing nodes', nodes
         with sharedmem.Pool(use_threads=True) as pool:
           def work(node):
             profile = {}
             _CCD = vt.paint(cam, node, profile=profile)
-            print profile
+#            print profile
             with pool.lock:
               CCD[...] += _CCD
           pool.map(work, nodes)
@@ -468,14 +467,14 @@ class GaplotContext(object):
     cmap = realkwargs['cmap']
     if len(color.shape) < 3:
       if not isinstance(color, normalize):
-        color = nl_(color)
+        color = n_(color)
       if luminosity is not None and not isinstance(luminosity, normalize):
-        luminosity = nl_(luminosity)
+        luminosity = n_(luminosity)
       
       im = self.image(color=color, luminosity=luminosity, cmap=cmap)
     else:
-      print 'using im'
       im = color
+    print im[:, :, 3].min()
     ax.imshow(im.swapaxes(0,1), **realkwargs)
 
     self.last['color'] = color
@@ -535,7 +534,7 @@ class GaplotContext(object):
 
   def schema(self, ftype, types, components):
     """ loc dtype is the base dtype of the locations."""
-    reader = Reader(self.format)
+    reader = Reader(self._format)
     schemed = {}
     for comp in components:
       if comp is tuple:
@@ -552,14 +551,14 @@ class GaplotContext(object):
 
   def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None):
     self.snapname = snapname
-    self.format = format
+    self._format = format
 
     try:
       snapname = self.snapname % 0
     except TypeError:
       snapname = self.snapname
 
-    snap = Snapshot(snapname, self.format)
+    snap = Snapshot(snapname, self._format)
 
     self.C = snap.C
     self.origin[...] = numpy.ones(3) * origin
@@ -612,7 +611,7 @@ class GaplotContext(object):
 
     def getsnap(snapname):
       try:
-        return Snapshot(snapname, self.format)
+        return Snapshot(snapname, self._format)
       except IOError as e:
         warnings.warn('file %s skipped for %s' %(snapname, str(e)))
       return None
@@ -654,7 +653,7 @@ class GaplotContext(object):
     formatter = MyFormatter(self.size[0], self.U)
     if bgcolor is not None:
       ax.set_axis_bgcolor(bgcolor)
-      ax.figure.set_facecolor(color)
+      ax.figure.set_facecolor(bgcolor)
     ax.xaxis.set_major_formatter(formatter)
     ax.yaxis.set_major_formatter(formatter)
     ax.set_xticks(numpy.linspace(l, r, 5, endpoint=True))
@@ -725,6 +724,11 @@ class GaplotContext(object):
 
     return ret
 
+  def makeP(self, ftype, Xh=0.76, halo=False):
+    gas = self.F[ftype]
+    gas['P'] = numpy.empty(dtype='f4', shape=gas.numpoints)
+    self.cosmology.ie2P(ie=gas['ie'], ye=gas['ye'], mass=gas['mass'], Xh=Xh, out=gas['P'])
+
   def makeT(self, ftype, Xh=0.76, halo=False):
     """T will be in Kelvin"""
     gas = self.F[ftype]
@@ -741,21 +745,21 @@ class GaplotContext(object):
     
 
 
-if matplotlib.is_interactive():
-  import matplotlib.pyplot as pyplot
-  context = GaplotContext()
-  from gaepsi.tools import bindmethods as _bindmethods
+context = GaplotContext()
+from gaepsi.tools import bindmethods as _bindmethods
 
-  def _before(args, kwargs):
-    if 'ax' in kwargs:
+def _before(self, args, kwargs):
+    import matplotlib.pyplot as pyplot
+    if 'ax' in kwargs and self.default_axes is None:
       if kwargs['ax'] is None:
         kwargs['ax'] = pyplot.gca()
 
-  def _after(args, kwargs):
-    if 'ax' in kwargs and pyplot.isinteractive():
+def _after(self, args, kwargs):
+    import matplotlib.pyplot as pyplot
+    if 'ax' in kwargs and self.default_axes is None and pyplot.isinteractive():
       pyplot.show()
 
-  _bindmethods(context, locals(), _before, _after)
+_bindmethods(context, locals(), _before, _after, excludes=('default_camera',))
 
 if False:
   def mergeBHs(self, threshold=1.0):

@@ -1,16 +1,26 @@
 
-def bindmethods(obj, locals, before=None, after=None):
+def bindmethods(obj, locals, before=None, after=None, excludes=[]):
   """ bind methods of obj to locals namespace 
       methods starting with _ are ignored
       # before can update kwargs before the method is called
-      def before(args, kwargs): pass
-      def after(args, kwargs): pass
+      def before(self, args, kwargs): pass
+      def after(self, args, kwargs): pass
+
+      the attributes are copied over: they are readonly, as changes
+      won't be propagated to obj.
+      properties are copied over as getter fnctions.
   """
   from types import MethodType
   for x in dir(obj):
+    if x in excludes: continue
     m = getattr(obj, x)
-    if not x.startswith('_') and isinstance(m, MethodType):
+    if x.startswith('_'): continue 
+    elif isinstance(m, MethodType):
       locals[x] = _wrapfunc(m, before=before, after=after)
+    elif isinstance(m, property):
+      locals[x] = lambda : m.fget(obj)
+    else:
+      locals[x] = m
 
 def _wrapfunc(m, before=None, after=None):
     """ wraps a bound method, creates a unbound method
@@ -41,7 +51,7 @@ def _wrapfunc(m, before=None, after=None):
 
     def callargs(m, *args, **kwargs):
       d = inspect.getcallargs(m, *args, **kwargs)
-      del d['self']
+      self = d.pop('self')
       if varargs: 
         args = d[varargs]
         del d[varargs]
@@ -53,14 +63,14 @@ def _wrapfunc(m, before=None, after=None):
       else:
         kwargs = {}
       d.update(kwargs)
-      return  args, d
+      return  self, args, d
     L = {'m':m, 'after':after, 'before': before, 'callargs': callargs}
 
     code = """def %(name)s(%(args)s):
-         varargs, kwargs = callargs(m, %(params)s)
-         if before: before(varargs, kwargs)
+         self, varargs, kwargs = callargs(m, %(params)s)
+         if before: before(self, varargs, kwargs)
          ret = m(*varargs, **kwargs)
-         if after: after(varargs, kwargs)
+         if after: after(self, varargs, kwargs)
          return ret
     """ % {'name':m.__name__, 
            'args':','.join(A), 
@@ -353,14 +363,26 @@ class packarray(numpy.ndarray):
       It feels like a list of arrays, but because the memory chunk is continuous,
       arithmatic operations are easier to use.
   """
-  def __new__(cls, arrays):
-    L = numpy.array([len(arr) for arr in arrays], dtype='u8')
-    self = numpy.concatenate(arrays).view(type=cls)
-    self.start = numpy.zeros(shape=len(arrays), dtype='u8')
-    self.end = numpy.zeros(shape=len(arrays), dtype='u8')
-    self.end[:] = L.cumsum()
+  def __new__(cls, array, sizes):
+    self = array.view(type=cls)
+    self.start = numpy.zeros(shape=len(sizes), dtype='u8')
+    self.end = numpy.zeros(shape=len(sizes), dtype='u8')
+    self.end[:] = sizes.cumsum()
     self.start[1:] = self.end[:-1]
     return self
+
+  @classmethod
+  def join(cls, arrays):
+    L = numpy.array([len(arr) for arr in arrays], dtype='u8')
+    return cls.__new__(numpy.concatenate(arrays), L)
+
+  @classmethod
+  def adapt(cls, source, template):
+    """ adapt source to a packarray according to the layout of template """
+    rt = source.view(type=cls)
+    rt.start = template.start
+    rt.end = template.end
+    return rt
 
   @classmethod
   def adapt(cls, source, template):
