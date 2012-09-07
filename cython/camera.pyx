@@ -12,6 +12,7 @@ from warnings import warn
 from zorder cimport zorder_t, _zorder_dtype
 from geometry cimport DieseFunktion
 from geometry cimport DieseFunktionFrustum
+from geometry cimport rotate_vector
 from ztree cimport node_t
 
 numpy.import_array()
@@ -42,11 +43,6 @@ cdef class VisTree:
   cdef float * _node_color
   cdef readonly numpy.ndarray luminosity
   cdef readonly numpy.ndarray color
-  cdef float [:] l_f
-  cdef double [:] l_d
-  cdef float [:] c_f
-  cdef double [:] c_d
-  cdef int fd[2]
   cdef npyarray.CArray _luminosity
   cdef npyarray.CArray _color
 
@@ -60,7 +56,6 @@ cdef class VisTree:
     self._node_lum = <float*> self.node_lum.data
     self._node_color = <float*> self.node_color.data
     if luminosity is None:
-      self.fd[0] = -1
       self.luminosity = numpy.array(1.0)
     else:
       self.luminosity = luminosity
@@ -330,14 +325,17 @@ cdef class Camera:
     return a
 
   def rotate(self, angle, axis=None):
+    """ rotate the camera, moving the target"""
     if axis is None: axis = self.up
-    d = self.target - self.pos
-    dot = d.dot(axis) 
-    cross = d.cross(axis)
-    cos = numpy.cos(angle)
-    sin = numpy.sin(angle)
-    d = - axis * dot * (1 - cos) + d * cos + cross * sin
-    self.lookat(pos=self.camera.target - d)
+    axis = numpy.asarray(axis)
+    self.lookat(target=self.pos + rotate_vector(self.target - self.pos, axis, angle),
+            up=rotate_vector(self.up, axis, angle))
+
+  def orbit(self, angle, up=None):
+    """ orbit the camera, fixing the target"""
+    if up is None: up = self.up
+    up = numpy.asarray(up)
+    self.lookat(pos=self.target + rotate_vector(self.pos - self.target, up, angle))
     
   property extent:
     def __get__(self):

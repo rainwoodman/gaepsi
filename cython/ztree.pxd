@@ -65,6 +65,12 @@ cdef class Tree:
     else:
       return -1
 
+  cdef inline node_t node_index(Tree self, node_t index) nogil:
+    if index & (<int>1 << 31):
+      return (index & ~(<int>1<<31)) + self._nodes.used
+    else:
+      return index
+
   cdef inline size_t get_node_nchildren(Tree self, node_t index) nogil:
     if self.is_leafnode(index): return 0
     else: 

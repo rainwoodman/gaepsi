@@ -54,14 +54,15 @@ cdef class Tree:
     cdef numpy.intp_t dims[1]
     cdef int nchildren
     cdef node_t * children
+    cdef numpy.ndarray arr
+    cdef int k
+
     children = self.get_node_children(ind, &nchildren)
     dims[0] = nchildren
     #FIXME: watchout!! NPY_INT
-    if children != NULL:
-      arr = numpy.PyArray_SimpleNewFromData(1, dims, numpy.NPY_INT, children)
-      numpy.set_array_base(arr, self)
-    else:
-      arr = numpy.PyArray_SimpleNew(1, dims, numpy.NPY_INT)
+    arr = numpy.PyArray_SimpleNew(1, dims, numpy.NPY_INT)
+    for k in range(nchildren):
+      (<int*>(arr.data))[k] = self.node_index(children[k])
 
     cdef numpy.ndarray pos
     cdef numpy.ndarray size

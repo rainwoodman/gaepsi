@@ -2,6 +2,13 @@
 #cython: cdivision=True
 import numpy
 cimport numpy
+from libc.math cimport cos, sin
+
+cdef inline numpy.ndarray rotate_vector(numpy.ndarray vec, numpy.ndarray axis, double angle):
+    dot = vec.dot(axis) 
+    cross = numpy.cross(vec, axis)
+    return axis * dot + numpy.cross(axis, cross) * cos(angle) - cross * sin(angle)
+    
 
 cdef inline void DieseFunktionFrustum(numpy.ndarray frustum, numpy.ndarray matrix):
     """by -=sinuswutz=- from glTerrian"""
@@ -65,3 +72,4 @@ cdef inline int LiangBarsky(double pos[3], double size[3], double p0[3], double 
      if not LiangBarskyClip(pos[d] - p0[d], dir[d], tE, tL): return 0
      if not LiangBarskyClip(p0[d] - (pos[d] + size[d]), - dir[d], tE, tL): return 0
    return 1
+
