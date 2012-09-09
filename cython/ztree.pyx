@@ -15,6 +15,87 @@ from zorder cimport zorder_t, _zorder_dtype
 
 numpy.import_array()
 
+cdef class TreeNode:
+  def __cinit__(self, Tree tree, node_t index):
+    self.tree = tree
+    self._index = index
+  property pos:
+    def __get__(self):
+      cdef numpy.ndarray pos = numpy.empty(3, dtype='f8')
+      self.tree.get_node_pos(self._index, <double*>pos.data)
+      return pos
+  property size:
+    def __get__(self):
+      cdef numpy.ndarray size = numpy.empty(3, dtype='f8')
+      self.tree.get_node_size(self._index, <double*>size.data)
+      return size
+  property nchildren:
+    def __get__(self):
+      return self.tree.get_node_nchildren(self._index)
+  property npar:
+    def __get__(self):
+      return self.tree.get_node_npar(self._index)
+  property first:
+    def __get__(self):
+      return self.tree.get_node_first(self._index)
+  property key:
+    def __get__(self):
+      return self.tree.get_node_key(self._index)
+  property order:
+    def __get__(self):
+      return self.tree.get_node_order(self._index)
+  property leafindex:
+    def __get__(self):
+      return self.tree.leafnode_index(self._index)
+  property index:
+    def __get__(self):
+      return self.tree.node_index(self._index)
+  property parent:
+    def __get__(self):
+      return self.tree.get_node_parent(self._index)
+  property children:
+    def __get__(self):
+      cdef int nchildren, k
+      children = self.tree.get_node_children(self._index, &nchildren)
+      cdef numpy.ndarray ret = numpy.empty(nchildren, dtype='intp')
+      for k in range(nchildren):
+        (<intptr_t *>ret.data)[k] = self.tree.node_index(children[k])
+      return ret
+
+  def contains(self, point, out=None):
+    keys = self.tree.digitize(numpy.asarray(point))
+    print 'keys = ', keys.view(dtype=('u8', 2))
+    iter = numpy.nditer(
+        [keys, out],
+        op_flags=[['readonly'], ['writeonly', 'allocate']],
+        flags = ['buffered', 'external_loop', 'zerosize_ok'],
+        casting='unsafe',
+        op_dtypes=[_zorder_dtype, '?'])
+      
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    with nogil:
+      while size > 0:
+        while size > 0:
+          (<bint*>citer.data[1])[0] = zorder.boxtest(
+             self.tree.get_node_key(self._index),
+             self.tree.get_node_order(self._index),
+             (<zorder_t*>citer.data[0])[0])
+          size = size - 1
+          npyiter.advance(&citer)
+      size = npyiter.next(&citer)
+
+    return iter.operands[1]
+
+  def __str__(self):
+    return str(dict(parent=self.parent, children=self.children,
+               index=self.index, leafindex=self.leafindex,
+               order=self.order, key=self.key,
+               first=self.first, npar=self.npar,
+               pos=self.pos, size=self.size))
+  def __repr__(self):
+    return "TreeNode(%s, %s)" % (repr(self.tree), repr(self._index))
+
 cdef class Tree:
 
   def __cinit__(self):
@@ -44,55 +125,13 @@ cdef class Tree:
       for i in node['children']:
         self.transverse(prefunc=prefunc, postfunc=postfunc, index=i)
     if postfunc: postfunc(node)
-    
-  def getnode(self, ind):
-    """ returns a dictionary of the tree node by ind,
-        or if ind is 
-           'npar', 'first', 'last', 'pos', 'size', 'parent'
-        return array
-    """
-    cdef numpy.intp_t dims[1]
-    cdef int nchildren
-    cdef node_t * children
-    cdef numpy.ndarray arr
-    cdef int k
 
-    children = self.get_node_children(ind, &nchildren)
-    dims[0] = nchildren
-    #FIXME: watchout!! NPY_INT
-    arr = numpy.PyArray_SimpleNew(1, dims, numpy.NPY_INT)
-    for k in range(nchildren):
-      (<int*>(arr.data))[k] = self.node_index(children[k])
-
-    cdef numpy.ndarray pos
-    cdef numpy.ndarray size
-    pos = numpy.empty(3, dtype='f8')
-    size = numpy.empty(3, dtype='f8')
-    self.get_node_pos(ind, <double*>pos.data)
-    self.get_node_size(ind, <double*>size.data)
-
-
-    rt = dict(key=self.get_node_key(ind),
-            order=self.get_node_order(ind),
-           parent=self.get_node_parent(ind),
-            index=ind,
-        nchildren=nchildren,
-        leafindex=self.leafnode_index(ind),
-            first=self.get_node_first(ind), 
-             last=self.get_node_npar(ind) + self.get_node_first(ind),
-             npar=self.get_node_npar(ind),
-              pos=pos, 
-             size=size,
-         children=arr)
-
-    return rt
-    
-  def getprop(self, prop):
+  def project(self, prop):
     cdef intptr_t i
     cdef intptr_t method 
     actions = {
        'key':('object', <intptr_t> self.get_node_key),
-       'mask':('?', <intptr_t> -1),
+       'used':('?', <intptr_t> -1),
        'order':('i2', <intptr_t> self.get_node_order),
        'first':('intp', <intptr_t> self.get_node_first),
        'npar':('intp', <intptr_t> self.get_node_npar),
@@ -129,7 +168,7 @@ cdef class Tree:
     while size > 0:
       while size > 0:
         if method == <intptr_t> -1:
-          (<bint *>(citer.data[0]))[0] = (self.get_node_first(i) != -1)
+          (<bint *>(citer.data[0]))[0] = ~self.get_node_reclaimable(i)
         if method == <intptr_t>self.get_node_key:
           obj = self.get_node_key(i)
           (<void**>(citer.data[0]))[0] = <void*>obj
@@ -160,14 +199,15 @@ cdef class Tree:
         i = i + 1
       size = npyiter.next(&citer) 
     return out
+
   def __getitem__(self, item):
     if isinstance(item, basestring):
-      return self.getprop(item)
+      return self.project(item)
     elif isinstance(item, slice):
       start, stop, step = slice.indices(len(self))
-      return [self.getnode(i) for i in range(start, stop, step)]
+      return [TreeNode(self, i) for i in range(start, stop, step)]
     else:
-      return self.getnode(item)
+      return TreeNode(self, item)
     
   cdef int _tree_build(Tree self) nogil:
       cdef intptr_t j = 0
@@ -327,9 +367,7 @@ cdef class Tree:
       for k in range(nchildren):
         index = self.leafnode_index(children[k])
 #        if index == -1: continue  # this is never true
-        self.leafnodes[index].first = -1
         self.leafnodes[index].parent = -1
-        self.leafnodes[index].npar = 0
 
       index = self.leafnode_index(children[0])
       # index points to a good leafnode, b/c it has been merged
@@ -346,7 +384,6 @@ cdef class Tree:
           self.nodes[grandparent].child[k] = index | (<int>1 << 31)
 
       # mark old parent node reclaimable
-      self.nodes[parent].first = -1
       self.nodes[parent].npar = 0
       self.nodes[parent].parent = -1
 
@@ -364,64 +401,12 @@ cdef class Tree:
     cdef intptr_t j
     cdef intptr_t changed = 0
     cdef node_t parent
-    cdef node_t * children
-    cdef int nchildren
-    cdef node_t grandparent
-    cdef intptr_t index
-    cdef node_t freechild
-    cdef int notimmediate
-
     for j in range(self._leafnodes.used):
-      if self.leafnodes[j].first == -1: continue
+      # skip the reclaimable ones
       parent = self.leafnodes[j].parent
-      nchildren = self.nodes[parent].child_length
-      grandparent = self.nodes[parent].parent
-      if grandparent == -1:
-        if parent != 0:
-        # only possible if this is the immediate child of the root.
-        # otherwise we are visiting a parent twice.
-          with gil: raise RuntimeError("visiting a parent twice %d" % parent)
-        continue
-
-      if nchildren == 8: continue
-        
-      children = self.nodes[parent].child
-      notimmediate = 0
-      for k in range(nchildren):
-        index = self.leafnode_index(children[k])
-        if index == -1: 
-          notimmediate = 1
-          break
-         
-      # only do nodes with all leaf type children
-      if notimmediate: continue
-
-      changed = changed + 1
-      # first mark the children reclaimable
-      for k in range(nchildren):
-        index = self.leafnode_index(children[k])
-        if index == -1: continue
-        self.leafnodes[index].first = -1
-        self.leafnodes[index].parent = -1
-        self.leafnodes[index].npar = 0
-
-      # j points to a good leafnode, b/c it has been merged
-      # then copy the parent node to a leafnode(replace the first children)
-      self.leafnodes[j].key = self.nodes[parent].key
-      self.leafnodes[j].first = self.nodes[parent].first
-      self.leafnodes[j].order = self.nodes[parent].order
-      self.leafnodes[j].npar = self.nodes[parent].npar
-      self.leafnodes[j].parent = grandparent
-
-      # update the grandparent
-      for k in range(self.nodes[grandparent].child_length):
-        if self.nodes[grandparent].child[k] == parent:
-          self.nodes[grandparent].child[k] = j | (<int>1 << 31)
-
-      # mark old parent node reclaimable
-      self.nodes[parent].first = -1
-      self.nodes[parent].npar = 0
-      self.nodes[parent].parent = -1
+      if parent == -1: continue
+      if parent != self._try_merge_children(parent):
+        change = changed + 1
     return changed
 
   def __len__(self):

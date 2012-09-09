@@ -91,9 +91,11 @@ def addspikes(image, x, y, s, color):
     work(image, (X, Y), S, 1)
 
 class GaplotContext(object):
-  def __init__(self, shape = (600,600)):
+  def __init__(self, shape = (600,600), thresh=32):
+    """ thresh is the fineness of the tree """
     self.default_axes = None
     self._format = None
+    self._thresh = thresh
     # fields
     self.F = {}
     # ptypes
@@ -131,11 +133,11 @@ class GaplotContext(object):
   @property
   def shape(self):
     return self._shape
-  @shape.setter
-  def shape(self, shape):
-    self._shape = (shape[0], shape[1])
-    self.view()
     
+  def reshape(self, newshape):
+    self._shape = (newshape[0], newshape[1])
+    self.camera.shape = self._shape
+
   def __getitem__(self, ftype):
     return self.F[ftype]
 
@@ -149,7 +151,8 @@ class GaplotContext(object):
     # a convenient wrapper
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
-  def _rebuildtree(self, ftype, thresh=32):
+  def _rebuildtree(self, ftype, thresh=None):
+    if thresh is None: thresh = self._thresh
     self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
     self.T[ftype].optimize()
     if ftype in self.VT:
@@ -161,11 +164,14 @@ class GaplotContext(object):
     canvas = FigureCanvasAgg(self.default_axes.figure)
     canvas.print_png(*args, **kwargs)
 
-  def figure(self, dpi=200., axes=[0, 0, 1, 1.]):
+  def figure(self, dpi=200., figsize=None, axes=[0, 0, 1, 1.]):
     """ setup a default figure and a default axes """
     from matplotlib.figure import Figure
-    width = self.shape[0] / dpi
-    height = self.shape[1] / dpi
+    if figsize is None:
+      width = self.shape[0] / dpi
+      height = self.shape[1] / dpi
+    else:
+      width, height = figsize
     figure = Figure((width, height), dpi=dpi)
     ax = figure.add_axes(axes)
     self.default_axes = ax
@@ -725,9 +731,10 @@ class GaplotContext(object):
     return ret
 
   def makeP(self, ftype, Xh=0.76, halo=False):
+    """return the hydrogen Pressure * volume """
     gas = self.F[ftype]
     gas['P'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-    self.cosmology.ie2P(ie=gas['ie'], ye=gas['ye'], mass=gas['mass'], Xh=Xh, out=gas['P'])
+    self.cosmology.ie2P(ie=gas['ie'], ye=gas['ye'], mass=gas['mass'], abundance=1, Xh=Xh, out=gas['P'])
 
   def makeT(self, ftype, Xh=0.76, halo=False):
     """T will be in Kelvin"""

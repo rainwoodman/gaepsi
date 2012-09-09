@@ -132,6 +132,7 @@ cdef class Digitize:
     """ calculates the zorder of given points,
     """
 
+    pos = numpy.asarray(pos)
     if out is None:
       out = numpy.empty(numpy.broadcast(pos[..., 0], pos[..., 1]).shape, dtype=zorder_dtype)
     iter = numpy.nditer([pos[..., 0], pos[..., 1], pos[..., 2], out], 

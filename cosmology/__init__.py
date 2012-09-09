@@ -234,12 +234,19 @@ class Cosmology(object):
   def Tvir(self, m, z, Deltac=200, Xh=0.76, ye=1.16):
     return 0.5 * self.Vvir(m,z, Deltac) ** 2 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
 
-  def ie2P(self, Xh, ie, ye, mass, out=None):
+  def ie2P(self, Xh, ie, ye, mass, abundance, out=None):
     """ from gadget internal energy per mass and density to 
-       pressure integrated per particle volume(not the pressure)"""
+       pressure integrated per particle volume(not the pressure),
+       if abundance is ye, then electron pressure * volume is returned.
+    """
     GAMMA = 5 / 3.
     mu = 1.0 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
-    return ie * mass * (Xh * (GAMMA - 1)) * ye * mu
+    print mu.max(), ie.max(), mass.max(), Xh, ye.max()
+    if out != None:
+      out[:] = ie * mass * (Xh * (GAMMA - 1)) * abundance * mu
+      return out
+    else:
+      return ie * mass * (Xh * (GAMMA - 1)) * abundance * mu
 
   def ie2T(self, Xh, ie, ye, out=None):
     """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.

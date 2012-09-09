@@ -15,19 +15,23 @@ from flexarray cimport FlexArray
 
 cdef packed struct Node:
   zorder_t key # from key and level to derive the bot and top limits
-  intptr_t first # if first is -1, this node is unused/reclaimable.
+  intptr_t first 
   intptr_t npar
   short order
   short child_length
-  node_t parent
+  node_t parent # if parent is -1, this node is unused/reclaimable
   node_t child[8] # child[0]  may save first_par and child[1] may save npar
 
 cdef packed struct LeafNode:
   zorder_t key # from key and level to derive the bot and top limits
-  intptr_t first # if first is -1, this node is unused/reclaimable.
+  intptr_t first 
   short order
   short npar
-  node_t parent
+  node_t parent # if parent is -1, this node is unused/reclaimable.
+
+cdef class TreeNode:
+  cdef readonly node_t _index
+  cdef readonly Tree tree
 
 cdef class Tree:
   cdef Node * nodes
@@ -42,6 +46,9 @@ cdef class Tree:
 
   cdef inline size_t get_length(Tree self) nogil:
     return self._nodes.used + self._leafnodes.used
+
+  cdef inline bint get_node_reclaimable(Tree self, node_t index) nogil:
+    return (index != 0) and (self.get_node_parent(index) == -1)
 
   cdef inline void get_node_pos(Tree self, node_t index, double pos[3]) nogil:
     """ returns the topleft corner of the node """
