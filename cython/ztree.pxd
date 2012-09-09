@@ -152,4 +152,5 @@ cdef class Tree:
   cdef int _tree_build(Tree self) nogil
   cdef intptr_t _optimize(Tree self) nogil
   cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil
+  cdef node_t _try_merge_children(self, intptr_t parent) nogil
 

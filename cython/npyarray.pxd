@@ -67,7 +67,8 @@ cdef inline int _typenum(cython.numeric *ptr) nogil:
   elif cython.numeric is cython.short:
     return numpy.NPY_INT16
   else:
-    with gil: raise TypeError("do not access type %s", cython.typeof(ptr[0]))
+    return numpy.NPY_INT64
+#    with gil: raise TypeError("do not access type %s", cython.typeof(ptr[0]))
   
 cdef inline void get(CArray * array, intptr_t offset, cython.numeric * ptr) nogil:
   array.castfunc[_typenum(ptr)](array.data + offset, ptr, 1, NULL, NULL)

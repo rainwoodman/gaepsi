@@ -173,6 +173,7 @@ cdef class Tree:
       cdef intptr_t j = 0
       cdef intptr_t i = 0
       cdef intptr_t extrastep = 0
+
       flexarray.append(&self._nodes, 1)
       self.nodes[0].key = 0
       self.nodes[0].first = 0
@@ -185,12 +186,24 @@ cdef class Tree:
           # close the nodes by filling in the npar, because we already scanned over
           # all particles in these nodes.
           self.set_node_npar(j, i - self.get_node_first(j))
+
+          # if the immediate parent is not full, merge it.
+          # this will save hack a lot of memory by performing
+          # the merge and free up the nodes at the end of the queue
+          # instead of digging up holes in the end with 'optimize'.
+          # however we still need to run 'optimize' in the end
+          # because this won't catch all cases.
+          if self.get_node_nchildren(j) != 8:
+            j = self._try_merge_children(j)
           j = self.get_node_parent(j)
           # because we are on a morton key ordered list, no need to deccent into children 
+
         # NOTE: will never go beyond 8 children per node, 
         # for the child_length > 0 branch is called less than 8 times on the parent, 
 
-        # ASSERTION: the point(i) fails boxtest of the current node(j)
+        # ASSERTION: 
+        # 1) the point(i) is in the current node(j), 
+        # 2) not in any of the current children of node(j) [guarrenteed by morton key sorting]
         if self.get_node_nchildren(j) > 0:
           # already not a leaf, create new child
           j = self._create_child(i, j) 
@@ -242,9 +255,12 @@ cdef class Tree:
         if self.nodes[grandparent].child[k] == parent:
           self.nodes[grandparent].child[k] = fullparent
           break
+      # the following test shall always be fine because we
+      # only do try split the last leaf node with add_child
       if index != self._leafnodes.used - 1:
-        with gil:
-          raise Exception('consistency %d != %d' %(parent, self._leafnodes.used - 1))
+        return -1
+      #  with gil:
+      #    raise Exception('consistency %d != %d' %(parent, self._leafnodes.used - 1))
       parent = fullparent
       flexarray.remove(&self._leafnodes, 1)
 
@@ -262,13 +278,88 @@ cdef class Tree:
     self.nodes[parent].child[self.nodes[parent].child_length] = index
     self.nodes[parent].child_length = self.nodes[parent].child_length + 1
 
+    
+    # the follwing assertion shall never be true unless the input
+    # keys are not properly sorted.
     if self.nodes[parent].child_length > 8:
-      with gil: raise RuntimeError("child_length > 8")
+    #  with gil: raise RuntimeError("child_length > 8")
       return -1
 
     return index 
 
-  cdef intptr_t _optimize(Tree self) nogil:
+  cdef node_t _try_merge_children(Tree self, intptr_t parent) nogil:
+    cdef int nchildren
+    cdef int k
+    cdef node_t index, grandparent
+    cdef node_t * children
+
+    # do not merge if the node is already a leaf node
+    if self.leafnode_index(parent) != -1: return parent
+
+    grandparent = self.nodes[parent].parent
+    if grandparent == -1: return parent
+
+    nchildren = self.nodes[parent].child_length
+
+    children = self.nodes[parent].child
+
+    # see if this is an immediate parent of leaf nodes
+    for k in range(nchildren):
+      index = self.leafnode_index(children[k])
+      if index == -1: return parent
+
+    # sanity check, shall disable later
+    # if the leaf nodes are discontinues, give up
+    # do not merge two loops(this and the above)
+    # it can happen that a node is rejected by the first
+    # for later elements, yet the second fails.
+    for k in range(nchildren):
+      index = self.leafnode_index(children[k])
+      # the following shall never happen because we only call try_merge
+      # on the most recently created node.
+      #
+      if index + nchildren - k != self._leafnodes.used:
+         return parent
+      #with gil: print '%d != %d' % (index + nchildren - k , self._leafnodes.used)
+
+    if True: # for indentation
+      # first mark the children reclaimable
+      for k in range(nchildren):
+        index = self.leafnode_index(children[k])
+#        if index == -1: continue  # this is never true
+        self.leafnodes[index].first = -1
+        self.leafnodes[index].parent = -1
+        self.leafnodes[index].npar = 0
+
+      index = self.leafnode_index(children[0])
+      # index points to a good leafnode, b/c it has been merged
+      # then copy the parent node to a leafnode(replace the first children)
+      self.leafnodes[index].key = self.nodes[parent].key
+      self.leafnodes[index].first = self.nodes[parent].first
+      self.leafnodes[index].order = self.nodes[parent].order
+      self.leafnodes[index].npar = self.nodes[parent].npar
+      self.leafnodes[index].parent = grandparent
+
+      # update the grandparent
+      for k in range(self.nodes[grandparent].child_length):
+        if self.nodes[grandparent].child[k] == parent:
+          self.nodes[grandparent].child[k] = index | (<int>1 << 31)
+
+      # mark old parent node reclaimable
+      self.nodes[parent].first = -1
+      self.nodes[parent].npar = 0
+      self.nodes[parent].parent = -1
+
+      # free up the actual memory.
+      # notice that when try_merge_children is called,
+      # parent is always the last item in _nodes,
+      # and its children are always the last children in _leafnodes.
+
+      flexarray.remove(&self._leafnodes, nchildren - 1)
+      flexarray.remove(&self._nodes, 1)
+    return index | (<int>1 << 31)
+
+  cdef intptr_t _optimize(Tree self) nogil except -1:
     # merge the immediate parent of leaf nodes if it is incomplete.
     cdef intptr_t j
     cdef intptr_t changed = 0
@@ -287,8 +378,9 @@ cdef class Tree:
       grandparent = self.nodes[parent].parent
       if grandparent == -1:
         if parent != 0:
-          with gil:
-            raise RuntimeError("visiting a parent twice %d" % parent)
+        # only possible if this is the immediate child of the root.
+        # otherwise we are visiting a parent twice.
+          with gil: raise RuntimeError("visiting a parent twice %d" % parent)
         continue
 
       if nchildren == 8: continue
