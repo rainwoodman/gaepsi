@@ -39,9 +39,14 @@ cdef class Digitize:
     for d in range(3):
       pos[d] = point[d] * self._Inorm + self._min[d]
    
-  cdef inline void f2i(self, double pos[3], int32_t point[3]) nogil:
-    """ this will round to 0 , (1<<self.bits)  -1"""
+  cdef inline int f2i(self, double pos[3], int32_t point[3]) nogil:
+    """ will return 0 and give junk if any of the dimension is not 0 , (1<<self.bits)  -1,
+        otherwize return 1 and fill point[3]"""
     cdef int d
+    cdef double f
     for d in range(3):
-      point[d] = <int32_t> fmax(0, (pos[d] - self._min[d]) * self._norm)
-      if point[d] >= (1 << self.bits): point[d] = (1 << self.bits) -1
+      f = (pos[d] - self._min[d]) * self._norm
+      if f < 0 or f >= (1 << self.bits) : return 0
+      else: point[d] = <int32_t> f
+#      if point[d] >= (1 << self.bits): point[d] = (1 << self.bits) -1
+    return 1

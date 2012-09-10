@@ -43,7 +43,7 @@ cdef extern from 'numpy/arrayobject.h':
     dtype PyArray_DescrNew (dtype)
 
 cdef numpy.dtype _setupdtype():
-  rt = PyArray_DescrNew(numpy.dtype('V16'))
+  rt = PyArray_DescrNew(numpy.dtype([('int128', ('i8', 2))]))
   rt.f.compare = <PyArray_CompareFunc*>compare_zorder
   rt.f.argsort[0] = <PyArray_ArgSortFunc*>aquicksort_zorder
   rt.f.argsort[1] = <PyArray_ArgSortFunc*>aquicksort_zorder
@@ -152,8 +152,10 @@ cdef class Digitize:
         while size > 0:
           for d in range(3):
             fpos[d] = (<double*>citer.data[d])[0]
-          self.f2i(fpos, ipos)
-          (<zorder_t*>citer.data[3])[0] = encode(ipos)
+          if self.f2i(fpos, ipos):
+            (<zorder_t*>citer.data[3])[0] = encode(ipos)
+          else:
+            (<zorder_t*>citer.data[3])[0] = <zorder_t> -1
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)

@@ -20,40 +20,51 @@ cdef class TreeNode:
     self.tree = tree
     self._index = index
   property pos:
+    """ top-left corner of the node ('f8', 3)"""
     def __get__(self):
       cdef numpy.ndarray pos = numpy.empty(3, dtype='f8')
       self.tree.get_node_pos(self._index, <double*>pos.data)
       return pos
   property size:
+    """ size of the node ('f8', 3) """
     def __get__(self):
       cdef numpy.ndarray size = numpy.empty(3, dtype='f8')
       self.tree.get_node_size(self._index, <double*>size.data)
       return size
   property nchildren:
+    """ number of children (0 if none) """
     def __get__(self):
       return self.tree.get_node_nchildren(self._index)
   property npar:
+    """ number of particles in the node """
     def __get__(self):
       return self.tree.get_node_npar(self._index)
   property first:
+    """ index of the first particle """
     def __get__(self):
       return self.tree.get_node_first(self._index)
   property key:
+    """ the zkey as a python Long integer"""
     def __get__(self):
       return self.tree.get_node_key(self._index)
   property order:
+    """ order of the node (bigger = bigger node)"""
     def __get__(self):
       return self.tree.get_node_order(self._index)
   property leafindex:
+    """ -1 for a none leaf node, otherwise the index in the leaf node array """
     def __get__(self):
       return self.tree.leafnode_index(self._index)
   property index:
+    """ sequentialized node index. smaller indices are the non-leaf nodes, and bigger ones are the leaf nodes """
     def __get__(self):
       return self.tree.node_index(self._index)
   property parent:
+    """ index of the parent, must be a non leaf node """
     def __get__(self):
       return self.tree.get_node_parent(self._index)
   property children:
+    """ sequential indices of childrens as an 'intp' array. The internal array(where leaf nodes are prefixed with highest bit set to 1) is NOT returned """
     def __get__(self):
       cdef int nchildren, k
       children = self.tree.get_node_children(self._index, &nchildren)
@@ -62,29 +73,55 @@ cdef class TreeNode:
         (<intptr_t *>ret.data)[k] = self.tree.node_index(children[k])
       return ret
 
-  def contains(self, point, out=None):
-    keys = self.tree.digitize(numpy.asarray(point))
-    print 'keys = ', keys.view(dtype=('u8', 2))
+  def contains(self, points, out=None):
+    """ test if points are inside a node.
+        accept positions,
+        Python Long integer arrays as zkeys,
+        or zorder_dtype arrays as zkeys(returned by the digitizer)
+    """
+    points = numpy.asarray(points)
+    cdef object dtype
+    if points.dtype != _zorder_dtype:
+      keys = points
+      dtype = _zorder_dtype
+    elif points.dtype == numpy.dtype('object'):
+      dtype = numpy.dtype('object')
+    else:
+      keys = self.tree.digitize(points)
+      dtype = _zorder_dtype
     iter = numpy.nditer(
         [keys, out],
         op_flags=[['readonly'], ['writeonly', 'allocate']],
-        flags = ['buffered', 'external_loop', 'zerosize_ok'],
+        flags = ['buffered', 'external_loop', 'zerosize_ok', 'refs_ok'],
         casting='unsafe',
-        op_dtypes=[_zorder_dtype, '?'])
+        op_dtypes=[dtype, '?'])
       
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    with nogil:
+    cdef zorder_t key
+    if dtype == _zorder_dtype: 
+     with nogil: 
       while size > 0:
         while size > 0:
+          key = (<zorder_t*>citer.data[0])[0]
           (<bint*>citer.data[1])[0] = zorder.boxtest(
              self.tree.get_node_key(self._index),
              self.tree.get_node_order(self._index),
-             (<zorder_t*>citer.data[0])[0])
+             key)
           size = size - 1
           npyiter.advance(&citer)
       size = npyiter.next(&citer)
-
+    else:
+      while size > 0:
+        while size > 0:
+          key = <object>((<void**>citer.data[0])[0])
+          (<bint*>citer.data[1])[0] = zorder.boxtest(
+             self.tree.get_node_key(self._index),
+             self.tree.get_node_order(self._index),
+             key)
+          size = size - 1
+          npyiter.advance(&citer)
+      size = npyiter.next(&citer)
     return iter.operands[1]
 
   def __str__(self):
@@ -113,7 +150,8 @@ cdef class Tree:
     self._zkey = <zorder_t *> self.zkey.data
     self._zkey_length = self.zkey.shape[0]
     if -1 == self._tree_build():
-      raise ValueError("tree build failed. Is the input zkey sorted?")
+     pass
+     # raise ValueError("tree build failed. Is the input zkey sorted?")
 
   def optimize(self):
     while self._optimize() > 0: continue
@@ -209,20 +247,23 @@ cdef class Tree:
     else:
       return TreeNode(self, item)
     
-  cdef int _tree_build(Tree self) nogil:
+  cdef int _tree_build(Tree self) nogil except -1:
       cdef intptr_t j = 0
       cdef intptr_t i = 0
       cdef intptr_t extrastep = 0
 
       flexarray.append(&self._nodes, 1)
+      while i < self._zkey_length and self._zkey[i] == -1: 
+        i = i + 1
       self.nodes[0].key = 0
-      self.nodes[0].first = 0
+      self.nodes[0].first = i
       self.nodes[0].npar = 0
       self.nodes[0].order = self.digitize.bits
       self.nodes[0].parent = -1
       self.nodes[0].child_length = 0
       while i < self._zkey_length:
-        while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
+        while not j == -1 and \
+          not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
           # close the nodes by filling in the npar, because we already scanned over
           # all particles in these nodes.
           self.set_node_npar(j, i - self.get_node_first(j))
@@ -237,7 +278,9 @@ cdef class Tree:
             j = self._try_merge_children(j)
           j = self.get_node_parent(j)
           # because we are on a morton key ordered list, no need to deccent into children 
-
+        if j == -1: # par not covered by the tree anywhere, skip it.
+          with gil:
+            raise RuntimeError('remature ending at %d / %d' (i, self._zkey_length))
         # NOTE: will never go beyond 8 children per node, 
         # for the child_length > 0 branch is called less than 8 times on the parent, 
 
@@ -256,10 +299,11 @@ cdef class Tree:
         else:
           # put the particle into the leaf.
           pass
+        # if error occured
+        if j == -1: 
+          with gil: raise RuntimeError('parent node is -1 at i = %d' % i)
         # particle i is not in node j yet.
         # next particle to be considered is i+1,
-        if j == -1: 
-          return -1
         # now we try to fast forword to the first particle that is not in the current node
         extrastep = self.thresh - self.get_node_npar(j) - 1
         if extrastep > 0 and i + extrastep < self._zkey_length:
@@ -274,7 +318,7 @@ cdef class Tree:
         self.set_node_npar(j, i - self.get_node_first(j))
         j = self.get_node_parent(j)
         
-  cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil:
+  cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil except -1:
     cdef intptr_t fullparent 
     cdef node_t index
     cdef int k
@@ -298,7 +342,8 @@ cdef class Tree:
       # the following test shall always be fine because we
       # only do try split the last leaf node with add_child
       if index != self._leafnodes.used - 1:
-        return -1
+        with gil:
+          raise RuntimeError('not called on the last node')
       #  with gil:
       #    raise Exception('consistency %d != %d' %(parent, self._leafnodes.used - 1))
       parent = fullparent
@@ -314,16 +359,15 @@ cdef class Tree:
     self.leafnodes[index].key = zorder.truncate(self._zkey[first_par], self.leafnodes[index].order)
     self.leafnodes[index].parent = parent
 
+    # the follwing assertion shall never be true unless the input
+    # keys are not properly sorted.
+    if self.nodes[parent].child_length >= 8:
+      with gil: raise RuntimeError("child_length >= 8,  parent = %d %s %d %s" % (parent, str(self[parent]), first_par, str(self.zkey[first_par])))
+      
+
     index = index | (<int> 1 << 31)
     self.nodes[parent].child[self.nodes[parent].child_length] = index
     self.nodes[parent].child_length = self.nodes[parent].child_length + 1
-
-    
-    # the follwing assertion shall never be true unless the input
-    # keys are not properly sorted.
-    if self.nodes[parent].child_length > 8:
-    #  with gil: raise RuntimeError("child_length > 8")
-      return -1
 
     return index 
 
