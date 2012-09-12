@@ -15,12 +15,13 @@ import cython
 from warnings import warn
 
 cdef extern from 'zorder_internal.c':
-  cdef zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) nogil 
+  cdef zorder_t _xyz2ind (ipos_t x, ipos_t y, ipos_t z) nogil 
   cdef zorder_t _truncate(zorder_t ind, int order) nogil 
-  cdef void _ind2xyz (zorder_t ind, int32_t* x, int32_t* y, int32_t* z) nogil
+  cdef void _ind2xyz (zorder_t ind, ipos_t* x, ipos_t* y, ipos_t* z) nogil
   cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
   cdef int _AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil 
-  cdef void _diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil
+  cdef void _diff(zorder_t p1, zorder_t p2, ipos_t d[3]) nogil
+  cdef int _diff_order(zorder_t p1, zorder_t p2) nogil
   cdef int aquicksort_zorder(zorder_t *, numpy.npy_intp* tosort, numpy.npy_intp num, void *) nogil
   cdef int compare_zorder(zorder_t *, zorder_t *, void *) nogil
 
@@ -53,19 +54,65 @@ cdef numpy.dtype _setupdtype():
 _zorder_dtype = _setupdtype()
 zorder_dtype = _zorder_dtype
 
-cdef void decode(zorder_t key, int32_t point[3]) nogil:
+cdef void decode(zorder_t key, ipos_t point[3]) nogil:
     _ind2xyz(key, point, point+1, point+2)
 cdef zorder_t truncate(zorder_t key, int order) nogil:
     return _truncate(key, order)
 
-cdef zorder_t encode(int32_t point[3]) nogil:
+cdef zorder_t encode(ipos_t point[3]) nogil:
     return _xyz2ind(point[0], point[1], point[2])
 cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil:
   return _boxtest(ind, order, key)
 cdef int AABBtest(zorder_t ind, int order, zorder_t AABB[2]) nogil:
   return _AABBtest(ind, order, AABB)
-cdef void diff(zorder_t p1, zorder_t p2, int32_t d[3]) nogil:
+cdef void diff(zorder_t p1, zorder_t p2, ipos_t d[3]) nogil:
   _diff(p1, p2, d)
+cdef int diff_order(zorder_t p1, zorder_t p2) nogil:
+  return _diff_order(p1, p2)
+
+def contains(p1, order, p2, out=None):
+  """ test if position p2 is inside a box starting at p1 with order order
+  """
+  iter = numpy.nditer([p1, order, p2, out],
+     op_flags=[['readonly'], ['readonly'], ['writeonly', 'allocate']],
+     flags=['zerosize_ok', 'external_loop', 'buffered'],
+     op_dtypes=[_zorder_dtype, 'u1', _zorder_dtype, '?'])
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  with nogil:
+    while size > 0:
+      while size > 0:
+        (<char *> (citer.data[3]))[0] = boxtest(
+        (<zorder_t *> citer.data[0])[0],
+        (<char *> citer.data[1])[0],
+        (<zorder_t *> citer.data[2])[0])
+        npyiter.advance(&citer)
+        size = size - 1
+      size = npyiter.next(&citer)
+  return iter.operands[3]
+
+def order_diff(p1, p2, out=None):
+  """ calculate the difference of p1 and p2 in terms of order
+      order is the minimium satisfying
+
+      (p1 ^ p2) >> (order * 3) == 0
+  """
+  iter = numpy.nditer([p1, p2, out],
+     op_flags=[['readonly'], ['readonly'], ['writeonly', 'allocate']],
+     flags=['zerosize_ok', 'external_loop', 'buffered'],
+     op_dtypes=[_zorder_dtype, _zorder_dtype, 'u1'])
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  with nogil:
+    while size > 0:
+      while size > 0:
+        (<char *> (citer.data[2]))[0] = diff_order(
+        (<zorder_t *> citer.data[0])[0],
+        (<zorder_t *> citer.data[1])[0])
+        npyiter.advance(&citer)
+        size = size - 1
+      size = npyiter.next(&citer)
+  return iter.operands[2]
 
 cdef class Digitize:
   """Scale scales x,y,z to 0 ~ (1<<bits) - 1 """
@@ -75,7 +122,7 @@ cdef class Digitize:
     self.scale = numpy.empty(3)
 
   @classmethod
-  def adapt(klass, pos, bits=30):
+  def adapt(klass, pos, bits=40):
     if len(pos) > 0:
       x, y, z = pos[..., 0], pos[..., 1], pos[..., 2]
       return klass(
@@ -88,16 +135,16 @@ cdef class Digitize:
         scale=numpy.array([1, 1, 1.]),
         bits=bits)
 
-  def __init__(self, min, scale, bits=30):
+  def __init__(self, min, scale, bits=40):
     """ use the biggest scale for all axis """
-    if bits > 30:
-      raise ValueError("bits cannnot be bigger than 30 with 128bit integer, but 32bit xyz coordinates")
+    if bits > 42:
+      raise ValueError("bits cannnot be bigger than 42 with 128bit integer")
     self.min[:] = min
     self.scale[:] = scale
     if self.scale.max() == 0.0:
       self.scale[:] = [1., 1., 1.]
     self.bits = bits
-    self._norm = 1.0 / self.scale.max() * ((1L << bits) -1)
+    self._norm = 1.0 / self.scale.max() * ((<ipos_t>1 << bits) -1)
     self._Inorm = 1.0 / self._norm
 
   def invert(self, index, out=None):
@@ -113,7 +160,7 @@ cdef class Digitize:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef int32_t ipos[3]
+    cdef ipos_t ipos[3]
     cdef double fpos[3]
     cdef int d
     with nogil:
@@ -144,7 +191,7 @@ cdef class Digitize:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
 
-    cdef int32_t ipos[3]
+    cdef ipos_t ipos[3]
     cdef double fpos[3]
     cdef int d
     with nogil:

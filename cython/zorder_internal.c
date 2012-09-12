@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 typedef __int128_t zorder_t;
-#define BITS 30
+typedef int64_t ipos_t;
+#define BITS 40
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)
  * g.reverse()
@@ -10,7 +11,7 @@ typedef __int128_t zorder_t;
  * utab = reduce(numpy.add, [ (1<<(3*i)) * b for i, b in enumerate(g)]).ravel()
  *
  * */
-static int32_t utab[256] = {
+static ipos_t utab[256] = {
     0x000000, 0x000001, 0x000008, 0x000009,
     0x000040, 0x000041, 0x000048, 0x000049,
     0x000200, 0x000201, 0x000208, 0x000209,
@@ -157,11 +158,11 @@ static inline zorder_t _truncate(zorder_t key, int order) {
   return (key >> (order * 3)) << (order * 3);
 }
 
-static inline zorder_t _xyz2ind (int32_t x, int32_t y, int32_t z) {
+static inline zorder_t _xyz2ind (ipos_t x, ipos_t y, ipos_t z) {
     zorder_t ind = 0;
-    x &= (1 << BITS) - 1;
-    y &= (1 << BITS) - 1;
-    z &= (1 << BITS) - 1;
+    x &= (1L << BITS) - 1;
+    y &= (1L << BITS) - 1;
+    z &= (1L << BITS) - 1;
     int i;
     for (i = 0; i < BITS; i+= 8) {
       ind |= (zorder_t) utab[(uint8_t) x] << (i*3+0);
@@ -183,9 +184,9 @@ zorder_t masks[] = {
      ((zorder_t)0444444444444444444444L << 63) | ((zorder_t)0444444444444444444444L),
 };
 
-static int32_t inline _ind2x(zorder_t ind) {
+static ipos_t inline _ind2x(zorder_t ind) {
     zorder_t comp = ind & masks[0];
-    int32_t x = 0;
+    ipos_t x = 0;
     uint8_t raw;
 
     int i;
@@ -196,14 +197,14 @@ static int32_t inline _ind2x(zorder_t ind) {
       comp >>= 8;
       raw |= comp;
       comp >>= 8;
-      x |= (ctab[raw] << i);
+      x |= ((ipos_t)(ctab[raw]) << i);
       if(!comp) return x;
 
     }
     return x;
 }
 
-void inline _ind2xyz(zorder_t ind, int32_t * x, int32_t * y, int32_t * z) {
+void inline _ind2xyz(zorder_t ind, ipos_t * x, ipos_t * y, ipos_t * z) {
   *x = _ind2x(ind);
   *y = _ind2x(ind>>1);
   *z = _ind2x(ind>>2);
@@ -213,7 +214,7 @@ static int _boxtest(zorder_t key, int order, zorder_t point) {
   return 0 == ((key ^ point) >> (order * 3));
 }
 
-void inline _diff(zorder_t ind1, zorder_t ind2, int32_t d[3]) {
+void inline _diff(zorder_t ind1, zorder_t ind2, ipos_t d[3]) {
   d[0] = _ind2x(ind2);
   d[1] = _ind2x(ind2>>1);
   d[2] = _ind2x(ind2>>2);
@@ -221,13 +222,25 @@ void inline _diff(zorder_t ind1, zorder_t ind2, int32_t d[3]) {
   d[1] -= _ind2x(ind1>>1);
   d[2] -= _ind2x(ind1>>2);
 }
+int inline _diff_order(zorder_t ind1, zorder_t ind2) {
+  zorder_t diff = ind2 ^ ind1;
+  int r = 0;
+  if (diff >> 96) { diff >>= 96; r += 32; }
+  if (diff >> 48) { diff >>= 48; r += 16; }
+  if (diff >> 24) { diff >>= 24; r += 8; }
+  if (diff >> 12) { diff >>= 12; r += 4; }
+  if (diff >> 6) { diff >>= 6; r += 2; }
+  if (diff >> 3) { diff >>= 3; r += 1; }
+  if (diff) {r += 1;}
+  return r;
+}
 
 static char * _format_key(zorder_t key) {
   static char buf[100];
-  int32_t ix, iy, iz;
+  ipos_t ix, iy, iz;
   _ind2xyz(key, &ix, &iy, &iz);
 
-  sprintf(buf, "%lx, %d %d %d", key, ix, iy, iz);
+  sprintf(buf, "%lx %lx, %ld %ld %ld", key, ix, iy, iz);
   return strdup(buf);
 }
 static int _AABBtest(zorder_t key, int order, zorder_t AABB[2]) {
@@ -257,9 +270,9 @@ static int _AABBtest(zorder_t key, int order, zorder_t AABB[2]) {
 #if 0
 
 int main() {
-    int32_t ix;
-    int32_t iy;
-    int32_t iz;
+    ipos_t ix;
+    ipos_t iy;
+    ipos_t iz;
     int xstep=1, ystep=1, zstep=1;
     int count = 0;
     int i, j;
@@ -267,7 +280,7 @@ int main() {
     for(iy = 0; iy < (1 << 30) && ystep > 0; iy += ystep, ystep <<=1) {
     for(iz = 0; iz < (1 << 30) && zstep > 0; iz += zstep, zstep <<=1) {
         zorder_t ind = _xyz2ind(ix, iy, iz);
-        int32_t x, y, z;
+        ipos_t x, y, z;
         _ind2xyz(ind, &x, &y, &z);
         if(x != ix || y != iy || z != iz) {
             abort();

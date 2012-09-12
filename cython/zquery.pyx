@@ -7,7 +7,7 @@ from ztree cimport Tree, node_t
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport zorder
-from zorder cimport zorder_t
+from zorder cimport zorder_t, ipos_t
 cimport npyiter
 from libc.math cimport sqrt
 from geometry cimport LiangBarsky
@@ -383,7 +383,7 @@ cdef class Query:
         self.raytrace_one_r(tree, children[i], p0, dir, tE, tL)
 
   cdef void execute_one(Query self, Tree tree, double pos[3], double size[3]) nogil:
-    cdef int32_t ipos[3]
+    cdef ipos_t ipos[3]
     cdef int d
     cdef double pos1[3]
     cdef double pos2[3]
@@ -449,7 +449,7 @@ cdef class Query:
 
   cdef void _add_node_weighted(self, Tree tree, node_t node) nogil:
     cdef intptr_t item
-    cdef int32_t id[3]
+    cdef ipos_t id[3]
     cdef double fd[3], weight
     cdef Heap heap
     cdef size_t nodenpar = tree.get_node_npar(node)

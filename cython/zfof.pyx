@@ -2,6 +2,7 @@ cimport numpy
 import numpy
 cimport zorder
 import zorder
+from zorder cimport ipos_t, zorder_t
 cimport ztree
 import ztree
 cimport zquery
@@ -59,7 +60,7 @@ cdef class FOFCluster:
   cdef void execute_one(self, data * dt, zquery.Query query, intptr_t target, double linkl2):
     cdef intptr_t k
     cdef intptr_t j, p, s
-    cdef int32_t id[3]
+    cdef ipos_t id[3]
     cdef double fd[3]
     for k in range(query.used):
       j = query._items[k]

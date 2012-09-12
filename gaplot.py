@@ -109,7 +109,7 @@ class GaplotContext(object):
 
     self.periodic = False
     self.origin = numpy.array([0, 0, 0.])
-    self.boxsize = numpy.array([1, 1, 1.])
+    self.boxsize = numpy.array([0, 0, 0.])
 
     self._shape = shape
     self.camera = Camera(width=self.shape[0], height=self.shape[1])
@@ -152,8 +152,16 @@ class GaplotContext(object):
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
   def _rebuildtree(self, ftype, thresh=None):
+    from gaepsi.cython import zorder as zo
     if thresh is None: thresh = self._thresh
-    self.T[ftype] = self.F[ftype].zorder(ztree=True, thresh=thresh)
+    if (self.boxsize[...] == 0.0).all():
+      self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
+      digitize = zo.Digitize(min=self.F[ftype]['locations'].min(axis=0), scale=self.F[ftype]['locations'].ptp(axis=0))
+    else:
+      digitize = zo.Digitize(min=self.origin, scale=self.boxsize)
+    zkey, digitize = self.F[ftype].zorder(digitize)
+    print zkey, len(zkey)
+    self.T[ftype] = self.F[ftype].ztree(zkey, digitize, thresh=thresh)
     self.T[ftype].optimize()
     if ftype in self.VT:
       del self.VT[ftype]
@@ -291,7 +299,7 @@ class GaplotContext(object):
           self.VT[key] = vt
 
       for cam in self._mkcameras(camera):
-        count = vt.tree[0]['npar'] / sharedmem.cpu_count()
+        count = len(vt.tree.zkey) / sharedmem.cpu_count()
         if count < 1024: count = 1024
         nodes = list(vt.find_large_nodes(cam, 0, count))
         print 'doing nodes', nodes
@@ -583,9 +591,9 @@ class GaplotContext(object):
       boxsize = numpy.ones(3) * self.C['boxsize']
 
     if boxsize is not None:
-      self.boxsize[...] = numpy.ones(3) * boxsize
+      self.boxsize[...] = boxsize
     else:
-      self.boxsize = numpy.ones(3)
+      self.boxsize[...] = 1.0 
 
     self.periodic = periodic
     self.cosmology = Cosmology.from_snapshot(snap)

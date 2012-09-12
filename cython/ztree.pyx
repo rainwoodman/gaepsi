@@ -81,14 +81,16 @@ cdef class TreeNode:
     """
     points = numpy.asarray(points)
     cdef object dtype
-    if points.dtype != _zorder_dtype:
+    if points.dtype == _zorder_dtype:
       keys = points
       dtype = _zorder_dtype
     elif points.dtype == numpy.dtype('object'):
       dtype = numpy.dtype('object')
+      keys = points
     else:
       keys = self.tree.digitize(points)
       dtype = _zorder_dtype
+
     iter = numpy.nditer(
         [keys, out],
         op_flags=[['readonly'], ['writeonly', 'allocate']],
@@ -104,24 +106,24 @@ cdef class TreeNode:
       while size > 0:
         while size > 0:
           key = (<zorder_t*>citer.data[0])[0]
-          (<bint*>citer.data[1])[0] = zorder.boxtest(
+          (<char*>citer.data[1])[0] = zorder.boxtest(
              self.tree.get_node_key(self._index),
              self.tree.get_node_order(self._index),
              key)
           size = size - 1
           npyiter.advance(&citer)
-      size = npyiter.next(&citer)
+        size = npyiter.next(&citer)
     else:
       while size > 0:
         while size > 0:
           key = <object>((<void**>citer.data[0])[0])
-          (<bint*>citer.data[1])[0] = zorder.boxtest(
+          (<char*>citer.data[1])[0] = zorder.boxtest(
              self.tree.get_node_key(self._index),
              self.tree.get_node_order(self._index),
              key)
           size = size - 1
           npyiter.advance(&citer)
-      size = npyiter.next(&citer)
+        size = npyiter.next(&citer)
     return iter.operands[1]
 
   def __str__(self):
@@ -131,7 +133,7 @@ cdef class TreeNode:
                first=self.first, npar=self.npar,
                pos=self.pos, size=self.size))
   def __repr__(self):
-    return "TreeNode(%s, %s)" % (repr(self.tree), repr(self._index))
+    return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
 cdef class Tree:
 
@@ -142,7 +144,8 @@ cdef class Tree:
   def __init__(self, zkey, digitize, thresh=100):
     """ digitize is an zorder.Digitize object.
         zkey needs to be sorted!"""
-    self.thresh = thresh
+    self.maxthresh = thresh
+    self.minthresh = 1
     self.digitize = digitize
     if not zkey.dtype == _zorder_dtype:
       raise TypeError("zkey needs to be of %s" % _zorder_dtype.str)
@@ -156,6 +159,9 @@ cdef class Tree:
   def optimize(self):
     while self._optimize() > 0: continue
 
+  def split_tail(self):
+    self._split_node(mark_leaf(self._leafnodes.used - 1))
+
   def transverse(self, prefunc=None, postfunc=None, index=0):
     node = self[index]
     if prefunc:    prefunc(node)
@@ -164,7 +170,7 @@ cdef class Tree:
         self.transverse(prefunc=prefunc, postfunc=postfunc, index=i)
     if postfunc: postfunc(node)
 
-  def project(self, prop):
+  def project(self, prop, o, l):
     cdef intptr_t i
     cdef intptr_t method 
     actions = {
@@ -181,7 +187,7 @@ cdef class Tree:
 
     dtype, method = actions[prop]
     
-    out = numpy.empty(len(self), dtype=dtype)
+    out = numpy.empty(shape=l, dtype=dtype)
     if isinstance(dtype, tuple):
      ops = [out[..., d] for d in range(dtype[1])]
      op_flags = [['writeonly']] * dtype[1]
@@ -202,11 +208,11 @@ cdef class Tree:
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double fdata[3]
     cdef object obj
-    i = 0
+    i = o
     while size > 0:
       while size > 0:
         if method == <intptr_t> -1:
-          (<bint *>(citer.data[0]))[0] = ~self.get_node_reclaimable(i)
+          (<char*>(citer.data[0]))[0] = ~self.get_node_reclaimable(i)
         if method == <intptr_t>self.get_node_key:
           obj = self.get_node_key(i)
           (<void**>(citer.data[0]))[0] = <void*>obj
@@ -238,14 +244,37 @@ cdef class Tree:
       size = npyiter.next(&citer) 
     return out
 
+  def _translate_index(self, node_t index, node_t l, node_t o):
+    
+    while index < 0: index += l
+    if index >= l: raise IndexError('%d' % index)
+    return index + o
+
   def __getitem__(self, item):
-    if isinstance(item, basestring):
-      return self.project(item)
-    elif isinstance(item, slice):
-      start, stop, step = slice.indices(len(self))
-      return [TreeNode(self, i) for i in range(start, stop, step)]
+    cdef node_t l, o
+    if isinstance(item, tuple):
+      nodetype, index = item
     else:
-      return TreeNode(self, item)
+      nodetype = 'all'
+      index = item
+    cdef int type
+    if nodetype == 'all': 
+      l = self.node_length + self.leaf_length
+      o = 0
+    elif nodetype in ('inner', 0, 'node') : 
+      l = self.node_length
+      o = 0
+    elif nodetype in ('outer', 1, 'leaf') : 
+      l = self.leaf_length
+      o = self.node_length
+
+    if isinstance(index, basestring):
+      return self.project(index, o, l)
+    elif isinstance(index, slice):
+        start, stop, step = slice.indices(len(self))
+        return [TreeNode(self, self._translate_index(i, l, o)) for i in range(start, stop, step)]
+    else:
+      return TreeNode(self, self._translate_index(index, l, o))
     
   cdef int _tree_build(Tree self) nogil except -1:
       cdef intptr_t j = 0
@@ -274,8 +303,7 @@ cdef class Tree:
           # instead of digging up holes in the end with 'optimize'.
           # however we still need to run 'optimize' in the end
           # because this won't catch all cases.
-          if self.get_node_nchildren(j) != 8:
-            j = self._try_merge_children(j)
+          j = self._try_merge_children(j)
           j = self.get_node_parent(j)
           # because we are on a morton key ordered list, no need to deccent into children 
         if j == -1: # par not covered by the tree anywhere, skip it.
@@ -290,7 +318,7 @@ cdef class Tree:
         if self.get_node_nchildren(j) > 0:
           # already not a leaf, create new child
           j = self._create_child(i, j) 
-        elif (self.get_node_npar(j) >= self.thresh and self.get_node_order(j) > 0):
+        elif (self.get_node_npar(j) >= self.minthresh and self.get_node_order(j) > 0):
           # too many points in the leaf, split it
           # NOTE: i is rewinded, because now some of the particles are no longer
           # in the new node.
@@ -305,10 +333,13 @@ cdef class Tree:
         # particle i is not in node j yet.
         # next particle to be considered is i+1,
         # now we try to fast forword to the first particle that is not in the current node
-        extrastep = self.thresh - self.get_node_npar(j) - 1
-        if extrastep > 0 and i + extrastep < self._zkey_length:
-          while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i + extrastep]):
-            extrastep >>= 1
+        if self.minthresh > 1:
+          extrastep = self.minthresh - self.get_node_npar(j) - 1
+          if extrastep > 0 and i + extrastep < self._zkey_length:
+            while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i + extrastep]):
+              extrastep >>= 1
+          else:
+            extrastep = 0
         else:
           extrastep = 0
         self.set_node_npar(j, self.get_node_npar(j) + extrastep + 1)
@@ -317,8 +348,48 @@ cdef class Tree:
       while j != -1:
         self.set_node_npar(j, i - self.get_node_first(j))
         j = self.get_node_parent(j)
-        
+
+  cdef node_t _split_node(self, intptr_t node) nogil except -1:
+    cdef intptr_t i, end
+    cdef size_t npar
+    cdef node_t j
+    cdef node_t grandparent = self.get_node_parent(node)
+    i = self.get_node_first(node)
+    npar = self.get_node_npar(node)
+    end = i + npar
+    j = self._create_child(i, node)
+    i = i + 1
+    while i < end:
+        while not j == grandparent and \
+          not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
+          self.set_node_npar(j, i - self.get_node_first(j))
+          j = self.get_node_parent(j)
+        if j == grandparent: 
+          with gil: raise RuntimeError('reaching grand parent')
+
+        if self.get_node_nchildren(j) > 0:
+          # already not a leaf, create new child
+          j = self._create_child(i, j) 
+        else:
+          pass
+        # if error occured
+        if j == -1: 
+          with gil: raise RuntimeError('parent node is -1 at i = %d' % i)
+        if self.get_node_order(j) == 0:
+          with gil: raise RuntimeError("trying to split a order 0 node. can't resolve this")
+
+        self.set_node_npar(j, self.get_node_npar(j) + 1)
+        i = i + 1
+      # now close the remaining open nodes
+    while j != grandparent:
+      with gil: print 'closing', j
+      self.set_node_npar(j, i - self.get_node_first(j))
+      j = self.get_node_parent(j)
+    return j
+
   cdef node_t _create_child(self, intptr_t first_par, intptr_t parent) nogil except -1:
+    # notice that parent node will be nolonger a valid node, because it has been
+    # replaced by a non-leaf node.
     cdef intptr_t fullparent 
     cdef node_t index
     cdef int k
@@ -358,6 +429,7 @@ cdef class Tree:
     # correct corner coordinates
     self.leafnodes[index].key = zorder.truncate(self._zkey[first_par], self.leafnodes[index].order)
     self.leafnodes[index].parent = parent
+    self.leafnodes[index].child_length = 0
 
     # the follwing assertion shall never be true unless the input
     # keys are not properly sorted.
@@ -365,7 +437,7 @@ cdef class Tree:
       with gil: raise RuntimeError("child_length >= 8,  parent = %d %s %d %s" % (parent, str(self[parent]), first_par, str(self.zkey[first_par])))
       
 
-    index = index | (<int> 1 << 31)
+    index = mark_leaf(index)
     self.nodes[parent].child[self.nodes[parent].child_length] = index
     self.nodes[parent].child_length = self.nodes[parent].child_length + 1
 
@@ -379,6 +451,12 @@ cdef class Tree:
 
     # do not merge if the node is already a leaf node
     if self.leafnode_index(parent) != -1: return parent
+
+#    if self.get_node_nchildren(parent) >= 7:
+#      return parent
+
+    if self.get_node_npar(parent) > self.maxthresh: 
+      return parent
 
     grandparent = self.nodes[parent].parent
     if grandparent == -1: return parent
@@ -425,7 +503,7 @@ cdef class Tree:
       # update the grandparent
       for k in range(self.nodes[grandparent].child_length):
         if self.nodes[grandparent].child[k] == parent:
-          self.nodes[grandparent].child[k] = index | (<int>1 << 31)
+          self.nodes[grandparent].child[k] = mark_leaf(index)
 
       # mark old parent node reclaimable
       self.nodes[parent].npar = 0
@@ -438,7 +516,7 @@ cdef class Tree:
 
       flexarray.remove(&self._leafnodes, nchildren - 1)
       flexarray.remove(&self._nodes, 1)
-    return index | (<int>1 << 31)
+    return mark_leaf(index)
 
   cdef intptr_t _optimize(Tree self) nogil except -1:
     # merge the immediate parent of leaf nodes if it is incomplete.
