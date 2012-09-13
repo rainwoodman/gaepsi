@@ -158,6 +158,18 @@ static inline zorder_t _truncate(zorder_t key, int order) {
   return (key >> (order * 3)) << (order * 3);
 }
 
+static inline void _flatten(zorder_t key, ipos_t *x, ipos_t * y) {
+  *x = 0; *y = 0;
+  int base = 0;
+  while(key >0) {
+    *x += (key & 0x7) << base;
+    key >>= 3;
+    *y += (key & 0x7) << base;
+    key >>= 3;
+    base += 3;
+  }
+}
+
 static inline zorder_t _xyz2ind (ipos_t x, ipos_t y, ipos_t z) {
     zorder_t ind = 0;
     x &= (1L << BITS) - 1;

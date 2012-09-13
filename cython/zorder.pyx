@@ -16,6 +16,7 @@ from warnings import warn
 
 cdef extern from 'zorder_internal.c':
   cdef zorder_t _xyz2ind (ipos_t x, ipos_t y, ipos_t z) nogil 
+  cdef void _flatten(zorder_t ind, ipos_t *x, ipos_t *y) nogil 
   cdef zorder_t _truncate(zorder_t ind, int order) nogil 
   cdef void _ind2xyz (zorder_t ind, ipos_t* x, ipos_t* y, ipos_t* z) nogil
   cdef int _boxtest (zorder_t ind, int order, zorder_t key) nogil 
@@ -59,6 +60,8 @@ cdef void decode(zorder_t key, ipos_t point[3]) nogil:
 cdef zorder_t truncate(zorder_t key, int order) nogil:
     return _truncate(key, order)
 
+cdef void flatten(zorder_t key, ipos_t xy[2]) nogil:
+    _flatten(key, xy, xy+1)
 cdef zorder_t encode(ipos_t point[3]) nogil:
     return _xyz2ind(point[0], point[1], point[2])
 cdef int boxtest (zorder_t ind, int order, zorder_t key) nogil:

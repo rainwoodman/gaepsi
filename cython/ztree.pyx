@@ -35,6 +35,10 @@ cdef class TreeNode:
     """ number of children (0 if none) """
     def __get__(self):
       return self.tree.get_node_nchildren(self._index)
+  property reclaimable:
+    """ if the node is unused """
+    def __get__(self):
+      return self.tree.get_node_reclaimable(self._index)
   property npar:
     """ number of particles in the node """
     def __get__(self):
@@ -170,6 +174,13 @@ cdef class Tree:
         self.transverse(prefunc=prefunc, postfunc=postfunc, index=i)
     if postfunc: postfunc(node)
 
+  def __iter__(self):
+    def func():
+      cdef node_t j = 0
+      for j in range(self.node_length + self.leaf_length):
+        node = self[j]
+        yield node
+    return func()
   def project(self, prop, o, l):
     cdef intptr_t i
     cdef intptr_t method 
@@ -365,7 +376,8 @@ cdef class Tree:
           self.set_node_npar(j, i - self.get_node_first(j))
           j = self.get_node_parent(j)
         if j == grandparent: 
-          with gil: raise RuntimeError('reaching grand parent')
+          #with gil: raise RuntimeError('reaching grand parent')
+          pass
 
         if self.get_node_nchildren(j) > 0:
           # already not a leaf, create new child
@@ -374,15 +386,16 @@ cdef class Tree:
           pass
         # if error occured
         if j == -1: 
-          with gil: raise RuntimeError('parent node is -1 at i = %d' % i)
+          #with gil: raise RuntimeError('parent node is -1 at i = %d' % i)
+          pass
         if self.get_node_order(j) == 0:
-          with gil: raise RuntimeError("trying to split a order 0 node. can't resolve this")
+          #with gil: raise RuntimeError("trying to split a order 0 node. can't resolve this")
+          pass
 
         self.set_node_npar(j, self.get_node_npar(j) + 1)
         i = i + 1
       # now close the remaining open nodes
     while j != grandparent:
-      with gil: print 'closing', j
       self.set_node_npar(j, i - self.get_node_first(j))
       j = self.get_node_parent(j)
     return j
@@ -413,10 +426,8 @@ cdef class Tree:
       # the following test shall always be fine because we
       # only do try split the last leaf node with add_child
       if index != self._leafnodes.used - 1:
-        with gil:
-          raise RuntimeError('not called on the last node')
-      #  with gil:
-      #    raise Exception('consistency %d != %d' %(parent, self._leafnodes.used - 1))
+        #with gil: raise RuntimeError('not called on the last node')
+        pass
       parent = fullparent
       flexarray.remove(&self._leafnodes, 1)
 
@@ -434,8 +445,8 @@ cdef class Tree:
     # the follwing assertion shall never be true unless the input
     # keys are not properly sorted.
     if self.nodes[parent].child_length >= 8:
-      with gil: raise RuntimeError("child_length >= 8,  parent = %d %s %d %s" % (parent, str(self[parent]), first_par, str(self.zkey[first_par])))
-      
+      #with gil: raise RuntimeError("child_length >= 8,  parent = %d %s %d %s" % (parent, str(self[parent]), first_par, str(self.zkey[first_par])))
+      pass
 
     index = mark_leaf(index)
     self.nodes[parent].child[self.nodes[parent].child_length] = index
