@@ -4,12 +4,13 @@ import numpy
 cimport numpy
 cimport npyiter
 cimport ztree
-cimport zorder
 cimport npyarray
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from warnings import warn
-from zorder cimport zorder_t, _zorder_dtype
+cimport fillingcurve
+from fillingcurve cimport fckey_t
+from fillingcurve import fckeytype
 from geometry cimport DieseFunktion
 from geometry cimport DieseFunktionFrustum
 from geometry cimport rotate_vector
@@ -75,24 +76,24 @@ cdef class VisTree:
     iter = numpy.nditer(
           [self.luminosity, self.color, self.tree.zkey], 
       op_flags=[['readonly'], ['readonly'], ['readonly']],
-     op_dtypes=['f4', 'f4', _zorder_dtype],
-         flags=['buffered', 'external_loop', 'zerosize_ok'], 
+     op_dtypes=['f4', 'f4', fckeytype],
+         flags=['buffered', 'external_loop', 'zerosize_ok', 'refs_ok'], 
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef node_t node = -1, i
-    cdef zorder_t nodekey
+    cdef fckey_t nodekey
     cdef int order
-    cdef zorder_t key
+    cdef fckey_t key
     cdef float lum
     with nogil:
       while size > 0:
         while size > 0:
-          key = (<zorder_t*>citer.data[2])[0]
+          key = (<fckey_t*>citer.data[2])[0]
           nodekey = self.tree.get_node_key(node)
           nodeorder = self.tree.get_node_order(node)
           if node == -1 or \
-             not zorder.boxtest(nodekey, nodeorder, key):
+             not fillingcurve.keyinkey(key, nodekey, nodeorder):
             node = self.tree.get_container_by_key(key, 0)
           lum = (<float*>citer.data[0])[0]
           self._node_lum[node] += lum

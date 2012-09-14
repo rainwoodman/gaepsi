@@ -1,12 +1,12 @@
 from libc.stdint cimport *
 from ztree cimport Tree, node_t
-from zorder cimport zorder_t
+from fillingcurve cimport fckey_t
 cdef class Query:
   cdef readonly size_t used
   cdef readonly size_t size
   cdef readonly size_t limit
-  cdef readonly zorder_t centerkey
-  cdef zorder_t AABBkey[2]
+  cdef readonly fckey_t centerkey
+  cdef fckey_t AABBkey[2]
   cdef intptr_t * _items
   cdef double * _weight
   cdef int _weighted

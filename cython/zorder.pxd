@@ -11,7 +11,7 @@ cdef extern from 'math.h':
 
 # to change zorder_t also modify the typedef in _bittricks.c !
 ctypedef __int128_t zorder_t
-ctypedef int64_t ipos_t
+from fillingcurve cimport ipos_t
 
 cdef numpy.dtype _zorder_dtype
 cdef void decode(zorder_t key, ipos_t point[3]) nogil

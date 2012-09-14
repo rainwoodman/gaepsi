@@ -6,11 +6,11 @@ cimport cpython
 from ztree cimport Tree, node_t
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
-cimport zorder
-from zorder cimport zorder_t, ipos_t
 cimport npyiter
 from libc.math cimport sqrt
 from geometry cimport LiangBarsky
+cimport fillingcurve
+from fillingcurve cimport fckey_t, ipos_t
 
 numpy.import_array()
 cdef extern from 'zquery_internal.c':
@@ -387,25 +387,25 @@ cdef class Query:
     cdef int d
     cdef double pos1[3]
     cdef double pos2[3]
-    tree.digitize.f2i(pos, ipos)
-    self.centerkey = zorder.encode(ipos)
+    fillingcurve.f2i(tree._scale, pos, ipos)
+    fillingcurve.i2fc(ipos, &self.centerkey)
     for d in range(3):
       pos1[d] = pos[d] - size[d]
       pos2[d] = pos[d] + size[d]
     
-    tree.digitize.f2i(pos1, ipos)
-    self.AABBkey[0] = zorder.encode(ipos)
-    tree.digitize.f2i(pos2, ipos)
-    self.AABBkey[1] = zorder.encode(ipos)
+    fillingcurve.f2i(tree._scale, pos1, ipos)
+    fillingcurve.i2fc(ipos, &self.AABBkey[0])
+    fillingcurve.f2i(tree._scale, pos2, ipos)
+    fillingcurve.i2fc(ipos, &self.AABBkey[1])
 
     self.used = 0
     self.execute_r(tree, 0)
 
   cdef void execute_r(Query self, Tree tree, node_t node) nogil:
     cdef int k
-    cdef zorder_t key = tree.get_node_key(node)
+    cdef fckey_t key = tree.get_node_key(node)
     cdef int order = tree.get_node_order(node)
-    cdef int flag = zorder.AABBtest(key, order, self.AABBkey)
+    cdef int flag = fillingcurve.heyinAABB(key, order, self.AABBkey)
     cdef int nchildren
     if flag == 0:
       return
@@ -443,7 +443,7 @@ cdef class Query:
 
     for i in range(nodefirst, 
          nodefirst + nodenpar, 1):
-      if zorder.AABBtest(tree._zkey[i], 0, self.AABBkey):
+      if fillingcurve.heyinAABB(tree._zkey[i], 0, self.AABBkey):
         self._items[self.used] = i
         self.used = self.used + 1
 
@@ -456,9 +456,7 @@ cdef class Query:
     cdef intptr_t nodefirst = tree.get_node_first(node)
     for item in range(nodefirst, 
          nodefirst + nodenpar, 1):
-      zorder.diff(self.centerkey, tree._zkey[item], id)
-      tree.digitize.i2f0(id, fd)
-      weight = fd[0] * fd[0] + fd[1] * fd[1] + fd[2] * fd[2]
+      weight = fillingcurve.key2key2(tree._scale, self.centerkey, tree._zkey[item])
 
       if self.used < self.size:
         # indexing starts from 1, b/c [0] is scratch for heap

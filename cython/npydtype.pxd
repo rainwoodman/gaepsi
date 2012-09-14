@@ -70,7 +70,10 @@ cdef inline void register_safe_castfuncs(int typenum, object list) except *:
      dtype = numpy.dtype(key)
      func = <intptr_t> list[key]
      PyArray_RegisterCastFunc (dtype, typenum, <void*>func)
-     PyArray_RegisterCanCast  (dtype, typenum, numpy.NPY_NOSCALAR)
+     if key == 'object':
+       PyArray_RegisterCanCast  (dtype, typenum, numpy.NPY_OBJECT_SCALAR)
+     else:
+       PyArray_RegisterCanCast  (dtype, typenum, numpy.NPY_NOSCALAR)
 
 cdef inline int register_dtype(PyArray_Descr * descr, PyArray_ArrFuncs * f,
      object dict) except *:
@@ -95,9 +98,6 @@ cdef inline void register_ufuncs(int typenum, void* func, object types, object l
        types is a list of integer typenums. """
    cdef intptr_t data
    cdef numpy.ndarray typesarray = numpy.array(types, dtype='i4')
-   print typesarray, list
-   for i in range(len(typesarray)):
-      print i, len(typesarray), (<int*>(typesarray.data))[i]
    for ufunc in list:
      data = <intptr_t> ord(list[ufunc])
      PyUFunc_RegisterLoopForType(ufunc, typenum, func, <int*> typesarray.data, <void*> data)

@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 typedef __int128_t zorder_t;
-typedef int64_t ipos_t;
+//typedef int64_t ipos_t;
 #define BITS 40
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)

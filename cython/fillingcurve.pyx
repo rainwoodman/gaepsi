@@ -9,24 +9,53 @@ from cpython.object cimport PyObject, PyTypeObject
 from npydtype cimport *
 from numpy cimport PyUFunc_FromFuncAndData, PyUFunc_None
 cimport npyiter
+DEF BITS = 40
 
 cdef class fckeyobject:
   cdef fckey_t value
+  def __cinit__(self, value):
+    if isinstance(value, fckeyobject):
+      self.value = (<fckeyobject>value).value
+    self.value = value
   def __str__(self):
     return hex(<ufckey_t>self.value)
   def __repr__(self):
     return hex(<ufckey_t>self.value)
-
-DEF BITS = 40
+  def __long__(self):
+    return self.value
+  def __xor__(self, y):
+    cdef fckeyobject yy = fckeyobject(y)
+    return fckeyobject((<fckeyobject>self).value ^ (<fckeyobject>yy).value)
 
 cdef extern from 'fillingcurve_internal.c':
   cdef fckey_t _xyz2ind (ipos_t x, ipos_t y, ipos_t z) nogil 
-  cdef void _ind2xyz (fckey_t ind, ipos_t* x, ipos_t* y, ipos_t* z) nogil
+  cdef void _ind2xyz (fckey_t key, ipos_t* x, ipos_t* y, ipos_t* z) nogil
+  cdef int _boxtest (fckey_t key, int order, fckey_t key2) nogil 
+  cdef int _AABBtest (fckey_t key, int order, fckey_t AABB[2]) nogil 
+  cdef fckey_t _truncate(fckey_t key, int order) nogil 
+  cdef void _diff(fckey_t p1, fckey_t p2, ipos_t d[3]) nogil
+  cdef int _diff_order(fckey_t p1, fckey_t p2) nogil
 
 numpy.import_array()
 numpy.import_ufunc()
 
 fckeytype = _register_dtype(fckeyobject)
+
+cdef fckey_t truncate(fckey_t key, int order) nogil:
+    return _truncate(key, order)
+
+cdef bint keyinkey(fckey_t needle, fckey_t hey, int order) nogil:
+    return _boxtest(hey, order, needle)
+
+cdef bint heyinAABB(fckey_t hey, int order, fckey_t AABB[2]) nogil:
+    return _AABBtest(hey, order, AABB)
+
+cdef double key2key2(double scale[4], fckey_t key1, fckey_t key2) nogil:
+    cdef ipos_t d[3]
+    cdef double f[3]
+    _diff(key1, key2, d)
+    i2f0(scale, d, f)
+    return f[0] * f[0] + f[1] * f[1] + f[2] * f[2]
 
 cdef int f2i(double scale[4], double pos[3], ipos_t point[3]) nogil:
     cdef int d
@@ -45,22 +74,116 @@ cdef void i2f(double scale[4], ipos_t point[3], double pos[3]) nogil:
 cdef void i2fc(ipos_t ipos[3], fckey_t * key) nogil:
     key[0] = _xyz2ind(ipos[0], ipos[1], ipos[2])
 
-cdef void fc2i(fckey_t * key, ipos_t ipos[3]) nogil:
-    _ind2xyz(key[0], &ipos[0], &ipos[1], &ipos[2])
+cdef void fc2i(fckey_t key, ipos_t ipos[3]) nogil:
+    _ind2xyz(key, &ipos[0], &ipos[1], &ipos[2])
 
 cdef void i2f0(double scale[4], ipos_t point[3], double pos[3]) nogil:
     cdef int d
     for d in range(3):
       pos[d] = point[d] / scale[3]
 
-def decode(numpy.ndarray fckey, out1=None, out2=None, out3=None, scale=None):
+def scale(origin, boxsize):
+  scale = numpy.empty(4, 'f8')
+  scale[:3] = origin
+  scale[3] = ((<ipos_t>1 << BITS) - 1) / boxsize.max()
+  return scale
+
+def contains(fckey, order, X, Y=None, Z=None, out=None, scale=None):
+  """ when scale is None X, Y, Z are i8.
+      if Y, Z is None, X is fckey """
+  cdef double min[4]
+  cdef int mode = 0
+  if scale is None:
+    if Y is None and Z is None:
+      iter = numpy.nditer([fckey, order, out, X],
+        op_flags=[['readonly']] * 2 + [['writeonly', 'allocate']] + [['readonly']],
+        op_dtypes =[fckeytype, 'i1', '?', fckeytype],
+        flags = ['external_loop', 'buffered', 'zerosize_ok', 'refs_ok'],
+        casting='unsafe')
+      mode = 0
+    else:
+      iter = numpy.nditer([fckey, order, out, X, Y, Z],
+        op_flags=[['readonly']] * 2 + [['writeonly', 'allocate']] + [['readonly']] * 3,
+        op_dtypes =[fckeytype, 'i1', '?', 'i8', 'i8', 'i8'],
+        flags = ['external_loop', 'buffered', 'zerosize_ok', 'refs_ok'],
+        casting='unsafe')
+      mode = 1
+  else:
+    iter = numpy.nditer([fckey, order, out, X, Y, Z],
+      op_flags=[['readonly']] * 2 + [['writeonly', 'allocate']] + [['readonly']] * 3,
+      op_dtypes =[fckeytype, 'i1', '?',  'f8', 'f8', 'f8'],
+      flags = ['external_loop', 'buffered', 'zerosize_ok', 'refs_ok'],
+        casting='unsafe')
+    min[0] = scale[0]
+    min[1] = scale[1]
+    min[2] = scale[2]
+    min[3] = scale[3]
+    mode = 2
+
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  cdef ipos_t ipos[3]
+  cdef double fpos[3]
+  cdef fckey_t key2, key1
+  cdef char ord
+  with nogil:
+    while size > 0:
+      while size > 0:
+        if mode == 2:
+          fpos[0] = (<double*>(citer.data[3]))[0]
+          fpos[1] = (<double*>(citer.data[4]))[0]
+          fpos[2] = (<double*>(citer.data[5]))[0]
+          if 0 == f2i(min, fpos, ipos):
+           key2 = <fckey_t> -1
+          else:
+            i2fc(ipos, &key2)
+        elif mode == 1:
+          ipos[0] = (<ipos_t*>(citer.data[3]))[0]
+          ipos[1] = (<ipos_t*>(citer.data[4]))[0]
+          ipos[2] = (<ipos_t*>(citer.data[5]))[0]
+          i2fc(ipos, &key2)
+        elif mode == 0:
+          key2 = (<fckey_t*>(citer.data[3]))[0]
+        key1 = (<fckey_t*>(citer.data[0]))[0]
+        ord = (<char*>(citer.data[1]))[0]
+        (<char*>(citer.data[1]))[0] = keyinkey(key2, ord, key1) != 0
+        npyiter.advance(&citer)
+        size = size - 1
+      size = npyiter.next(&citer)
+  return iter.operands[1]
+
+def edgeorder(p1, p2, out=None):
+  """ calculate the edge order to contain p1 and p2. 
+
+      order is the minimium satisfying
+
+      (p1 ^ p2) >> (order * 3) == 0
+  """
+  iter = numpy.nditer([p1, p2, out],
+     op_flags=[['readonly'], ['readonly'], ['writeonly', 'allocate']],
+     flags=['zerosize_ok', 'external_loop', 'buffered'],
+     op_dtypes=[fckeytype, fckeytype, 'i1'])
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  with nogil:
+    while size > 0:
+      while size > 0:
+        (<char *> (citer.data[2]))[0] = _diff_order(
+        (<fckey_t *> citer.data[0])[0],
+        (<fckey_t *> citer.data[1])[0])
+        npyiter.advance(&citer)
+        size = size - 1
+      size = npyiter.next(&citer)
+  return iter.operands[2]
+
+def decode(fckey, out1=None, out2=None, out3=None, scale=None):
   cdef double min[4]
   cdef int out_float = 0
   if scale is None:
     iter = numpy.nditer([fckey, out1, out2, out3],
       op_flags=[['readonly']] + [['writeonly', 'allocate']] * 3,
       op_dtypes =[fckeytype, 'i8', 'i8', 'i8'],
-      flags = ['external_loop', 'buffered', 'zerosize_ok'])
+      flags = ['external_loop', 'buffered', 'zerosize_ok', 'refs_ok'])
   else:
     iter = numpy.nditer([fckey, out1, out2, out3],
       op_flags=[['readonly']] + [['writeonly', 'allocate']] * 3,
@@ -79,7 +202,7 @@ def decode(numpy.ndarray fckey, out1=None, out2=None, out3=None, scale=None):
   with nogil:
     while size > 0:
       while size > 0:
-        fc2i((<fckey_t*>(citer.data[0])), ipos)
+        fc2i((<fckey_t*>(citer.data[0]))[0], ipos)
         if not out_float:
           (<ipos_t*>(citer.data[1]))[0] = ipos[0]
           (<ipos_t*>(citer.data[2]))[0] = ipos[1]
@@ -95,7 +218,7 @@ def decode(numpy.ndarray fckey, out1=None, out2=None, out3=None, scale=None):
       size = npyiter.next(&citer)
   return iter.operands[1], iter.operands[2], iter.operands[3]
 
-def encode(numpy.ndarray X, numpy.ndarray Y, numpy.ndarray Z, out=None, scale=None):
+def encode(X, Y, Z, out=None, scale=None):
   cdef ipos_t MAX = ((<ipos_t>1) << BITS) - 1
   cdef double min[4]
   cdef int in_float = 0
@@ -131,7 +254,7 @@ def encode(numpy.ndarray X, numpy.ndarray Y, numpy.ndarray Z, out=None, scale=No
           fpos[0] = (<double*>(citer.data[0]))[0]
           fpos[1] = (<double*>(citer.data[1]))[0]
           fpos[2] = (<double*>(citer.data[2]))[0]
-          if 0 != f2i(min, fpos, ipos):
+          if 0 == f2i(min, fpos, ipos):
             (<fckey_t*>(citer.data[3]))[0] = <fckey_t> -1
           else:
             i2fc(ipos, <fckey_t*>(citer.data[3]))
@@ -159,6 +282,11 @@ cdef numpy.dtype _register_dtype(typeobj):
   f.argmin = <void*> _argmin
   f.compare = <void*> _compare
 
+  f.cast[<int>numpy.NPY_INT64] = <void*> _downcasti8
+  f.cast[<int>numpy.NPY_INT32] = <void*> _downcasti4
+  f.cast[<int>numpy.NPY_INT16] = <void*> _downcasti2
+  f.cast[<int>numpy.NPY_INT8] = <void*> _downcasti1
+
   cdef int typenum = register_dtype(descr, f,
      dict(elsize=16, kind='i', byteorder='=', type='z', alignment=8, typeobj=typeobj, metadata={})
   )
@@ -168,6 +296,7 @@ cdef numpy.dtype _register_dtype(typeobj):
            'i2': <intptr_t>_upcasti2, 'i1': <intptr_t>_upcasti1,
            'u8': <intptr_t>_upcastu8, 'u4': <intptr_t>_upcastu4,
            'u2': <intptr_t>_upcastu2, 'u1': <intptr_t>_upcastu1,
+           'object': <intptr_t>_upcastlong
            })
   register_ufuncs(typenum, <void*>_op_zzz, [typenum, typenum, typenum], {
      numpy.bitwise_and: '&', numpy.bitwise_or: '|', 
@@ -187,8 +316,12 @@ cdef numpy.dtype _register_dtype(typeobj):
   register_ufuncs(typenum, <void*>_op_zz, [typenum, typenum], {
      numpy.invert: '~', numpy.negative: '\\',
   })
-  return numpy.PyArray_DescrFromType(typenum)
-
+  cdef numpy.dtype dtype = numpy.PyArray_DescrFromType(typenum)
+  PyArray_RegisterCanCast(dtype, numpy.NPY_INT8, numpy.NPY_NOSCALAR)
+  PyArray_RegisterCanCast(dtype, numpy.NPY_INT16, numpy.NPY_NOSCALAR)
+  PyArray_RegisterCanCast(dtype, numpy.NPY_INT32, numpy.NPY_NOSCALAR)
+  PyArray_RegisterCanCast(dtype, numpy.NPY_INT64, numpy.NPY_NOSCALAR)
+  return dtype
 # Functions that implements the dtype
 cdef void _copyswapn(char *dest, intptr_t dstride, char *src, intptr_t sstride, intptr_t n, int swap, void *arr) nogil:
   cdef intptr_t i = 0
@@ -461,6 +594,34 @@ cdef void _upcastu2(uint16_t *src, fckey_t * dst, intptr_t n, void * NOTUSED, vo
      dst[i] = src[i]
      i = i + 1
 cdef void _upcastu1(uint8_t *src, fckey_t * dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+
+cdef void _upcastlong(void** src, fckey_t * dst, intptr_t n, void * NOTUSED, void * NOT_USED2):
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = <object>(src[i])
+     i = i + 1
+
+
+cdef void _downcasti8(fckey_t * src, int64_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+cdef void _downcasti4(fckey_t * src, int32_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+cdef void _downcasti2(fckey_t * src, int16_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+cdef void _downcasti1(fckey_t * src, int8_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
    cdef intptr_t i = 0
    while i < n:
      dst[i] = src[i]

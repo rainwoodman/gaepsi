@@ -9,9 +9,11 @@ from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport cython
 import cython
+cimport fillingcurve
+import fillingcurve
 from warnings import warn
-cimport zorder
-from zorder cimport zorder_t, _zorder_dtype
+
+DEF BITS = 40
 
 numpy.import_array()
 
@@ -50,7 +52,7 @@ cdef class TreeNode:
   property key:
     """ the zkey as a python Long integer"""
     def __get__(self):
-      return self.tree.get_node_key(self._index)
+      return fillingcurve.fckeyobject(self.tree.get_node_key(self._index))
   property order:
     """ order of the node (bigger = bigger node)"""
     def __get__(self):
@@ -81,54 +83,24 @@ cdef class TreeNode:
     """ test if points are inside a node.
         accept positions,
         Python Long integer arrays as zkeys,
-        or zorder_dtype arrays as zkeys(returned by the digitizer)
+        or arrays as zkeys(returned by the digitizer)
     """
+    
     points = numpy.asarray(points)
     cdef object dtype
-    if points.dtype == _zorder_dtype:
-      keys = points
-      dtype = _zorder_dtype
-    elif points.dtype == numpy.dtype('object'):
-      dtype = numpy.dtype('object')
-      keys = points
+    if points.dtype in (fillingcurve.fckeytype, numpy.dtype('object')):
+      X, Y, Z = points, None, None
+      return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out)
+    elif len(points.shape) > 1 and points.shape[-1] == 3:
+      X, Y, Z = points.rollaxis(-1)
+      if X.dtype.kind == 'i':
+        return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out, scale=None)
+      elif X.dtype.kind == 'f':
+        return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out, scale=self.tree.scale)
+      else:
+        raise RuntimeError('dtype not supported')
     else:
-      keys = self.tree.digitize(points)
-      dtype = _zorder_dtype
-
-    iter = numpy.nditer(
-        [keys, out],
-        op_flags=[['readonly'], ['writeonly', 'allocate']],
-        flags = ['buffered', 'external_loop', 'zerosize_ok', 'refs_ok'],
-        casting='unsafe',
-        op_dtypes=[dtype, '?'])
-      
-    cdef npyiter.CIter citer
-    cdef size_t size = npyiter.init(&citer, iter)
-    cdef zorder_t key
-    if dtype == _zorder_dtype: 
-     with nogil: 
-      while size > 0:
-        while size > 0:
-          key = (<zorder_t*>citer.data[0])[0]
-          (<char*>citer.data[1])[0] = zorder.boxtest(
-             self.tree.get_node_key(self._index),
-             self.tree.get_node_order(self._index),
-             key)
-          size = size - 1
-          npyiter.advance(&citer)
-        size = npyiter.next(&citer)
-    else:
-      while size > 0:
-        while size > 0:
-          key = <object>((<void**>citer.data[0])[0])
-          (<char*>citer.data[1])[0] = zorder.boxtest(
-             self.tree.get_node_key(self._index),
-             self.tree.get_node_order(self._index),
-             key)
-          size = size - 1
-          npyiter.advance(&citer)
-        size = npyiter.next(&citer)
-    return iter.operands[1]
+      raise RuntimeError('dtype not supported %s' % str(points.dtype))
 
   def __str__(self):
     return str(dict(parent=self.parent, children=self.children,
@@ -145,16 +117,21 @@ cdef class Tree:
     flexarray.init(&self._nodes, <void**>&self.nodes, sizeof(Node), 1024)
     flexarray.init(&self._leafnodes, <void**>&self.leafnodes, sizeof(LeafNode), 1024)
 
-  def __init__(self, zkey, digitize, thresh=100):
-    """ digitize is an zorder.Digitize object.
+  def __init__(self, zkey, scale, thresh=100):
+    """ scale is min[0], min[1], min[2], norm( multply by norm to go to 0->1<<BITS -1)
         zkey needs to be sorted!"""
     self.maxthresh = thresh
     self.minthresh = 1
-    self.digitize = digitize
-    if not zkey.dtype == _zorder_dtype:
-      raise TypeError("zkey needs to be of %s" % _zorder_dtype.str)
+    self.scale = numpy.empty(4, dtype='f8')
+    self._scale = <double*> self.scale.data
+    self._scale[0] = scale[0]
+    self._scale[1] = scale[1]
+    self._scale[2] = scale[2]
+    self._scale[3] = scale[3]
+    if zkey.dtype != fillingcurve.fckeytype:
+      raise TypeError("zkey needs to be of %s" % str(fillingcurve.fckeytype))
     self.zkey = zkey
-    self._zkey = <zorder_t *> self.zkey.data
+    self._zkey = <fckey_t *> self.zkey.data
     self._zkey_length = self.zkey.shape[0]
     if -1 == self._tree_build():
      pass
@@ -185,7 +162,7 @@ cdef class Tree:
     cdef intptr_t i
     cdef intptr_t method 
     actions = {
-       'key':('object', <intptr_t> self.get_node_key),
+       'key':(fillingcurve.fckeytype, <intptr_t> self.get_node_key),
        'used':('?', <intptr_t> -1),
        'order':('i2', <intptr_t> self.get_node_order),
        'first':('intp', <intptr_t> self.get_node_first),
@@ -218,16 +195,14 @@ cdef class Tree:
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
     cdef double fdata[3]
-    cdef object obj
+    cdef fckey_t key
     i = o
     while size > 0:
       while size > 0:
         if method == <intptr_t> -1:
           (<char*>(citer.data[0]))[0] = ~self.get_node_reclaimable(i)
         if method == <intptr_t>self.get_node_key:
-          obj = self.get_node_key(i)
-          (<void**>(citer.data[0]))[0] = <void*>obj
-          cpython.Py_INCREF(obj)
+          (<fckey_t *>(citer.data[0]))[0] = self.get_node_key(i)
         elif method == <intptr_t>self.get_node_first:
           (<intptr_t *>(citer.data[0]))[0] = self.get_node_first(i)
         elif method == <intptr_t>self.get_node_parent:
@@ -298,12 +273,12 @@ cdef class Tree:
       self.nodes[0].key = 0
       self.nodes[0].first = i
       self.nodes[0].npar = 0
-      self.nodes[0].order = self.digitize.bits
+      self.nodes[0].order = BITS
       self.nodes[0].parent = -1
       self.nodes[0].child_length = 0
       while i < self._zkey_length:
         while not j == -1 and \
-          not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
+          not fillingcurve.keyinkey(self._zkey[i], self.get_node_key(j), self.get_node_order(j)):
           # close the nodes by filling in the npar, because we already scanned over
           # all particles in these nodes.
           self.set_node_npar(j, i - self.get_node_first(j))
@@ -347,7 +322,7 @@ cdef class Tree:
         if self.minthresh > 1:
           extrastep = self.minthresh - self.get_node_npar(j) - 1
           if extrastep > 0 and i + extrastep < self._zkey_length:
-            while not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i + extrastep]):
+            while not fillingcurve.keyinkey(self._zkey[i+extrastep], self.get_node_key(j), self.get_node_order(j)):
               extrastep >>= 1
           else:
             extrastep = 0
@@ -372,7 +347,7 @@ cdef class Tree:
     i = i + 1
     while i < end:
         while not j == grandparent and \
-          not zorder.boxtest(self.get_node_key(j), self.get_node_order(j), self._zkey[i]):
+          not fillingcurve.keyinkey(self._zkey[i], self.get_node_key(j), self.get_node_order(j)):
           self.set_node_npar(j, i - self.get_node_first(j))
           j = self.get_node_parent(j)
         if j == grandparent: 
@@ -438,7 +413,7 @@ cdef class Tree:
     self.leafnodes[index].order = self.nodes[parent].order - 1
     # the lower bits of a sqkey is cleared off, so that get_node_pos returns 
     # correct corner coordinates
-    self.leafnodes[index].key = zorder.truncate(self._zkey[first_par], self.leafnodes[index].order)
+    self.leafnodes[index].key = fillingcurve.truncate(self._zkey[first_par], self.leafnodes[index].order)
     self.leafnodes[index].parent = parent
     self.leafnodes[index].child_length = 0
 

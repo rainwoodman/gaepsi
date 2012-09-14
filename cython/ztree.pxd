@@ -7,14 +7,15 @@ cimport cython
 cimport numpy
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
-cimport zorder
-from zorder cimport zorder_t, ipos_t
+cimport fillingcurve
+from fillingcurve cimport fckey_t, ipos_t
+
 ctypedef int node_t
 cimport flexarray
 from flexarray cimport FlexArray
 
 cdef packed struct Node:
-  zorder_t key # from key and level to derive the bot and top limits
+  fckey_t key # from key and level to derive the bot and top limits
   intptr_t first 
   intptr_t npar
   node_t parent # if parent is -1, this node is unused/reclaimable
@@ -23,7 +24,7 @@ cdef packed struct Node:
   node_t child[8] # child[0]  may save first_par and child[1] may save npar
 
 cdef packed struct LeafNode:
-  zorder_t key # from key and level to derive the bot and top limits
+  fckey_t key # from key and level to derive the bot and top limits
   intptr_t first 
   intptr_t npar
   node_t parent # if parent is -1, this node is unused/reclaimable.
@@ -44,10 +45,11 @@ cdef class Tree:
   cdef FlexArray _leafnodes
   cdef readonly size_t minthresh
   cdef readonly size_t maxthresh
-  cdef zorder_t * _zkey
+  cdef fckey_t * _zkey
   cdef size_t _zkey_length
   cdef readonly numpy.ndarray zkey
-  cdef readonly zorder.Digitize digitize
+  cdef readonly numpy.ndarray scale
+  cdef double * _scale
 
   cdef inline void * get_node_pointer(Tree self, node_t index) nogil:
     if index & (<node_t>1 << (sizeof(node_t) * 8 - 1)):
@@ -87,13 +89,13 @@ cdef class Tree:
   cdef inline void get_node_pos(Tree self, node_t index, double pos[3]) nogil:
     """ returns the topleft corner of the node """
     cdef ipos_t ipos[3]
-    zorder.decode(self.get_node_key(index), ipos)
-    self.digitize.i2f(ipos, pos)
+    fillingcurve.fc2i(self.get_node_key(index), ipos)
+    fillingcurve.i2f(self._scale, ipos, pos)
 
   cdef inline void get_leaf_pos(Tree self, node_t index, double pos[3]) nogil:
     cdef ipos_t ipos[3]
-    zorder.decode(self._zkey[index], ipos)
-    self.digitize.i2f(ipos, pos)
+    fillingcurve.fc2i(self._zkey[index], ipos)
+    fillingcurve.i2f(self._scale, ipos, pos)
 
   cdef inline size_t get_node_npar(Tree self, node_t index) nogil:
     return (<LeafNode*>self.get_node_pointer(index))[0].npar
@@ -104,7 +106,7 @@ cdef class Tree:
   cdef inline intptr_t get_node_first(Tree self, node_t index) nogil:
     return (<LeafNode*>self.get_node_pointer(index))[0].first
 
-  cdef inline zorder_t get_node_key(Tree self, node_t index) nogil:
+  cdef inline fckey_t get_node_key(Tree self, node_t index) nogil:
     return (<LeafNode*>self.get_node_pointer(index))[0].key
 
   cdef inline int get_node_order(Tree self, node_t index) nogil:
@@ -126,16 +128,16 @@ cdef class Tree:
     isize[0] = (<ipos_t>1<<(self.get_node_order(index))) - 1
     isize[1] = isize[0]
     isize[2] = isize[0]
-    self.digitize.i2f0(isize, size)
+    fillingcurve.i2f0(self._scale, isize, size)
 
   cdef inline node_t get_container(Tree self, double pos[3], int atleast) nogil:
-    cdef zorder_t key
+    cdef fckey_t key
     cdef ipos_t ipos[3]
-    self.digitize.f2i(pos, ipos)
-    key = zorder.encode(ipos)
+    fillingcurve.f2i(self._scale, pos, ipos)
+    fillingcurve.i2fc(ipos, &key)
     return self.get_container_by_key(key, atleast)
 
-  cdef inline node_t get_container_by_key(Tree self, zorder_t key, int atleast) nogil:
+  cdef inline node_t get_container_by_key(Tree self, fckey_t key, int atleast) nogil:
     cdef node_t this, child, next
     this = 0
     cdef int nchildren
@@ -144,7 +146,7 @@ cdef class Tree:
     while this != -1 and nchildren > 0:
       next = this
       for i in range(nchildren):
-        if zorder.boxtest(self.get_node_key(children[i]), self.get_node_order(children[i]), key):
+        if fillingcurve.keyinkey(key, self.get_node_key(children[i]), self.get_node_order(children[i])):
           next = children[i]
           break
       if next == this: break

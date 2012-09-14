@@ -1,8 +1,8 @@
 cimport numpy
 import numpy
-cimport zorder
-import zorder
-from zorder cimport ipos_t, zorder_t
+
+cimport fillingcurve
+from fillingcurve cimport ipos_t, fckey_t
 cimport ztree
 import ztree
 cimport zquery
@@ -11,6 +11,7 @@ cimport cpython
 from libc.stdint cimport *
 from warnings import warn
 cimport npyiter
+cimport fillingcurve
 
 cdef double dist2(double fpos[3], double fpos2[3]):
   cdef double D = 0
@@ -65,9 +66,7 @@ cdef class FOFCluster:
     for k in range(query.used):
       j = query._items[k]
       if dt._head[j] == dt._head[target]: continue
-      zorder.diff(self.tree._zkey[target], self.tree._zkey[j], id)
-      self.tree.digitize.i2f0(id, fd)
-      if fd[0] * fd[0] + fd[1] * fd[1] + fd[2] * fd[2] >= linkl2:
+      if fillingcurve.key2key(self.tree._zkey[target], self.tree.zkey[j]) >= linkl2:
         continue
       if dt._len[dt._head[target]] > dt._len[dt._head[j]]:
         p = target
