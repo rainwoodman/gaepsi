@@ -471,6 +471,7 @@ def nl_(value, vmin=None, vmax=None):
 
 from gaepsi.cython import _fast
 class normalize(numpy.ndarray):
+  __array_priority__ = - 100.0
   def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):
     """normalize an array to 0 and 1, value is returned.
        if logscale is True, and vmin is in format 'nn db', then
@@ -516,7 +517,6 @@ class normalize(numpy.ndarray):
     self.vmin = vmin
     self.vmax = vmax
     self.logscale = logscale
-#    self.__array_priority__ = 0
     return self
 
   def __array_wrap__(self, outarr, context=None):

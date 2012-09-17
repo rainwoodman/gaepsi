@@ -203,7 +203,7 @@ cdef class VisTree:
       camera.paint_object_one(pos, uvt, whl, color/luminosity, luminosity, ccd)
     elif nchildren == 0:
       for k in range(nodenpar):
-        self.tree.get_leaf_pos(nodefirst+k, pos)
+        self.tree.get_par_pos(nodefirst+k, pos)
         c3inv = camera.transform_one(pos, uvt)
         camera.transform_size_one(r , c3inv, whl)
         npyarray.flat(&self._luminosity, nodefirst+k, &luminosity)

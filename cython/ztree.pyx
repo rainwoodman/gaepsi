@@ -5,8 +5,11 @@ cimport cpython
 from cpython.ref cimport Py_INCREF
 cimport numpy
 cimport npyiter
+cimport npyarray
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
+cdef extern from "math.h":
+  int isnan(double d) nogil
 cimport cython
 import cython
 cimport fillingcurve
@@ -111,8 +114,145 @@ cdef class TreeNode:
   def __repr__(self):
     return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
-cdef class Tree:
+cdef class TreeProperty:
+  """ Property associated with tree nodes/particles """
+  cdef readonly Tree tree
+  cdef readonly numpy.ndarray values
+  cdef readonly numpy.ndarray cache
+  cdef float * _cache
+  cdef bint direct
+  cdef npyarray.CArray cvalues
+  def __cinit__(self):
+    pass
 
+  def __init__(self, tree, values):
+    self.tree = tree
+    if isinstance(values, basestring):
+      self.cache = self._project(values)
+      self.direct = True
+    else:
+      self.cache = numpy.empty(len(tree), 'f4')
+      self.cache[:] = numpy.nan
+      self._cache = <float *> self.cache.data
+      self.direct = False
+      self._prepare(self, values)
+
+  def _prepare(self, numpy.ndarray nodes, values):
+    self._cache = <float *> nodes.data
+    self.values = numpy.asarray(values)
+    npyarray.init(&self.cvalues, values)
+
+  def __len__(self):
+    return len(self.tree)
+
+  def __getitem__(self, item):
+    if self.direct: return self.cache[item]
+    if numpy.isscalar(item):
+      return self.get_node_value(item)
+    else:
+      nanmask = numpy.isnan(self.cache[item])
+      if nanmask.any():
+        nanlist = numpy.arange(len(self.cache))[item][nanmask]
+        for k in nanlist:
+          self.get_node_value(k)
+    return self.cache[item]
+
+  cdef numpy.ndarray _project(self, prop):
+    cdef intptr_t i
+    cdef intptr_t method 
+    actions = {
+       'key':(fillingcurve.fckeytype, <intptr_t> self.tree.get_node_key),
+       'used':('?', <intptr_t> -1),
+       'order':('i2', <intptr_t> self.tree.get_node_order),
+       'first':('intp', <intptr_t> self.tree.get_node_first),
+       'npar':('intp', <intptr_t> self.tree.get_node_npar),
+       'parent':('intp', <intptr_t> self.tree.get_node_parent),
+       'nchildren':('i2', <intptr_t> self.tree.get_node_nchildren),
+       'pos':(('f8', 3), <intptr_t> self.tree.get_node_pos),
+       'size':(('f8', 3), <intptr_t> self.tree.get_node_size)
+    }
+
+    dtype, method = actions[prop]
+    
+    out = numpy.empty(shape=len(self), dtype=dtype)
+    if isinstance(dtype, tuple):
+     ops = [out[..., d] for d in range(dtype[1])]
+     op_flags = [['writeonly']] * dtype[1]
+     op_dtypes = [dtype[0]] * dtype[1]
+    else:
+     ops = [out]
+     op_flags = [['writeonly']]
+     op_dtypes = [dtype]
+
+    iter = numpy.nditer(
+        ops,
+        op_flags=op_flags,
+        flags = ['buffered', 'external_loop', 'refs_ok'],
+        casting='unsafe',
+        op_dtypes=op_dtypes)
+      
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef double fdata[3]
+    cdef fckey_t key
+    i = 0
+    while size > 0:
+      while size > 0:
+        if method == <intptr_t> -1:
+          (<char*>(citer.data[0]))[0] = ~self.tree.get_node_reclaimable(i)
+        elif method == <intptr_t>self.tree.get_node_key:
+          (<fckey_t *>(citer.data[0]))[0] = self.tree.get_node_key(i)
+        elif method == <intptr_t>self.tree.get_node_first:
+          (<intptr_t *>(citer.data[0]))[0] = self.tree.get_node_first(i)
+        elif method == <intptr_t>self.tree.get_node_parent:
+          (<intptr_t *>(citer.data[0]))[0] = self.tree.get_node_parent(i)
+        elif method == <intptr_t>self.tree.get_node_npar:
+          (<intptr_t *>(citer.data[0]))[0] = self.tree.get_node_npar(i)
+        elif method == <intptr_t>self.tree.get_node_nchildren:
+          (<short int *>(citer.data[0]))[0] = self.tree.get_node_nchildren(i)
+        elif method == <intptr_t>self.tree.get_node_order:
+          (<short int *>(citer.data[0]))[0] = self.tree.get_node_order(i)
+        elif method == <intptr_t>self.tree.get_node_pos:
+          self.tree.get_node_pos(i, fdata)
+          (<double *>(citer.data[0]))[0] = fdata[0]
+          (<double *>(citer.data[1]))[0] = fdata[1]
+          (<double *>(citer.data[2]))[0] = fdata[2]
+        elif method == <intptr_t>self.tree.get_node_size:
+          self.tree.get_node_size(i, fdata)
+          (<double *>(citer.data[0]))[0] = fdata[0]
+          (<double *>(citer.data[1]))[0] = fdata[1]
+          (<double *>(citer.data[2]))[0] = fdata[2]
+        else:
+          raise IndexError("%s" % prop)
+        npyiter.advance(&citer)
+        size = size - 1
+        i = i + 1
+      size = npyiter.next(&citer) 
+    return out
+
+  cdef float get_node_value(self, node_t node) nogil:
+    cdef int nchildren
+    cdef int k
+    cdef float value, abit
+    cdef intptr_t first
+    node = self.tree.node_index(node)
+    value = (<float*>self._cache)[node]
+    if isnan(value):
+      value = 0
+      children = self.tree.get_node_children(node, &nchildren)
+      if nchildren == 0:
+        first = self.tree.get_node_first(node)
+        for k in range(self.tree.get_node_npar(node)):
+          npyarray.flat(&self.cvalues, k+first, &abit)
+          value += abit
+      else:
+        for k in range(nchildren):
+          value += self.get_node_value(children[k])
+      (<float*>self._cache)[node] = value
+    return value
+
+cdef class Tree:
+  
   def __cinit__(self):
     flexarray.init(&self._nodes, <void**>&self.nodes, sizeof(Node), 1024)
     flexarray.init(&self._leafnodes, <void**>&self.leafnodes, sizeof(LeafNode), 1024)
@@ -122,6 +262,7 @@ cdef class Tree:
         zkey needs to be sorted!"""
     self.maxthresh = thresh
     self.minthresh = 1
+    self.propertyvalues = {}
     self.scale = numpy.empty(4, dtype='f8')
     self._scale = <double*> self.scale.data
     self._scale[0] = scale[0]
@@ -158,110 +299,28 @@ cdef class Tree:
         node = self[j]
         yield node
     return func()
-  def project(self, prop, o, l):
-    cdef intptr_t i
-    cdef intptr_t method 
-    actions = {
-       'key':(fillingcurve.fckeytype, <intptr_t> self.get_node_key),
-       'used':('?', <intptr_t> -1),
-       'order':('i2', <intptr_t> self.get_node_order),
-       'first':('intp', <intptr_t> self.get_node_first),
-       'npar':('intp', <intptr_t> self.get_node_npar),
-       'parent':('intp', <intptr_t> self.get_node_parent),
-       'nchildren':('i2', <intptr_t> self.get_node_nchildren),
-       'pos':(('f8', 3), <intptr_t> self.get_node_pos),
-       'size':(('f8', 3), <intptr_t> self.get_node_size)
-    }
 
-    dtype, method = actions[prop]
-    
-    out = numpy.empty(shape=l, dtype=dtype)
-    if isinstance(dtype, tuple):
-     ops = [out[..., d] for d in range(dtype[1])]
-     op_flags = [['writeonly']] * dtype[1]
-     op_dtypes = [dtype[0]] * dtype[1]
-    else:
-     ops = [out]
-     op_flags = [['writeonly']]
-     op_dtypes = [dtype]
-
-    iter = numpy.nditer(
-        ops,
-        op_flags=op_flags,
-        flags = ['buffered', 'external_loop', 'refs_ok'],
-        casting='unsafe',
-        op_dtypes=op_dtypes)
-      
-    cdef npyiter.CIter citer
-    cdef size_t size = npyiter.init(&citer, iter)
-    cdef double fdata[3]
-    cdef fckey_t key
-    i = o
-    while size > 0:
-      while size > 0:
-        if method == <intptr_t> -1:
-          (<char*>(citer.data[0]))[0] = ~self.get_node_reclaimable(i)
-        if method == <intptr_t>self.get_node_key:
-          (<fckey_t *>(citer.data[0]))[0] = self.get_node_key(i)
-        elif method == <intptr_t>self.get_node_first:
-          (<intptr_t *>(citer.data[0]))[0] = self.get_node_first(i)
-        elif method == <intptr_t>self.get_node_parent:
-          (<intptr_t *>(citer.data[0]))[0] = self.get_node_parent(i)
-        elif method == <intptr_t>self.get_node_npar:
-          (<intptr_t *>(citer.data[0]))[0] = self.get_node_npar(i)
-        elif method == <intptr_t>self.get_node_nchildren:
-          (<short int *>(citer.data[0]))[0] = self.get_node_nchildren(i)
-        elif method == <intptr_t>self.get_node_order:
-          (<short int *>(citer.data[0]))[0] = self.get_node_order(i)
-        elif method == <intptr_t>self.get_node_pos:
-          self.get_node_pos(i, fdata)
-          (<double *>(citer.data[0]))[0] = fdata[0]
-          (<double *>(citer.data[1]))[0] = fdata[1]
-          (<double *>(citer.data[2]))[0] = fdata[2]
-        elif method == <intptr_t>self.get_node_size:
-          self.get_node_size(i, fdata)
-          (<double *>(citer.data[0]))[0] = fdata[0]
-          (<double *>(citer.data[1]))[0] = fdata[1]
-          (<double *>(citer.data[2]))[0] = fdata[2]
-
-        npyiter.advance(&citer)
-        size = size - 1
-        i = i + 1
-      size = npyiter.next(&citer) 
-    return out
-
-  def _translate_index(self, node_t index, node_t l, node_t o):
-    
-    while index < 0: index += l
-    if index >= l: raise IndexError('%d' % index)
-    return index + o
+  def __setitem__(self, item, value):
+    self.propertyvalues[item] = value
 
   def __getitem__(self, item):
-    cdef node_t l, o
-    if isinstance(item, tuple):
-      nodetype, index = item
-    else:
-      nodetype = 'all'
-      index = item
-    cdef int type
-    if nodetype == 'all': 
-      l = self.node_length + self.leaf_length
-      o = 0
-    elif nodetype in ('inner', 0, 'node') : 
-      l = self.node_length
-      o = 0
-    elif nodetype in ('outer', 1, 'leaf') : 
-      l = self.leaf_length
-      o = self.node_length
-
-    if isinstance(index, basestring):
-      return self.project(index, o, l)
-    elif isinstance(index, slice):
+    if isinstance(item, basestring):
+      if item in self.propertyvalues:
+        return TreeProperty(self, self.propertyvalues[item])
+      else:
+        return TreeProperty(self, item)
+    elif isinstance(item, slice):
         start, stop, step = slice.indices(len(self))
-        return [TreeNode(self, self._translate_index(i, l, o)) for i in range(start, stop, step)]
+        return [TreeNode(self, i) for i in range(start, stop, step)]
+    elif isinstance(item, numpy.ndarray) and item.dtype == numpy.dtype('?'):
+      return [TreeNode(self, i) for i in range(len(self)) if item[i]]
+    elif hasattr(item, '__iter__'):
+      return [TreeNode(self, i) for i in item]
+    elif numpy.isscalar(item):
+      return TreeNode(self, item)
     else:
-      return TreeNode(self, self._translate_index(index, l, o))
-    
+      raise IndexError(str(item))
+
   cdef int _tree_build(Tree self) nogil except -1:
       cdef intptr_t j = 0
       cdef intptr_t i = 0
@@ -333,6 +392,7 @@ cdef class Tree:
       # now close the remaining open nodes
       while j != -1:
         self.set_node_npar(j, i - self.get_node_first(j))
+        j = self._try_merge_children(j)
         j = self.get_node_parent(j)
 
   cdef node_t _split_node(self, intptr_t node) nogil except -1:

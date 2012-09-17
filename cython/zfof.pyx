@@ -110,7 +110,7 @@ cdef class FOFCluster:
       dt._next[k] = -1
 
     for target in range(n):
-      self.tree.get_leaf_pos(target, fpos)
+      self.tree.get_par_pos(target, fpos)
       with nogil: query.execute_one(self.tree, fpos, fsize)
       self.execute_one(&dt, query, target, linkl2)
 

@@ -260,5 +260,5 @@ class Cosmology(object):
     else:
       return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
 
-WMAP7 = Cosmology(K=0.0, M=0.28, L=0.72, h=0.72)
+WMAP7 = Cosmology(K=0.0, M=0.272, L=0.728, h=0.702)
 default = WMAP7

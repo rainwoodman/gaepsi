@@ -152,16 +152,15 @@ class GaplotContext(object):
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
   def _rebuildtree(self, ftype, thresh=None):
-    from gaepsi.cython import zorder as zo
+    from gaepsi.cython import fillingcurve as fc
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
       self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
-      digitize = zo.Digitize(min=self.F[ftype]['locations'].min(axis=0), scale=self.F[ftype]['locations'].ptp(axis=0))
+      scale = fc.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
-      digitize = zo.Digitize(min=self.origin, scale=self.boxsize)
-    zkey, digitize = self.F[ftype].zorder(digitize)
-    print zkey, len(zkey)
-    self.T[ftype] = self.F[ftype].ztree(zkey, digitize, thresh=thresh)
+      scale = fc.scale(origin=self.origin, boxsize=self.boxsize)
+    zkey, scale = self.F[ftype].zorder(scale)
+    self.T[ftype] = self.F[ftype].ztree(zkey, scale, thresh=thresh)
     self.T[ftype].optimize()
     if ftype in self.VT:
       del self.VT[ftype]
@@ -214,10 +213,9 @@ class GaplotContext(object):
     if isinstance(center, basestring):
       ftype = center
       if self.F[ftype].numpoints > 0:
-        t = self.T[ftype].digitize
-        center =t.min + 0.5 * t.scale
+        center = self.T[ftype][0].pos + 0.5 * self.T[ftype][0].size
       if size is None:
-        size= t.scale.copy()
+        size = self.T[ftype][0].size
 
     if center is not None:
       self.center = numpy.ones(3) * center

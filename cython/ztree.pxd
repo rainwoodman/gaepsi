@@ -13,6 +13,7 @@ from fillingcurve cimport fckey_t, ipos_t
 ctypedef int node_t
 cimport flexarray
 from flexarray cimport FlexArray
+cimport npyarray
 
 cdef packed struct Node:
   fckey_t key # from key and level to derive the bot and top limits
@@ -50,6 +51,7 @@ cdef class Tree:
   cdef readonly numpy.ndarray zkey
   cdef readonly numpy.ndarray scale
   cdef double * _scale
+  cdef dict propertyvalues
 
   cdef inline void * get_node_pointer(Tree self, node_t index) nogil:
     if index & (<node_t>1 << (sizeof(node_t) * 8 - 1)):
@@ -92,7 +94,7 @@ cdef class Tree:
     fillingcurve.fc2i(self.get_node_key(index), ipos)
     fillingcurve.i2f(self._scale, ipos, pos)
 
-  cdef inline void get_leaf_pos(Tree self, node_t index, double pos[3]) nogil:
+  cdef inline void get_par_pos(Tree self, node_t index, double pos[3]) nogil:
     cdef ipos_t ipos[3]
     fillingcurve.fc2i(self._zkey[index], ipos)
     fillingcurve.i2f(self._scale, ipos, pos)

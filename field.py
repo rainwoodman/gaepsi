@@ -428,29 +428,26 @@ class Field(object):
     self['locations'] = newpos
     return newboxsize * boxsize
 
-  def ztree(self, zkey, digitize, thresh=128):
+  def ztree(self, zkey, scale, thresh=128):
     from cython import ztree as zt
-    return zt.Tree(zkey=zkey, digitize=digitize, thresh=thresh)
+    return zt.Tree(zkey=zkey, scale=scale, thresh=thresh)
     
-  def zorder(self, digitize=None):
+  def zorder(self, scale=None):
     """ calculate zkey (morton key) and return it.
         if sort is true, the field is sorted by zkey
-        if ztree is false, return zkey, digitize, where digitize is
-        an object converting from zkey and coordinates.
-        if ztree is true, the field is permuted by zkey ordering,
-        and a ZTree is returned.
-        digitize object is used to convert pos to zkey and verse vica
-        Notice that if sort or ztree is true, all previous reference
-        to the field's components are invalid.
-    """
-    from cython import zorder as zo
+        if ztree is false, return zkey, scale, where scale is
+        an object converting from zkey and coordinates by fillingcurve
 
-    if digitize is None:
-      digitize = zo.Digitize.adapt(self['locations'])
-    zkey = numpy.empty(self.numpoints, dtype=zo.zorder_dtype)
+        Note all previous reference to the field's components are invalid.
+    """
+    from cython import fillingcurve as fc
+    if scale is None:
+      scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
+    zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
-        digitize(locations, out=zkey)
+        X, Y, Z = locations.T
+        fc.encode(X, Y, Z, scale=scale, out=zkey)
       pool.starmap(work, pool.zipsplit((zkey, self['locations'])))
     # use sharemem.argsort, because it is faster
     arg = sharedmem.argsort(zkey)
@@ -459,4 +456,4 @@ class Field(object):
       self.dict[comp] = sharedmem.take(self.dict[comp], arg, axis=0)
 
     zkey = zkey[arg]
-    return zkey, digitize
+    return zkey, scale

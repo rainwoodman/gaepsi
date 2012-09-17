@@ -36,6 +36,7 @@ setup(name="gaepsi", version="0.2",
          ('cython.zfof', []),
          ('cython.zorder', ['cython/zorder_internal.c']),
          ('cython.zquery', ['cython/zquery_internal.c']),
+         ('cython.fillingcurve', []),
          ('cosmology._cosmology', []),
          ('cosmology._qlf', ['cosmology/qlf_calculator.c']),
         ]
