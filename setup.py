@@ -28,7 +28,7 @@ setup(name="gaepsi", version="0.2",
              [ name.replace('.', '/') + '.pyx',],
              extra_compile_args=['-O0', '-g', '-Dintp=npy_intp'],
              libraries=[],
-             include_dirs=[get_include(), 'compiledbase', 'cosmology'],
+             include_dirs=[get_include(), 'cosmology', 'compiledbase'],
              depends = extra
         ) for name, extra in [
          ('compiledbase._fast', []),
