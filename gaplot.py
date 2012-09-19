@@ -2,7 +2,7 @@ import numpy
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 from gaepsi.readers import Reader
-from gaepsi.cython.camera import Camera, VisTree
+from gaepsi.cython.camera import Camera
 from gaepsi.cython import _fast
 from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools import nl_, n_, normalize
@@ -91,7 +91,7 @@ def addspikes(image, x, y, s, color):
     work(image, (X, Y), S, 1)
 
 class GaplotContext(object):
-  def __init__(self, shape = (600,600), thresh=32):
+  def __init__(self, shape = (600,600), thresh=(32, 64)):
     """ thresh is the fineness of the tree """
     self.default_axes = None
     self._format = None
@@ -160,7 +160,7 @@ class GaplotContext(object):
     else:
       scale = fc.scale(origin=self.origin, boxsize=self.boxsize)
     zkey, scale = self.F[ftype].zorder(scale)
-    self.T[ftype] = self.F[ftype].ztree(zkey, scale, thresh=thresh)
+    self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
     self.T[ftype].optimize()
     if ftype in self.VT:
       del self.VT[ftype]
@@ -272,7 +272,7 @@ class GaplotContext(object):
       else:
         continue
 
-  def paint(self, ftype, color, luminosity, sml=None, camera=None):
+  def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None):
     """ paint field to CCD, returns
         C, L where
           C is the color of the pixel
@@ -286,37 +286,38 @@ class GaplotContext(object):
     CCD = numpy.zeros(self.shape, dtype=('f8',2))
 
     if sml is None:
-      key = (ftype, color, luminosity)
-      if key in self.VT and self.VT[key].tree == self.T[ftype]:
-        vt = self.VT[key]
-      else:
-        vt = VisTree(self.T[ftype], 
-             *self._getcomponent(ftype, color, luminosity))
-        if isinstance(color, basestring) \
-       and isinstance(luminosity, basestring):
-          self.VT[key] = vt
+      if kernel is None: kernel='cube'
+      tree = self.T[ftype]
+      if color is not None:
+        tree[color], = self._getcomponent(ftype, color)
+      if luminosity is not None:
+        tree[luminosity], = self._getcomponent(ftype, luminosity)
 
       for cam in self._mkcameras(camera):
-        count = len(vt.tree.zkey) / sharedmem.cpu_count()
-        if count < 1024: count = 1024
-        nodes = list(vt.find_large_nodes(cam, 0, count))
-        print 'doing nodes', nodes
+        mask = cam.prunetree(tree)
+        pos = tree['pos'][mask]
+        size = tree['size'][mask]
+        pos += size * 0.5
+        x,y,z = pos.T
+        sml = size[:, 0] * (0.5 * numpy.cross(cam.dir, cam.up).dot([1, 1, 1.]))
+        c, l = None, None
+        if color is not None: c = tree[color][mask]
+        if luminosity is not None: l = tree[luminosity][mask]
         with sharedmem.Pool(use_threads=True) as pool:
-          def work(node):
-            profile = {}
-            _CCD = vt.paint(cam, node, profile=profile)
-#            print profile
+          def work(x,y,z,sml,color,luminosity):
+            _CCD = cam.paint(x,y,z,sml,color,luminosity, kernel=kernel)
             with pool.lock:
               CCD[...] += _CCD
-          pool.map(work, nodes)
+          pool.starmap(work, pool.zipsplit((x,y,z,sml,c,l)))
     else:
+      if kernel is None: kernel='spline'
       locations, color, luminosity, sml = self._getcomponent(ftype,
         'locations', color, luminosity, sml)
       x, y, z = locations.T
       for cam in self._mkcameras(camera):
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity):
-            _CCD = cam.paint(x,y,z,sml,color,luminosity)
+            _CCD = cam.paint(x,y,z,sml,color,luminosity, kernel=kernel)
             with pool.lock:
               CCD[...] += _CCD
           pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity)))
@@ -345,6 +346,17 @@ class GaplotContext(object):
       else:
         return component
     return [one(a) for a in components]
+
+  def select(self, ftype, sml=0, camera=None):
+    locations, = self._getcomponent(ftype, 'locations')
+    x, y, z = locations.T
+    mask = numpy.zeros(len(x), dtype='?')
+    for cam in self._mkcameras(camera):
+      with sharedmem.Pool(use_threads=True) as pool:
+        def work(mask, x, y, z, sml):
+          mask[:] |= (cam.mask(x, y, z, sml) != 0)
+        pool.starmap(work, pool.zipsplit((mask, x, y, z, sml)))
+    return mask
 
   def transform(self, ftype, luminosity=None, radius=0, camera=None):
     """ Find the CCD coordinate of objects inside the field of view. Objects are of 0 size, 
@@ -502,7 +514,7 @@ class GaplotContext(object):
     X = x / self.shape[0] * (r - l) + l
     Y = y / self.shape[1] * (t - b) + b
     if not fancy:
-      return ax.scatter(x, y, s*s, **kwargs)
+      return ax.scatter(X, Y, s*s, **kwargs)
     
     from matplotlib.markers import MarkerStyle
     from matplotlib.patches import PathPatch
@@ -630,10 +642,17 @@ class GaplotContext(object):
 
     snapshots = filter(lambda x: x is not None, sharedmem.map(getsnap, snapnames))
     
+    rt = []
     for ftype in _ensurelist(ftypes):
       self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
       self._rebuildtree(ftype)
       self.invalidate(ftype)
+      rt += [self[ftype]]
+
+    if numpy.isscalar(ftypes):
+      return rt[0]
+    else:
+      return rt
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
     """scale can be a dictionary or True.

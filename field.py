@@ -428,9 +428,9 @@ class Field(object):
     self['locations'] = newpos
     return newboxsize * boxsize
 
-  def ztree(self, zkey, scale, thresh=128):
+  def ztree(self, zkey, scale, minthresh, maxthresh):
     from cython import ztree as zt
-    return zt.Tree(zkey=zkey, scale=scale, thresh=thresh)
+    return zt.Tree(zkey=zkey, scale=scale, minthresh=minthresh, maxthresh=maxthresh)
     
   def zorder(self, scale=None):
     """ calculate zkey (morton key) and return it.

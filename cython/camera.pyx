@@ -36,201 +36,40 @@ _AABBshifting = <double[3]*>AABBshifting.data
 cdef extern from "math.h":
   int isnan(double d) nogil
 
-cdef class VisTree:
-  cdef readonly ztree.Tree tree
-  cdef readonly numpy.ndarray node_lum
-  cdef readonly numpy.ndarray node_color
-  cdef float * _node_lum
-  cdef float * _node_color
-  cdef readonly numpy.ndarray luminosity
-  cdef readonly numpy.ndarray color
-  cdef npyarray.CArray _luminosity
-  cdef npyarray.CArray _color
+ctypedef float (*kernelfunc)(float x, float y) nogil
 
-  def __cinit__(self, ztree.Tree tree, numpy.ndarray color, numpy.ndarray luminosity):
-    self.tree = tree
-    self.node_lum = numpy.empty(shape=tree.get_length(), dtype='f4')
-    self.node_color = numpy.empty(shape=tree.get_length(), dtype='f4')
-    self.node_lum[...] = -1
-    self.node_color[...] = -1
+DEF SPLINEFACTOR = 1.0603145160926968 # magic
+cdef float splinekern(float x, float y) nogil:
+  cdef double h2 = x * x + y * y
+  cdef double h = sqrt(h2)
+  cdef double h4 = h2 * h2
+  cdef double h3 = h * h2
+  cdef double h5 = h * h4
+  return -16.384894020072551 * h5 + 60.326220897950257 * h4 + -91.805528068514391 * h3 + 73.836383686779598 * h2 + -31.968890024368417 * h + 5.9892711801165373
 
-    self._node_lum = <float*> self.node_lum.data
-    self._node_color = <float*> self.node_color.data
-    if luminosity is None:
-      self.luminosity = numpy.array(1.0)
-    else:
-      self.luminosity = luminosity
+DEF CUBEFACTOR = 1.0 / (4.0)
+cdef float cubekern(float x, float y) nogil:
+  return 1.0
 
-    npyarray.init(&self._luminosity, self.luminosity)
-    
-    if color is None:
-      self.color = numpy.array(1.0)
-    else:
-      self.color = color
+DEF SPHEREFACTOR = 1.0 / (3.1416 / 2)
+cdef float spherekern(float x, float y) nogil:
+  return 1 - (x * x + y * y)
 
-    npyarray.init(&self._color, self.color)
-    
-#    self.ensure_leaf_values()
+DEF DIAMONDFACTOR = 1.0 / 2
+cdef float diamondkern(float x, float y) nogil:
+  x = fabs(x)
+  y = fabs(y)
+  return 1 - 0.5 * (x * x + y * y)
 
-  cdef void ensure_leaf_values(self):
-    iter = numpy.nditer(
-          [self.luminosity, self.color, self.tree.zkey], 
-      op_flags=[['readonly'], ['readonly'], ['readonly']],
-     op_dtypes=['f4', 'f4', fckeytype],
-         flags=['buffered', 'external_loop', 'zerosize_ok', 'refs_ok'], 
-       casting='unsafe')
-    cdef npyiter.CIter citer
-    cdef size_t size = npyiter.init(&citer, iter)
-    cdef node_t node = -1, i
-    cdef fckey_t nodekey
-    cdef int order
-    cdef fckey_t key
-    cdef float lum
-    with nogil:
-      while size > 0:
-        while size > 0:
-          key = (<fckey_t*>citer.data[2])[0]
-          nodekey = self.tree.get_node_key(node)
-          nodeorder = self.tree.get_node_order(node)
-          if node == -1 or \
-             not fillingcurve.keyinkey(key, nodekey, nodeorder):
-            node = self.tree.get_container_by_key(key, 0)
-          lum = (<float*>citer.data[0])[0]
-          self._node_lum[node] += lum
-          self._node_color[node] += (<float*>citer.data[1])[0] * lum
-          npyiter.advance(&citer)
-          i = i + 1
-          size = size - 1
-        size = npyiter.next(&citer)
+DEF CROSSFACTOR = 1.0 / 3
+cdef float crosskern(float x, float y) nogil:
+  return 1 - fabs(x * y)
 
-  cdef void ensure_node_value_r(self, node_t node, float * luminosity, float * color) nogil:
-    # note that this function is thread safe even though no locking is used.
-    # in case there is a race condition it will do redundant work
-    
-    node = self.tree.node_index(node)
-    if self._node_lum[node] != -1:
-      luminosity[0] = self._node_lum[node]
-      color[0] = self._node_color[node]
-
-    cdef int k, child
-    cdef float l, c
-    cdef int nchildren
-    cdef size_t nodenpar
-    cdef intptr_t nodefirst
-
-    children = self.tree.get_node_children(node, &nchildren)
-    if nchildren > 0:
-      for k in range(nchildren):
-        self.ensure_node_value_r(children[k], &l, &c)
-        luminosity[0] += l
-        color[0] += c
-    else:
-      nodenpar = self.tree.get_node_npar(node)
-      nodefirst = self.tree.get_node_first(node)
-      for k in range(nodenpar):
-        child = nodefirst + k
-        npyarray.flat(&self._luminosity, child, &l)
-        npyarray.flat(&self._color, child, &c)
-        luminosity[0] += l
-        color[0] += c
-    self._node_lum[node] = luminosity[0]
-    self._node_color[node] = color[0]
-    return
-
-  def find_large_nodes(self, Camera camera, node_t node, size_t thresh):
-    cdef double pos[3]
-    cdef double r[3]
-    cdef int d, k
-    cdef size_t nodenpar
-
-    self.tree.get_node_pos(node, pos)
-    self.tree.get_node_size(node, r)
-    
-    for d in range(3):
-      r[d] *= 0.5
-      pos[d] += r[d]
-
-    nodenpar = self.tree.get_node_npar(node)
-    if nodenpar == 0 or \
-      0 == camera.mask_object_one(pos, r):
-      print nodenpar, camera.mask_object_one(pos, r), pos[0], pos[1], pos[2], r[0], r[1], r[2]
-      return
-
-    cdef int nchildren
-    children = self.tree.get_node_children(node, &nchildren)
-
-    cdef node_t subnode
-    if nchildren > 0 and nodenpar > thresh:
-      for k in range(nchildren):
-        for subnode in self.find_large_nodes(camera, children[k], thresh):
-          yield subnode
-    else: yield node
-
-  cdef size_t paint_node(self, Camera camera, node_t node, double * ccd) nogil:
-    cdef float uvt[3], whl[3]
-    cdef float luminosity, color
-    cdef float c3inv
-    cdef int d
-    cdef size_t rt = 0
-    cdef double pos[3]
-    cdef double r[3]
-    cdef int k 
-    self.tree.get_node_pos(node, pos)
-    self.tree.get_node_size(node, r)
-
-    for d in range(3):
-      r[d] *= 0.5
-      pos[d] += r[d]
-      r[d] *= 1.733
-
-    if 0 == camera.mask_object_one(pos, r):
-      return 0
-
-    c3inv = camera.transform_one(pos, uvt)
-    camera.transform_size_one(r, c3inv, whl)
-
-    cdef int nchildren
-    children = self.tree.get_node_children(node, &nchildren)
-
-    cdef size_t nodenpar
-    cdef intptr_t nodefirst
-
-    nodenpar = self.tree.get_node_npar(node)
-    nodefirst = self.tree.get_node_first(node)
-    if False and (r[0] / (camera.far - camera.near) < 0.1) and \
-      (whl[0] * camera._hshape[0] < 0.1 and whl[1] * camera._hshape[1] < 0.1):
-      self.ensure_node_value_r(node, &luminosity, &color)
-      camera.paint_object_one(pos, uvt, whl, color/luminosity, luminosity, ccd)
-    elif nchildren == 0:
-      for k in range(nodenpar):
-        self.tree.get_par_pos(nodefirst+k, pos)
-        c3inv = camera.transform_one(pos, uvt)
-        camera.transform_size_one(r , c3inv, whl)
-        npyarray.flat(&self._luminosity, nodefirst+k, &luminosity)
-        npyarray.flat(&self._color, nodefirst+k, &color)
-        camera.paint_object_one(pos, 
-          uvt, whl, color, luminosity, ccd)
-      return nodenpar
-    else:
-      for k in range(nchildren):
-        rt += self.paint_node(camera, children[k], ccd)
-
-    return rt
-
-  def paint(self, Camera camera, node_t node=0, numpy.ndarray out=None, profile=None):
-    if out is None:
-      out = numpy.zeros(camera.shape, dtype=('f8', 2))
-    assert out.dtype == numpy.dtype('f8')
-    assert (<object>out).shape[0] == camera.shape[0]
-    assert (<object>out).shape[1] == camera.shape[1]
-    assert (<object>out).shape[2] == 2
-    cdef size_t total = 0
-    with nogil:
-      total = self.paint_node(camera, node, <double*> out.data)
-    if profile is not None:
-      profile['total_nodes_painted'] = total
-    return out
-
+cdef dict KERNELS = {
+'spline': (<intptr_t> splinekern, SPLINEFACTOR),
+'cube': (<intptr_t> cubekern, CUBEFACTOR),
+'sphere': (<intptr_t> spherekern, SPHEREFACTOR),
+}
 
 cdef class Camera:
   """ One big catch is that 
@@ -258,6 +97,10 @@ cdef class Camera:
   cdef double * _pos
   cdef double (*_frustum)[4]
   cdef int _fade
+  cdef kernelfunc kernel_func
+  # normalization factor of the kernel, integration of kernel_factor * kernel = 1.0 
+  cdef double kernel_factor
+
   # tainted by shape.set and set_proj
   # w = scale[0] * r
   # h = scale[1] * r
@@ -287,7 +130,8 @@ cdef class Camera:
     self._proj = <double*>self.proj.data
     self._frustum = <double[4]*>self.frustum.data
     self._fade = 1
-
+    self.kernel_factor = SPLINEFACTOR
+    self.kernel_func = splinekern
   property fade:
     def __get__(self):
       """ whether the luminosity will fade """
@@ -406,9 +250,11 @@ cdef class Camera:
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
 
-  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None):
+  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline'):
     if out is None:
       out = numpy.zeros(self.shape, dtype=('f8', 2))
+    self.kernel_func = <kernelfunc> <intptr_t>KERNELS[kernel][0]
+    self.kernel_factor = <double> KERNELS[kernel][1]
     assert out.dtype == numpy.dtype('f8')
     assert (<object>out).shape[0] == self.shape[0]
     assert (<object>out).shape[1] == self.shape[1]
@@ -452,6 +298,88 @@ cdef class Camera:
         size = npyiter.next(&citer)
     return out
 
+  def prunetree(self, ztree.Tree tree, out=None):
+    cdef int nchildren
+    cdef size_t n = len(tree)
+    cdef size_t start = tree.node_length
+    cdef double size[3]
+    cdef double pos[3]
+    cdef node_t * current[32] # current child
+    cdef node_t * end[32] # end child
+    cdef int top = 0
+    cdef numpy.ndarray mask = numpy.zeros(n, 'int8')
+    cdef char * _mask = <char*> mask.data
+
+    cdef node_t parent
+    cdef int d
+    # mask = 0 if node is out of view
+    # mask = 1 if node is unresolved  (paint them as a particle)
+    # mask = 2 if node is over resolved. (do not paint them)
+
+    # visit first child of root
+    current[0] = tree.get_node_children(0, &nchildren)
+    end[0] = current[0] + nchildren
+    top = 1
+    with nogil:
+      while True:
+        # pop a node
+        top = top - 1
+        while top >= 0 and current[top] == end[top]:
+          # visit parent
+          top = top - 1
+          continue
+
+        if top < 0: break
+
+        tree.get_node_pos(current[top][0], pos)
+        tree.get_node_size(current[top][0], size)
+        for d in range(3): 
+          pos[d] += size[d] * 0.5
+          size[d] *= 1.733 # sml = 2 * size * 1.733
+
+        children = tree.get_node_children(current[top][0], &nchildren)
+        j = tree.node_index(current[top][0])
+#        with gil: print 'top', top, j, tree[j].order, tree[j].key, tree[j].children
+        # in FOV?
+        flag = self.mask_object_one(pos, size)
+        if flag == 0 or nchildren == 0:
+          if flag == 0:
+            # not in FOV
+            _mask[j] = 0
+          elif nchildren == 0:
+            _mask[j] = 1
+
+          if current[top] + 1 < end[top]:
+            # visit sibling
+#            with gil: print 'go sibling', end[top] - current[top], 'remains'
+            current[top] = current[top] + 1
+            top = top + 1
+            continue
+          else: 
+            # visit parent sibling
+#            with gil: print 'go parent sibling!'
+            continue
+        else:
+          _mask[j] = 2
+          # push sibling of current
+          current[top] = current[top] + 1
+          top = top + 1
+          # visit first child
+          current[top] = children
+          end[top] = children + nchildren
+          top = top + 1
+
+#      for j in range(n-1, -1, -1):
+#        parent = tree.get_node_parent(j)
+#        if _mask[j] != 0 and parent != -1:
+#          _mask[parent] = 2
+
+    if out is None: 
+      out = mask == 1
+    else:
+      out[:] = mask == 1
+    return out
+
   def transform(self, x, y, z, r=None, out=None):
     """ calculates the viewport positions and distance**2
         (horizontal, vertical, t) of input points x,y,z
@@ -470,7 +398,7 @@ cdef class Camera:
 
     arrays    = [x, y, z, tmp]
     op_flags  = [['readonly'], ['readonly'], ['readonly'], ['writeonly']]
-    op_dtypes = ['f4', 'f4', 'f4', tmp.dtype]
+    op_dtypes = ['f8', 'f8', 'f8', tmp.dtype]
 
     if r is not None:
       arrays += [r]
@@ -489,9 +417,9 @@ cdef class Camera:
     with nogil: 
       while size > 0:
         while size > 0:
-          pos[0] = (<float*>citer.data[0])[0]
-          pos[1] = (<float*>citer.data[1])[0]
-          pos[2] = (<float*>citer.data[2])[0]
+          pos[0] = (<double*>citer.data[0])[0]
+          pos[1] = (<double*>citer.data[1])[0]
+          pos[2] = (<double*>citer.data[2])[0]
           c3inv = self.transform_one(pos,
                 (<float*>citer.data[3]))
           if Nout == 6:
@@ -648,50 +576,62 @@ cdef class Camera:
     cdef int ix, iy, imax[2], imin[2], di[2]
 
     for d in range(2):
-      imin[d] = <int>(xy[d] - dxy[d])
-      imax[d] = <int>(xy[d] + dxy[d])
+      imin[d] = <int>(xy[d] - dxy[d] + 0.5)
+      imax[d] = <int>(xy[d] + dxy[d] + 0.5)
+      if imax[d] > imin[d] + 1: 
+        imax[d] = imax[d] - 1
       di[d] = imax[d] - imin[d] + 1
       if imin[d] < 0: imin[d] = 0
       if imin[d] >= self._shape[d]: imin[d] = self._shape[d] - 1
       if imax[d] < 0: imax[d] = 0
       if imax[d] >= self._shape[d]: imax[d] = self._shape[d] - 1
 
-    # normfac is the average luminosity of a pixel
-    cdef float normfac = 1. / ( dxy[0] * dxy[1])
+    # normfac is the area of a pixel
+    cdef float normfac = 4. / (di[0] * di[1]) #( dxy[0] * dxy[1])
 
     # bit is the base light on a pixel. adjusted by
     # the kernel intergration factor
-    # 4 - integrate(tmp1 in [-1, 1], tmp2 in [-1, 1], tmp3)
+    # integrate(tmp1 in [-1, 1], tmp2 in [-1, 1], tmp3)
+    # tmp3 is the light added to the pixel
+    #
     # it is pi / 2 for the spheric kernel:
-    #   tmp3 = tmp1 ** 2 + tmp2 ** 2
+    #   tmp3 = 1 - (tmp1 ** 2 + tmp2 ** 2)
     # it is 2 for the diamond kernel:
-    #   tmp3 = 0.5 * (|tmp1| + |tmp2|)
+    #   tmp3 = 1 - 0.5 * (|tmp1| + |tmp2|)
     # it is 3 for the cross kernel:
-    #   tmp3 = |tmp1| * |tmp2|
+    #   tmp3 = 1 - |tmp1| * |tmp2|
     # cross kernel gives vertical and horizontal
     # lines.
 
-    cdef float bit = brightness * normfac / (3.1416 / 2.0)
+    cdef float bit = brightness * normfac * self.kernel_factor
     cdef float tmp1, tmp2, tmp3 # always in -1 and 1, distance to center
     cdef float tmp1fac = 2.0 / di[0]
     cdef float tmp2fac = 2.0 / di[1]
     cdef intptr_t p, q
 
+    p = (imin[0] * self._shape[1] + imin[1]) * 2
+
+    if di[0] == 1 and di[1] == 1:
+      ccd[p] += color * brightness 
+      ccd[p + 1] += brightness 
+      return
+
     tmp1 = (imin[0] - xy[0]) * tmp1fac
     ix = imin[0]
-    p = (imin[0] * self._shape[1] + imin[1]) * 2
+
     while ix <= imax[0]:
       tmp2 = (imin[1] - xy[1]) * tmp2fac
       iy = imin[1]
       q = p
       while iy <= imax[1]:
-        tmp3 = (tmp1 ** 2 + tmp2 **2)
-        if tmp3 < 1 and tmp3 > 0: 
-          ccd[q] += color * bit * (1 - tmp3)
-          ccd[q + 1] += bit * (1 - tmp3)
+        tmp3 = self.kernel_func(tmp1, tmp2)
+        if tmp3 > 0:
+          ccd[q] += color * bit * tmp3
+          ccd[q + 1] += bit * tmp3
         iy = iy + 1
         tmp2 += tmp2fac
         q += 2
+        # 2 = 1(for color) + 1(for luminosity)
       tmp1 += tmp1fac
       p += self._shape[1] * 2
       ix = ix + 1
@@ -709,4 +649,4 @@ cdef class Camera:
     uvt[0] = coord[0] * c3inv
     uvt[1] = coord[1] * c3inv
     uvt[2] = coord[2] * c3inv
-    return c3inv;
+    return c3inv
