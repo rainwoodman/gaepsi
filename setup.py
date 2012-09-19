@@ -9,7 +9,7 @@ setup(name="gaepsi", version="0.2",
       url="http://github.com/rainwoodman/gaepsi",
       download_url="http://web.phys.cmu.edu/~yfeng1/gaepsi/gaepsi-0.2.tar.gz",
       zip_safe=False,
-      install_requires=['numpy', 'sharedmem', 'chealpy'],
+      install_requires=['cython', 'numpy', 'sharedmem', 'chealpy'],
       requires=['numpy', 'sharedmem', 'chealpy'],
       package_dir = {'gaepsi': '.'},
       packages = [
