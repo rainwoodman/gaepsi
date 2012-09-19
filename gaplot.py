@@ -2,8 +2,8 @@ import numpy
 from gaepsi.snapshot import Snapshot
 from gaepsi.field import Field, Cut
 from gaepsi.readers import Reader
-from gaepsi.cython.camera import Camera
-from gaepsi.cython import _fast
+from gaepsi.compiledbase.camera import Camera
+from gaepsi.compiledbase import _fast
 from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools import nl_, n_, normalize
 import sharedmem

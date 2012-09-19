@@ -469,7 +469,7 @@ def n_(value, vmin=None, vmax=None):
 def nl_(value, vmin=None, vmax=None):
   return normalize(value, vmin, vmax, logscale=True)
 
-from gaepsi.cython import _fast
+from gaepsi.compiledbase import _fast
 class normalize(numpy.ndarray):
   __array_priority__ = - 100.0
   def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):

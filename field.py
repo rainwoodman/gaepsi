@@ -381,7 +381,7 @@ class Field(object):
       self['sml'] = numpy.zeros(self.numpoints, 'f4')
       sml = self['sml']
 
-    from cython._field import solve_sml
+    from compiledbase._field import solve_sml
     
     def work(points, w, out): 
       solve_sml(points, w, self['locations'], numpy.atleast_1d(weight), out, tree, NGB)
@@ -429,7 +429,7 @@ class Field(object):
     return newboxsize * boxsize
 
   def ztree(self, zkey, scale, minthresh, maxthresh):
-    from cython import ztree as zt
+    from compiledbase import ztree as zt
     return zt.Tree(zkey=zkey, scale=scale, minthresh=minthresh, maxthresh=maxthresh)
     
   def zorder(self, scale=None):
@@ -440,7 +440,7 @@ class Field(object):
 
         Note all previous reference to the field's components are invalid.
     """
-    from cython import fillingcurve as fc
+    from compiledbase import fillingcurve as fc
     if scale is None:
       scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
     zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)

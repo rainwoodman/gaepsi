@@ -27,7 +27,7 @@ def eval(method, Lbol, double nu, out=None):
        casting = ['unsafe'])
   cdef npyiter.CIter citer
   cdef size_t size = npyiter.init(&citer, iter)
-  cdef method_t func = methods[method]
+  cdef method_t func = <method_t> <intptr_t> methods[method]
   with nogil:
     while size > 0:
       while size > 0:

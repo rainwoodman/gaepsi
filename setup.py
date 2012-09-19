@@ -1,5 +1,7 @@
 from numpy.distutils.core import setup, Extension
 from numpy import get_include
+import monkey
+
 setup(name="gaepsi", version="0.2",
       author="Yu Feng",
       author_email="yfeng1@andrew.cmu.edu",
@@ -11,7 +13,7 @@ setup(name="gaepsi", version="0.2",
       requires=['numpy', 'sharedmem', 'chealpy'],
       package_dir = {'gaepsi': '.'},
       packages = [
-        'gaepsi', 'gaepsi.cosmology', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.cython'
+        'gaepsi', 'gaepsi.cosmology', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.compiledbase'
       ],
       scripts = [ 'scripts/gadget-render.py', 
                   'scripts/gadget-mklayers.py', 
@@ -23,20 +25,19 @@ setup(name="gaepsi", version="0.2",
                  ],
       ext_modules = [
         Extension("gaepsi.%s" % name, 
-             [ name.replace('.', '/') + '.c',],
+             [ name.replace('.', '/') + '.pyx',],
              extra_compile_args=['-O0', '-g', '-Dintp=npy_intp'],
              libraries=[],
-             include_dirs=[get_include()],
+             include_dirs=[get_include(), 'compiledbase', 'cosmology'],
              depends = extra
         ) for name, extra in [
-         ('cython._fast', []),
-         ('cython._field', []),
-         ('cython.camera', []),
-         ('cython.ztree', []),
-         ('cython.zfof', []),
-         ('cython.zorder', ['cython/zorder_internal.c']),
-         ('cython.zquery', ['cython/zquery_internal.c']),
-         ('cython.fillingcurve', []),
+         ('compiledbase._fast', []),
+         ('compiledbase._field', []),
+         ('compiledbase.camera', []),
+         ('compiledbase.ztree', []),
+         ('compiledbase.zfof', []),
+         ('compiledbase.zquery', ['compiledbase/zquery_internal.c']),
+         ('compiledbase.fillingcurve', []),
          ('cosmology._cosmology', []),
          ('cosmology._qlf', ['cosmology/qlf_calculator.c']),
         ]
