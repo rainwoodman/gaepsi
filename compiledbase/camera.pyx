@@ -38,32 +38,60 @@ cdef extern from "math.h":
 
 ctypedef float (*kernelfunc)(float x, float y) nogil
 
-DEF SPLINEFACTOR = 1.0603145160926968 # magic
+DEF SPLINEFACTOR = 1.0 # 1.0603145160926968 # magic
 cdef float splinekern(float x, float y) nogil:
   cdef double h2 = x * x + y * y
-  cdef double h = sqrt(h2)
   cdef double h4 = h2 * h2
-  cdef double h3 = h * h2
-  cdef double h5 = h * h4
-  return -16.384894020072551 * h5 + 60.326220897950257 * h4 + -91.805528068514391 * h3 + 73.836383686779598 * h2 + -31.968890024368417 * h + 5.9892711801165373
+  cdef double h
+  if h2 < 0.25:
+    return 1.909859317102744 -10.23669021 * h2 \
+          -23.27182034 * h4 *(h2 - 1)
+    #   1.909859 = 6 / pi
+  if h2 < 1.0:
+    h = 1 - sqrt(h2)
+    h2 = h * h
+    h4 = h2 * h2
+    h3 = h2 * h
+# -1/9. * 7/ pi * (1-x) **4 + 100 / 7. / pi * (1-x) **3 - 1.5 / pi * (1-x) ** 2 + 6 / 17. / 5 / pi* (1-x)
+    return -0.2475743559207261 * h4 \
+       + 4.547284088339867 * h3 \
+       - 0.477464829275686 * h2 \
+       + 0.022468933142385225 * h 
+  else:
+    return 0.0
+# NOTE: factor functions are not used.
+
+cdef float splinefactor(float x, float y) nogil:
+  return 1.0603145160926968
 
 DEF CUBEFACTOR = 1.0 / (4.0)
 cdef float cubekern(float x, float y) nogil:
   return 1.0
+cdef float cubefactor(float x, float y) nogil:
+  return (x + 1) * (y + 1) / 4.0
 
 DEF SPHEREFACTOR = 1.0 / (3.1416 / 2)
 cdef float spherekern(float x, float y) nogil:
   return 1 - (x * x + y * y)
+cdef float spherefactor(float x, float y) nogil:
+  # fixme
+  return 1.0 / (3.1416/2)
 
 DEF DIAMONDFACTOR = 1.0 / 2
 cdef float diamondkern(float x, float y) nogil:
   x = fabs(x)
   y = fabs(y)
-  return 1 - 0.5 * (x * x + y * y)
+  return 1 - 0.5 * (x + y)
+cdef float diamondfactor(float x, float y) nogil:
+  # fixme
+  return 1.0 / 2
 
 DEF CROSSFACTOR = 1.0 / 3
 cdef float crosskern(float x, float y) nogil:
   return 1 - fabs(x * y)
+cdef float crossfactor(float x, float y) nogil:
+  # fixme
+  return 1.0 / 3
 
 cdef dict KERNELS = {
 'spline': (<intptr_t> splinekern, SPLINEFACTOR),
@@ -369,11 +397,6 @@ cdef class Camera:
           end[top] = children + nchildren
           top = top + 1
 
-#      for j in range(n-1, -1, -1):
-#        parent = tree.get_node_parent(j)
-#        if _mask[j] != 0 and parent != -1:
-#          _mask[parent] = 2
-
     if out is None: 
       out = mask == 1
     else:
@@ -604,7 +627,8 @@ cdef class Camera:
     # lines.
 
     cdef float bit = brightness * normfac * self.kernel_factor
-    cdef float tmp1, tmp2, tmp3 # always in -1 and 1, distance to center
+    cdef float tmp1, tmp2 # always in -1 and 1, distance to center
+    cdef float tmp3  # pixel value
     cdef float tmp1fac = 2.0 / di[0]
     cdef float tmp2fac = 2.0 / di[1]
     cdef intptr_t p, q
@@ -616,6 +640,12 @@ cdef class Camera:
       ccd[p + 1] += brightness 
       return
 
+    cdef int cachept
+    DEF CACHESIZE = 1024
+    cdef float cache[CACHESIZE]
+    cdef double sum = 0.0
+
+    cachept = 0
     tmp1 = (imin[0] - xy[0]) * tmp1fac
     ix = imin[0]
 
@@ -625,6 +655,33 @@ cdef class Camera:
       q = p
       while iy <= imax[1]:
         tmp3 = self.kernel_func(tmp1, tmp2)
+        if cachept < CACHESIZE:
+          cache[cachept] = tmp3
+          cachept = cachept + 1
+        sum += tmp3
+        iy = iy + 1
+        tmp2 += tmp2fac
+        q += 2
+        # 2 = 1(for color) + 1(for luminosity)
+      tmp1 += tmp1fac
+      p += self._shape[1] * 2
+      ix = ix + 1
+
+    cachept = 0
+    p = (imin[0] * self._shape[1] + imin[1]) * 2
+    tmp1 = (imin[0] - xy[0]) * tmp1fac
+    ix = imin[0]
+
+    while ix <= imax[0]:
+      tmp2 = (imin[1] - xy[1]) * tmp2fac
+      iy = imin[1]
+      q = p
+      while iy <= imax[1]:
+        if cachept < CACHESIZE:
+          tmp3 = cache[cachept]
+          cachept = cachept + 1
+        else:
+          tmp3 = self.kernel_func(tmp1, tmp2)
         if tmp3 > 0:
           ccd[q] += color * bit * tmp3
           ccd[q + 1] += bit * tmp3
