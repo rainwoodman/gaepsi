@@ -4,6 +4,7 @@ from gaepsi.field import Field, Cut
 from gaepsi.readers import Reader
 from gaepsi.compiledbase.camera import Camera
 from gaepsi.compiledbase import _fast
+from gaepsi.compiledbase import fillingcurve
 from gaepsi.tools.meshmap import Meshmap
 from gaepsi.tools import nl_, n_, normalize
 import sharedmem
@@ -152,13 +153,12 @@ class GaplotContext(object):
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
   def _rebuildtree(self, ftype, thresh=None):
-    from gaepsi.cython import fillingcurve as fc
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
       self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
-      scale = fc.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
+      scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
-      scale = fc.scale(origin=self.origin, boxsize=self.boxsize)
+      scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
     zkey, scale = self.F[ftype].zorder(scale)
     self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
     self.T[ftype].optimize()
