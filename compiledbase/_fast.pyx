@@ -32,7 +32,8 @@ cdef inline double _finitemax(double a, double b) nogil:
   if isinf(b): return a
   return fmax(a, b)
 
-npyufunc.register(locals(), _finitemaxf, _finitemax,
+npyufunc.register(locals(), <void*>_finitemaxf, <void*>_finitemax, 2,
+                   'reorderablenone',
                    "ffinitemax",
 """
    finitemax(a, b) 
@@ -50,7 +51,8 @@ cdef inline double _finitemin(double a, double b) nogil:
   if isinf(b): return a
   return fmin(a, b)
 
-npyufunc.register(locals(), _finiteminf, _finitemin,
+npyufunc.register(locals(), <void*>_finiteminf, <void*>_finitemin, 2,
+                   "reorderablenone",
                    "ffinitemin",
 """
    finitemin(a, b) 
@@ -66,7 +68,7 @@ cdef inline floating _wrap(floating a, floating b) nogil:
     a += b
   return a
 
-npyufunc.register(locals(), _wrap[float], _wrap[double],
+npyufunc.register(locals(), <void*>_wrap[float], <void*>_wrap[double], 2, 'reorderablenone',
                    "wrap",
   """
    wrap(x, p, out=None) 
