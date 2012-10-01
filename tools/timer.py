@@ -13,12 +13,13 @@ from time import time as default_timer
 programstart = default_timer()
 
 class Session:
-  def __init__(self, descr, brief=False, extra=''):
+  def __init__(self, descr, brief=True, extra=''):
     self.descr = descr
     self.start_time = 0
     self.checkpoint_time = 0
     self.brief = brief
     self.extra = extra
+
   def __enter__(self):
     self.start()
     return self
@@ -51,7 +52,10 @@ class Session:
    
   def end(self):
     u0, u1 = self.used()
-    if (mpicomm == None or mpicomm.rank == 0) and not self.brief:
-      print self.descr, 'ended at', u0, 'time used', u1
+    if (mpicomm == None or mpicomm.rank == 0):
+      if not self.brief:
+        print self.descr, 'ended at', u0, 'time used', u1
+      else:
+        print self.descr, 'used', u1
     self.start_time = 0
 

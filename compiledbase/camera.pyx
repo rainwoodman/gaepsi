@@ -5,6 +5,7 @@ cimport numpy
 cimport npyiter
 cimport ztree
 cimport npyarray
+cimport npyufunc
 from libc.stdint cimport *
 from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
 from warnings import warn
@@ -43,20 +44,20 @@ cdef float splinekern(float x, float y) nogil:
   cdef double h2 = x * x + y * y
   cdef double h4 = h2 * h2
   cdef double h
+  cdef double h3
   if h2 < 0.25:
     return 1.909859317102744 -10.23669021 * h2 \
           -23.27182034 * h4 *(h2 - 1)
     #   1.909859 = 6 / pi
   if h2 < 1.0:
-    h = 1 - sqrt(h2)
-    h2 = h * h
-    h4 = h2 * h2
+    h = sqrt(h2)
     h3 = h2 * h
 # -1/9. * 7/ pi * (1-x) **4 + 100 / 7. / pi * (1-x) **3 - 1.5 / pi * (1-x) ** 2 + 6 / 17. / 5 / pi* (1-x)
     return -0.2475743559207261 * h4 \
-       + 4.547284088339867 * h3 \
-       - 0.477464829275686 * h2 \
-       + 0.022468933142385225 * h 
+       - 3.556986664656963 * h3 \
+       + 11.67894130021956 * h2 \
+       - 11.71909411592771* h \
+       + 3.84471383628584
   else:
     return 0.0
 # NOTE: factor functions are not used.
@@ -99,6 +100,17 @@ cdef dict KERNELS = {
 'sphere': (<intptr_t> spherekern, SPHEREFACTOR),
 }
 
+cdef void _register():
+  cdef intptr_t func
+  for key in KERNELS:
+    func, factor = KERNELS[key]
+    print func, factor, key
+    npyufunc.register(globals(), <void*>func, NULL,
+           2, 'none', key, key)
+numpy.import_array()
+numpy.import_ufunc()
+_register()
+ 
 cdef class Camera:
   """ One big catch is that 
       we use C arrays whilst OpenGL uses

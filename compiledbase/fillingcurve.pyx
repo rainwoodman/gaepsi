@@ -85,7 +85,7 @@ cdef void i2f0(double scale[4], ipos_t point[3], double pos[3]) nogil:
 def scale(origin, boxsize):
   scale = numpy.empty(4, 'f8')
   scale[:3] = origin
-  scale[3] = ((<ipos_t>1 << BITS) - 1) / boxsize.max()
+  scale[3] = ((<ipos_t>1 << BITS) - 1) / numpy.array(boxsize).max()
   return scale
 
 def contains(fckey, order, X, Y=None, Z=None, out=None, scale=None):
@@ -219,6 +219,7 @@ def decode(fckey, out1=None, out2=None, out3=None, scale=None):
   return iter.operands[1], iter.operands[2], iter.operands[3]
 
 def encode(X, Y, Z, out=None, scale=None):
+  """ if scale is none, X Y Z are integers """
   cdef ipos_t MAX = ((<ipos_t>1) << BITS) - 1
   cdef double min[4]
   cdef int in_float = 0

@@ -640,7 +640,8 @@ class GaplotContext(object):
         warnings.warn('file %s skipped for %s' %(snapname, str(e)))
       return None
 
-    snapshots = filter(lambda x: x is not None, sharedmem.map(getsnap, snapnames))
+    with sharedmem.Pool(use_threads=True) as pool:
+      snapshots = filter(lambda x: x is not None, pool.map(getsnap, snapnames))
     
     rt = []
     for ftype in _ensurelist(ftypes):
