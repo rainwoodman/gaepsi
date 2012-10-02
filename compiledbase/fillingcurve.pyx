@@ -47,7 +47,7 @@ cdef fckey_t truncate(fckey_t key, int order) nogil:
 cdef bint keyinkey(fckey_t needle, fckey_t hey, int order) nogil:
     return _boxtest(hey, order, needle)
 
-cdef bint heyinAABB(fckey_t hey, int order, fckey_t AABB[2]) nogil:
+cdef int heyinAABB(fckey_t hey, int order, fckey_t AABB[2]) nogil:
     return _AABBtest(hey, order, AABB)
 
 cdef double key2key2(double scale[4], fckey_t key1, fckey_t key2) nogil:
@@ -60,11 +60,17 @@ cdef double key2key2(double scale[4], fckey_t key1, fckey_t key2) nogil:
 cdef int f2i(double scale[4], double pos[3], ipos_t point[3]) nogil:
     cdef int d
     cdef double f
+    cdef int rt = 1
     for d in range(3):
       f = (pos[d] - scale[d]) * scale[3]
-      if f < 0 or f >= (<ipos_t>1 << BITS) : return 0
+      if f < 0:
+        point[d] = 0
+        rt = 0
+      elif f >= (<ipos_t>1 << BITS) : 
+        point[d] = (<ipos_t>1 << BITS) - 1
+        rt = 0
       else: point[d] = <ipos_t> f
-    return 1
+    return rt
 
 cdef void i2f(double scale[4], ipos_t point[3], double pos[3]) nogil:
     cdef int d

@@ -104,7 +104,6 @@ cdef void _register():
   cdef intptr_t func
   for key in KERNELS:
     func, factor = KERNELS[key]
-    print func, factor, key
     npyufunc.register(globals(), <void*>func, NULL,
            2, 'none', key, key)
 numpy.import_array()

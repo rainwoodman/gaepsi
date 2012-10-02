@@ -17,4 +17,4 @@ cdef void i2fc(ipos_t ipos[3], fckey_t * key) nogil
 cdef void fc2i(fckey_t key, ipos_t ipos[3]) nogil
 cdef fckey_t truncate(fckey_t key, int order) nogil
 cdef double key2key2(double scale[4], fckey_t key1, fckey_t key2) nogil
-cdef bint heyinAABB(fckey_t hey, int order, fckey_t AABB[2]) nogil
+cdef int heyinAABB(fckey_t hey, int order, fckey_t AABB[2]) nogil
