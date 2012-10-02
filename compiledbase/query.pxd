@@ -1,4 +1,4 @@
-from ztree cimport Tree, node_t
+from ztree cimport Tree, node_t, TreeIter
 from libc.stdint cimport *
 import numpy
 cimport flexarray
@@ -46,8 +46,10 @@ cdef class ResultSet:
 
 cdef class Query:
   cdef readonly Tree tree
+  cdef readonly TreeIter iter
   cdef ResultSet resultset # this is a scratch.
   cdef flexarray.FlexArray indices 
+
   # to be overidden
   cdef void execute(self, char** data) nogil
 
@@ -64,6 +66,8 @@ cdef class Query:
     with nogil:
       while size > 0:
         while size > 0:
+
+          self.iter.reset()
           self.execute(citer.data + 1)
           # harvest
           newitems = <intptr_t *>flexarray.append_ptr(&self.indices, self.resultset.fa.used)

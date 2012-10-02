@@ -362,7 +362,7 @@ cdef class Camera:
     # mask = 2 if node is over resolved. (do not paint them)
 
     # visit first child of root
-    node = iter.getnext(False)
+    node = iter.get_next_child()
     with nogil:
       while node >= 0:
 
@@ -383,7 +383,7 @@ cdef class Camera:
             for i in range(tree.get_node_first(node), 
                tree.get_node_first(node) + tree.get_node_npar(node), 1):
               _mask[i] = 0
-          node = iter.getnext(True)
+          node = iter.get_next_sibling()
         elif nchildren == 0:
           if return_nodes:
             _mask[node] = 1
@@ -391,10 +391,10 @@ cdef class Camera:
             for i in range(tree.get_node_first(node), 
                tree.get_node_first(node) + tree.get_node_npar(node), 1):
               _mask[i] = 1
-          node = iter.getnext(True)
+          node = iter.get_next_sibling()
         else:
           _mask[node] = 2
-          node = iter.getnext(False)
+          node = iter.get_next_child()
 
     if out is None: 
       out = mask == 1

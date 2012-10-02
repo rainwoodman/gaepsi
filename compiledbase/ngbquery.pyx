@@ -10,7 +10,6 @@ from libc.stdint cimport *
 numpy.import_array()
 
 cdef class NGBQueryD(Query):
-  cdef fckey_t AABBkey[2]
 
   def __init__(self, tree, int ngbhint):
     Query.__init__(self, tree, ngbhint)
@@ -26,14 +25,12 @@ cdef class NGBQueryD(Query):
   cdef void execute(self, char** data) nogil:
     cdef double pos[3], size[3]
     cdef int d
+    cdef fckey_t AABBkey[2]
     for d in range(3):
       pos[d] = (<double*>(data[d]))[0]
       size[d] = (<double*>(data[d+3]))[0]
-      self.execute_one(pos, size)
 
-  cdef void execute_one(self, double pos[3], double size[3]) nogil:
     cdef ipos_t ipos[3]
-    cdef int d
     cdef double pos1[3]
     cdef double pos2[3]
 
@@ -42,42 +39,37 @@ cdef class NGBQueryD(Query):
       pos2[d] = pos[d] + size[d]
 
     fillingcurve.f2i(self.tree._scale, pos1, ipos)
-    fillingcurve.i2fc(ipos, &self.AABBkey[0])
+    fillingcurve.i2fc(ipos, &AABBkey[0])
     fillingcurve.f2i(self.tree._scale, pos2, ipos)
-    fillingcurve.i2fc(ipos, &self.AABBkey[1])
-    fillingcurve.fc2i(self.AABBkey[1], ipos)
+    fillingcurve.i2fc(ipos, &AABBkey[1])
+    fillingcurve.fc2i(AABBkey[1], ipos)
 
-    self.execute_r(0)
+    cdef fckey_t key
+    cdef int order 
+    cdef int flag
 
-  cdef void execute_r(self, node_t node) nogil:
-    cdef int k
-    cdef intptr_t i
-    cdef fckey_t key = self.tree.get_node_key(node)
-    cdef int order = self.tree.get_node_order(node)
-    cdef int flag = fillingcurve.heyinAABB(key, order, self.AABBkey)
-    cdef int nchildren
-    cdef ipos_t ipos[3], ipos1[3], ipos2[3] 
-    if flag == 0: return
-    children = self.tree.get_node_children(node, &nchildren)
-
-    if flag == -2:
-      self.resultset.add_items_straight(self.tree.get_node_first(node), 
+    node = self.iter.get_next_child()
+    while node >= 0:
+      key = self.tree.get_node_key(node)
+      order = self.tree.get_node_order(node)
+      flag = fillingcurve.heyinAABB(key, order, AABBkey)
+      if flag == 0:
+        # not intersecting
+        node = self.iter.get_next_sibling()
+      elif flag == -2:
+        self.resultset.add_items_straight(self.tree.get_node_first(node), 
            self.tree.get_node_npar(node))
-    else:
-      if nchildren > 0:
-        for k in range(nchildren):
-          self.execute_r(children[k])
-      else:
+        node = self.iter.get_next_sibling()
+      elif self.tree.get_node_nchildren(node) == 0:
         for i in range(self.tree.get_node_first(node), 
            self.tree.get_node_first(node) + self.tree.get_node_npar(node), 1):
-          if 0 == fillingcurve.heyinAABB(self.tree._zkey[i], 0, self.AABBkey): continue
-
+          if 0 == fillingcurve.heyinAABB(self.tree._zkey[i], 0, AABBkey): continue
           self.resultset.add_item_straight(i)
+        node = self.iter.get_next_sibling()
+      else:
+        node = self.iter.get_next_child()
 
 cdef class NGBQueryN(Query):
-  cdef readonly fckey_t centerkey
-  cdef fckey_t AABBkey[2]
-
   def __init__(self, tree, int ngbcount):
     Query.__init__(self, tree, ngbcount)
 
@@ -89,16 +81,23 @@ cdef class NGBQueryN(Query):
 
   cdef void execute(self, char** data) nogil:
     cdef double pos[3], size[3]
-
+    cdef fckey_t AABBkey[2]
+    cdef ipos_t ipos[3]
     cdef int d
+    cdef fckey_t centerkey
+
     for d in range(3):
       pos[d] = (<double*>(data[d]))[0]
     
+    fillingcurve.f2i(self.tree._scale, pos, ipos)
+    fillingcurve.i2fc(ipos, &centerkey)
+
     self.tree.get_node_size(
          self.tree.get_container(pos, self.resultset.fa.size), 
          size)
 
-    self.execute_one(pos, size)
+    self._getAABBkey(pos, size, AABBkey)
+    self.execute_one(centerkey, AABBkey)
     maxdist2 = self.resultset._e[0].weight
     maxdist = maxdist2 ** 0.5
       
@@ -106,50 +105,55 @@ cdef class NGBQueryN(Query):
       self.resultset.reset()
       for d in range(3):
         size[d] = maxdist
-      self.execute_one(pos, size)
+      self._getAABBkey(pos, size, AABBkey)
+
+      self.execute_one(centerkey, AABBkey)
       if self.resultset._e[0].weight <= maxdist2: break
       maxdist2 = self.resultset._e[0].weight
       maxdist = maxdist2 ** 0.5 
       
-  cdef void execute_one(self, double pos[3], double size[3]) nogil:
-    cdef ipos_t ipos[3]
-    cdef int d
+  cdef void execute_one(self, fckey_t centerkey, fckey_t AABBkey[2]) nogil:
+    cdef fckey_t key
+    cdef int order 
+    cdef int flag
+
+    node = self.iter.get_next_child()
+    while node >= 0:
+      key = self.tree.get_node_key(node)
+      order = self.tree.get_node_order(node)
+      flag = fillingcurve.heyinAABB(key, order, AABBkey)
+      if flag == 0:
+        # not intersecting
+        node = self.iter.get_next_sibling()
+      elif flag == -2:
+        self._add_node_weighted(centerkey, node)
+        node = self.iter.get_next_sibling()
+      elif self.tree.get_node_nchildren(node) == 0:
+        self._add_node_weighted(centerkey, node)
+        node = self.iter.get_next_sibling()
+      else:
+        node = self.iter.get_next_child()
+
+  cdef void _getAABBkey(self, double pos[3], double size[3], fckey_t AABBkey[2]) nogil:
     cdef double pos1[3]
     cdef double pos2[3]
-    fillingcurve.f2i(self.tree._scale, pos, ipos)
-    fillingcurve.i2fc(ipos, &self.centerkey)
+    cdef ipos_t ipos[3]
+    cdef int d
     for d in range(3):
       pos1[d] = pos[d] - size[d]
       pos2[d] = pos[d] + size[d]
+
     fillingcurve.f2i(self.tree._scale, pos1, ipos)
-    fillingcurve.i2fc(ipos, &self.AABBkey[0])
+    fillingcurve.i2fc(ipos, &AABBkey[0])
     fillingcurve.f2i(self.tree._scale, pos2, ipos)
-    fillingcurve.i2fc(ipos, &self.AABBkey[1])
-    fillingcurve.fc2i(self.AABBkey[1], ipos)
-
-    self.execute_r(0)
-
-  cdef void _add_node_weighted(self, node_t node) nogil:
+    fillingcurve.i2fc(ipos, &AABBkey[1])
+  
+  cdef void _add_node_weighted(self, fckey_t centerkey, node_t node) nogil:
     cdef intptr_t item
     cdef double weight
     cdef size_t nodenpar = self.tree.get_node_npar(node)
     cdef intptr_t nodefirst = self.tree.get_node_first(node)
     for item in range(nodefirst, nodefirst + nodenpar, 1):
-      weight = fillingcurve.key2key2(self.tree._scale, self.centerkey, self.tree._zkey[item])
+      weight = fillingcurve.key2key2(self.tree._scale, centerkey, self.tree._zkey[item])
       self.resultset.add_item_weighted(item, weight)
 
-  cdef void execute_r(self, node_t node) nogil:
-    cdef int k
-    cdef intptr_t i
-    cdef fckey_t key = self.tree.get_node_key(node)
-    cdef int order = self.tree.get_node_order(node)
-    cdef int flag = fillingcurve.heyinAABB(key, order, self.AABBkey)
-    cdef int nchildren
-    cdef ipos_t ipos[3], ipos1[3], ipos2[3] 
-    if flag == 0: return
-    children = self.tree.get_node_children(node, &nchildren)
-    if flag == -2 or nchildren == 0:
-      self._add_node_weighted(node)
-    else:
-      for k in range(nchildren):
-        self.execute_r(children[k])

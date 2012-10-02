@@ -118,10 +118,13 @@ cdef class TreeIter:
   def __cinit__(self, tree):
     self.tree = tree
     # first visit root
-    self.top = -2
+    self.reset()
 
-  def next(self, skip_children=False):
-    return self.getnext(skip_children)
+  def next_children(self):
+    return self._next(False)
+
+  def next_cibling(self):
+    return self._next(True)
 
 cdef class TreeProperty:
   """ Property associated with tree nodes/particles """

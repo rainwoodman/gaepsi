@@ -170,7 +170,15 @@ cdef class TreeIter:
   cdef readonly Tree tree
   cdef int top
 
-  cdef inline node_t getnext(self, bint skip_children) nogil:
+  cdef inline void reset(self) nogil:
+    self.top = -2
+
+  cdef inline node_t get_next_child(self) nogil:
+    return self._next(False)
+  cdef inline node_t get_next_sibling(self) nogil:
+    return self._next(True)
+  
+  cdef inline node_t _next(self, bint skip_children) nogil:
     """ iterates over all nodes, returns -1 when done,
         if skip_children is non-zero, skip the children and directly go
         siblings  """

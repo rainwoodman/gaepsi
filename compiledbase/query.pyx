@@ -2,7 +2,7 @@
 #cython: cdivision=True
 import numpy
 cimport numpy
-from ztree cimport Tree, node_t
+from ztree cimport Tree, node_t, TreeIter
 from libc.stdint cimport *
 cimport npyiter
 from libc.math cimport sqrt
@@ -33,17 +33,21 @@ cdef class ResultSet:
     flexarray.destroy(&self.fa)
 
 cdef class Query:
-
+  """ base class for queries,
+      provide an iter for iterating over the tree and a resultset for scratch
+  """
   def __cinit__(self):
     flexarray.init(&self.indices, NULL, sizeof(intptr_t), 1024)
 
   def __init__(self, tree, size):
     self.tree = tree
+    self.iter = TreeIter(tree)
     self.resultset = ResultSet(size)
 
   def __dealloc__(self):
     flexarray.destroy(&self.indices)
 
   cdef void execute(self, char** data) nogil:
+    """ query.iter and query.resultset are reset before execute is called """
     pass
        
