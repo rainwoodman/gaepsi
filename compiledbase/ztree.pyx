@@ -114,6 +114,15 @@ cdef class TreeNode:
   def __repr__(self):
     return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
+cdef class TreeIter:
+  def __cinit__(self, tree):
+    self.tree = tree
+    # first visit root
+    self.top = -2
+
+  def next(self, skip_children=False):
+    return self.getnext(skip_children)
+
 cdef class TreeProperty:
   """ Property associated with tree nodes/particles """
   cdef readonly Tree tree
@@ -284,12 +293,25 @@ cdef class Tree:
     return func()
 
   def __setitem__(self, item, value):
+    """ this will attach a property to the particles.
+        the tree node property is always the sum of
+        all particle property with in the node
+    """
     self.propertyvalues[item] = value
 
   def __delitem__(self, item):
+    """ this will dettach a property from the particles.  """
     del self.propertyvalues[item]
 
   def __getitem__(self, item):
+    """ for attached property, this will 
+        return a TreeProperty object for the attached values,
+        otherwise a TreeProperty of newly calculated values
+        of internal tree properties is returned.
+        
+        if item is not a basestring, then it is
+        assumed to be slicing the node array.
+    """
     if isinstance(item, basestring):
       if item in self.propertyvalues:
         return TreeProperty(self, self.propertyvalues[item])

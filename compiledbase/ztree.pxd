@@ -164,3 +164,56 @@ cdef class Tree:
   cdef node_t _try_merge_children(self, intptr_t parent) nogil except -1
   cdef node_t _split_node(self, intptr_t node) nogil except -1
 
+cdef class TreeIter:
+  cdef node_t * head[32]
+  cdef node_t * end[32]
+  cdef readonly Tree tree
+  cdef int top
+
+  cdef inline node_t getnext(self, bint skip_children) nogil:
+    """ iterates over all nodes, returns -1 when done,
+        if skip_children is non-zero, skip the children and directly go
+        siblings  """
+    cdef node_t * children
+    cdef int nchildren
+    # root first, 
+    if self.top == -2:
+      self.top = -1
+      return 0
+
+    # then first child, if not skip_children
+    if self.top == -1:
+      if skip_children: return -1
+      self.head[0] = self.tree.get_node_children(0, &nchildren)
+      self.end[0] = self.head[0] + nchildren
+      self.top = 0
+      return self.tree.node_index(self.head[0][0])
+
+    # head[top][0] is the last visited node.
+    if not skip_children:
+      # avoid a function call of children gonna be skipped anyways
+      children = self.tree.get_node_children(self.head[self.top][0], &nchildren)
+
+    if skip_children or nchildren == 0:
+      if self.head[self.top] + 1 < self.end[self.top]:
+        # visit sibling
+        self.head[self.top] = self.head[self.top] + 1
+        return self.tree.node_index(self.head[self.top][0])
+      else:
+        # visit parent sibling
+        self.top = self.top - 1
+        while self.top >= 0 and self.head[self.top] == self.end[self.top]:
+         # keep poping parent till find a sibling
+           self.top = self.top - 1
+        # no more parents no more siblings, the show is over
+        if self.top < 0: return -1
+        return self.tree.node_index(self.head[self.top][0])
+    else:
+      self.head[self.top] = self.head[self.top] + 1
+      # push sibling of self.head
+      self.top = self.top + 1
+      # visit first child on next call
+      self.head[self.top] = children
+      self.end[self.top] = children + nchildren
+      return self.tree.node_index(self.head[self.top][0])
+

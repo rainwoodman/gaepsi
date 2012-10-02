@@ -3,7 +3,6 @@
 import numpy
 cimport numpy
 cimport npyiter
-cimport ztree
 cimport npyarray
 cimport npyufunc
 from libc.stdint cimport *
@@ -15,7 +14,7 @@ from fillingcurve import fckeytype
 from geometry cimport DieseFunktion
 from geometry cimport DieseFunktionFrustum
 from geometry cimport rotate_vector
-from ztree cimport node_t
+from ztree cimport node_t, Tree, TreeIter
 
 numpy.import_array()
 cdef float inf = numpy.inf
@@ -337,16 +336,23 @@ cdef class Camera:
         size = npyiter.next(&citer)
     return out
 
-  def prunetree(self, ztree.Tree tree, out=None):
+  def prunetree(self, Tree tree, out=None, bint return_nodes=True):
+    """ scan the tree and find the nodes that are inside FOV,
+        returns a mask, 0 if node is out, 2 if node is over resolved,
+        and 1 if the node shall be painted as a particle. 
+        if return_particles is true, return a mask for particles
+        """
     cdef int nchildren
-    cdef size_t n = len(tree)
     cdef size_t start = tree.node_length
     cdef double size[3]
     cdef double pos[3]
-    cdef node_t * current[32] # current child
-    cdef node_t * end[32] # end child
-    cdef int top = 0
-    cdef numpy.ndarray mask = numpy.zeros(n, 'int8')
+    cdef TreeIter iter = TreeIter(tree)
+
+    cdef numpy.ndarray mask 
+    if return_nodes:
+      mask = numpy.zeros(len(tree), 'int8')
+    else:
+      mask = numpy.zeros(len(tree.zkey), 'int8')
     cdef char * _mask = <char*> mask.data
 
     cdef node_t parent
@@ -356,57 +362,39 @@ cdef class Camera:
     # mask = 2 if node is over resolved. (do not paint them)
 
     # visit first child of root
-    current[0] = tree.get_node_children(0, &nchildren)
-    end[0] = current[0] + nchildren
-    top = 1
+    node = iter.getnext(False)
     with nogil:
-      while True:
-        # pop a node
-        top = top - 1
-        while top >= 0 and current[top] == end[top]:
-          # visit parent
-          top = top - 1
-          continue
+      while node >= 0:
 
-        if top < 0: break
-
-        tree.get_node_pos(current[top][0], pos)
-        tree.get_node_size(current[top][0], size)
+        tree.get_node_pos(node, pos)
+        tree.get_node_size(node, size)
         for d in range(3): 
           pos[d] += size[d] * 0.5
           size[d] *= 1.733 # sml = 2 * size * 1.733
 
-        children = tree.get_node_children(current[top][0], &nchildren)
-        j = tree.node_index(current[top][0])
+        children = tree.get_node_children(node, &nchildren)
 #        with gil: print 'top', top, j, tree[j].order, tree[j].key, tree[j].children
         # in FOV?
         flag = self.mask_object_one(pos, size)
-        if flag == 0 or nchildren == 0:
-          if flag == 0:
-            # not in FOV
-            _mask[j] = 0
-          elif nchildren == 0:
-            _mask[j] = 1
-
-          if current[top] + 1 < end[top]:
-            # visit sibling
-#            with gil: print 'go sibling', end[top] - current[top], 'remains'
-            current[top] = current[top] + 1
-            top = top + 1
-            continue
-          else: 
-            # visit parent sibling
-#            with gil: print 'go parent sibling!'
-            continue
+        if flag == 0:
+          if return_nodes:
+            _mask[node] = 0
+          else:
+            for i in range(tree.get_node_first(node), 
+               tree.get_node_first(node) + tree.get_node_npar(node), 1):
+              _mask[i] = 0
+          node = iter.getnext(True)
+        elif nchildren == 0:
+          if return_nodes:
+            _mask[node] = 1
+          else:
+            for i in range(tree.get_node_first(node), 
+               tree.get_node_first(node) + tree.get_node_npar(node), 1):
+              _mask[i] = 1
+          node = iter.getnext(True)
         else:
-          _mask[j] = 2
-          # push sibling of current
-          current[top] = current[top] + 1
-          top = top + 1
-          # visit first child
-          current[top] = children
-          end[top] = children + nchildren
-          top = top + 1
+          _mask[node] = 2
+          node = iter.getnext(False)
 
     if out is None: 
       out = mask == 1

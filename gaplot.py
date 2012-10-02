@@ -299,7 +299,7 @@ class GaplotContext(object):
         size = tree['size'][mask]
         pos += size * 0.5
         x,y,z = pos.T
-        sml = size[:, 0] * (0.5 * numpy.cross(cam.dir, cam.up).dot([1, 1, 1.]))
+        sml = size[:, 0] * 2
         c, l = None, None
         if color is not None: c = tree[color][mask]
         if luminosity is not None: l = tree[luminosity][mask]
@@ -310,17 +310,26 @@ class GaplotContext(object):
               CCD[...] += _CCD
           pool.starmap(work, pool.zipsplit((x,y,z,sml,c,l)))
     else:
+      tree = self.T[ftype]
       if kernel is None: kernel='spline'
       locations, color, luminosity, sml = self._getcomponent(ftype,
         'locations', color, luminosity, sml)
       x, y, z = locations.T
       for cam in self._mkcameras(camera):
+        mask = cam.prunetree(tree, return_nodes=False)
         with sharedmem.Pool(use_threads=True) as pool:
-          def work(x,y,z,sml,color,luminosity):
-            _CCD = cam.paint(x,y,z,sml,color,luminosity, kernel=kernel)
+          def work(x,y,z,sml,color,luminosity, mask):
+            try: sml=sml[mask]
+            except: pass
+            try: color=color[mask]
+            except: pass
+            try: luminosity=luminosity[mask]
+            except: pass
+            
+            _CCD = cam.paint(x[mask],y[mask],z[mask],sml,color,luminosity, kernel=kernel)
             with pool.lock:
               CCD[...] += _CCD
-          pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity)))
+          pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity, mask)))
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
     
