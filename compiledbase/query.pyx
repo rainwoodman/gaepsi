@@ -54,8 +54,9 @@ cdef class Query:
   """ base class for queries,
       provide an iter for iterating over the tree and a scratch for scratch
   """
-  def __init__(self, tree, dtype, sizehint):
+  def __init__(self, tree, root, dtype, sizehint):
     self.tree = tree
+    self.root = root
     self.dtype = numpy.dtype(dtype)
     self.sizehint = sizehint
     self.cmpfunc = NULL
@@ -68,7 +69,7 @@ cdef class Query:
     cdef flexarray.FlexArray results
     cdef int itemsize = self.dtype.itemsize
     cdef Scratch scratch = Scratch(self.dtype, self.sizehint)
-    cdef TreeIter treeiter = TreeIter(self.tree)
+    cdef TreeIter treeiter = TreeIter(self.tree, self.root)
 
     flexarray.init(&results, NULL, itemsize, 4)
 

@@ -13,8 +13,8 @@ numpy.import_array()
 
 cdef class NGBQueryD(Query):
 
-  def __init__(self, tree, int ngbhint):
-    Query.__init__(self, tree, 'intp', ngbhint)
+  def __init__(self, tree, int ngbhint, int root=0):
+    Query.__init__(self, tree, root, 'intp', ngbhint)
 
   def __call__(self, x, y, z, dx, dy=None, dz=None):
     if dy is None: dy = dx
@@ -85,8 +85,8 @@ cdef int elecmpfunc(Element * e1, Element * e2) nogil:
   return (e1.weight < e2.weight) - (e1.weight > e2.weight)
 
 cdef class NGBQueryN(Query):
-  def __init__(self, tree, int ngbcount):
-    Query.__init__(self, tree, [('indices', 'intp'), ('weights', 'f8')], ngbcount)
+  def __init__(self, tree, int ngbcount, int root=0):
+    Query.__init__(self, tree, root, [('indices', 'intp'), ('weights', 'f8')], ngbcount)
     Query.set_cmpfunc(self, <flexarray.cmpfunc>elecmpfunc)
 
   def __call__(self, x, y, z):

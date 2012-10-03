@@ -168,7 +168,8 @@ cdef class TreeIter:
   cdef node_t * head[32]
   cdef node_t * end[32]
   cdef readonly Tree tree
-  cdef int top
+  cdef readonly node_t root
+  cdef readonly int top
 
   cdef inline void reset(self) nogil:
     self.top = -2
@@ -187,12 +188,12 @@ cdef class TreeIter:
     # root first, 
     if self.top == -2:
       self.top = -1
-      return 0
+      return self.root
 
     # then first child, if not skip_children
     if self.top == -1:
       if skip_children: return -1
-      self.head[0] = self.tree.get_node_children(0, &nchildren)
+      self.head[0] = self.tree.get_node_children(self.root, &nchildren)
       self.end[0] = self.head[0] + nchildren
       self.top = 0
       return self.tree.node_index(self.head[0][0])

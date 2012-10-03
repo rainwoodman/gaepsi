@@ -17,13 +17,13 @@ cdef struct Element:
   double leave
 
 cdef class RayQueryNodes(Query):
-  def __init__(self, tree, int sizehint):
+  def __init__(self, tree, int sizehint, int root=0):
     """ if return_nodes is True, return the complete nodes.
         A complete node is a node has either 8 or 0 children.
         if return_nodes is False, return the particles
         in the leaf nodes that intersect with the children.
     """
-    Query.__init__(self, tree, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
+    Query.__init__(self, tree, root, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
 
   def __call__(self, x, y, z, dir, length):
     dir = numpy.asarray(dir)
@@ -33,7 +33,7 @@ cdef class RayQueryNodes(Query):
       [['readonly']] * 7)
 
   cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil:
-    cdef double center[3], dir[3], tE, tL, tLmax
+    cdef double center[3], dir[3], tE, tL
     cdef double pos[3], size[3]
     cdef int d
     cdef node_t node
@@ -55,6 +55,8 @@ cdef class RayQueryNodes(Query):
           e.enter = tE
           e.leave = tL
           scratch.add_item(&e)
+          with gil:
+            print e.node, e.enter, e.leave
           node = iter.get_next_sibling()
         else:
           node = iter.get_next_child()

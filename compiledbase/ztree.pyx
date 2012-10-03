@@ -115,8 +115,9 @@ cdef class TreeNode:
     return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
 cdef class TreeIter:
-  def __cinit__(self, tree):
+  def __cinit__(self, tree, root=0):
     self.tree = tree
+    self.root = root
     # first visit root
     self.reset()
 
@@ -274,6 +275,7 @@ cdef class Tree:
      # raise ValueError("tree build failed. Is the input zkey sorted?")
 
   def optimize(self):
+    raise RuntimeError("do not call this thing!")
     while self._optimize() > 0: continue
 
   def split_tail(self):
