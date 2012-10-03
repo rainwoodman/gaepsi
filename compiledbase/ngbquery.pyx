@@ -5,14 +5,16 @@ cimport numpy
 import numpy
 cimport fillingcurve
 from fillingcurve cimport fckey_t, ipos_t
-from query cimport Query, node_t
+from query cimport Query, node_t, TreeIter, Scratch
 from libc.stdint cimport *
+cimport flexarray
+
 numpy.import_array()
 
 cdef class NGBQueryD(Query):
 
   def __init__(self, tree, int ngbhint):
-    Query.__init__(self, tree, ngbhint)
+    Query.__init__(self, tree, 'intp', ngbhint)
 
   def __call__(self, x, y, z, dx, dy=None, dz=None):
     if dy is None: dy = dx
@@ -22,7 +24,7 @@ cdef class NGBQueryD(Query):
       ['f8'] * 6,
       [['readonly']] * 6)
 
-  cdef void execute(self, char** data) nogil:
+  cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil:
     cdef double pos[3], size[3]
     cdef int d
     cdef fckey_t AABBkey[2]
@@ -48,30 +50,44 @@ cdef class NGBQueryD(Query):
     cdef int order 
     cdef int flag
 
-    node = self.iter.get_next_child()
+    cdef node_t node = iter.get_next_child()
     while node >= 0:
       key = self.tree.get_node_key(node)
       order = self.tree.get_node_order(node)
       flag = fillingcurve.heyinAABB(key, order, AABBkey)
       if flag == 0:
         # not intersecting
-        node = self.iter.get_next_sibling()
+        node = iter.get_next_sibling()
       elif flag == -2:
-        self.resultset.add_items_straight(self.tree.get_node_first(node), 
+        self._add_items(scratch, self.tree.get_node_first(node), 
            self.tree.get_node_npar(node))
-        node = self.iter.get_next_sibling()
+        node = iter.get_next_sibling()
       elif self.tree.get_node_nchildren(node) == 0:
         for i in range(self.tree.get_node_first(node), 
            self.tree.get_node_first(node) + self.tree.get_node_npar(node), 1):
           if 0 == fillingcurve.heyinAABB(self.tree._zkey[i], 0, AABBkey): continue
-          self.resultset.add_item_straight(i)
-        node = self.iter.get_next_sibling()
+          scratch.add_item(&i)
+        node = iter.get_next_sibling()
       else:
-        node = self.iter.get_next_child()
+        node = iter.get_next_child()
+
+  cdef void _add_items(self, Scratch scratch, intptr_t first, intptr_t npar) nogil:
+    cdef intptr_t i
+    for i in range(first, first + npar, 1):
+      scratch.add_item(&i)
+
+
+cdef struct Element:
+  intptr_t index
+  double weight
+
+cdef int elecmpfunc(Element * e1, Element * e2) nogil:
+  return (e1.weight < e2.weight) - (e1.weight > e2.weight)
 
 cdef class NGBQueryN(Query):
   def __init__(self, tree, int ngbcount):
-    Query.__init__(self, tree, ngbcount)
+    Query.__init__(self, tree, [('indices', 'intp'), ('weights', 'f8')], ngbcount)
+    Query.set_cmpfunc(self, <flexarray.cmpfunc>elecmpfunc)
 
   def __call__(self, x, y, z):
     return Query._iterover(self,
@@ -79,12 +95,13 @@ cdef class NGBQueryN(Query):
       ['f8'] * 3,
       [['readonly']] * 3)
 
-  cdef void execute(self, char** data) nogil:
+  cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil:
     cdef double pos[3], size[3]
     cdef fckey_t AABBkey[2]
     cdef ipos_t ipos[3]
     cdef int d
     cdef fckey_t centerkey
+    cdef double maxdist2, thisdist2, maxdist
 
     for d in range(3):
       pos[d] = (<double*>(data[d]))[0]
@@ -93,46 +110,47 @@ cdef class NGBQueryN(Query):
     fillingcurve.i2fc(ipos, &centerkey)
 
     self.tree.get_node_size(
-         self.tree.get_container(pos, self.resultset.fa.size), 
+         self.tree.get_container(pos, scratch.fa.size), 
          size)
 
-    self._getAABBkey(pos, size, AABBkey)
-    self.execute_one(centerkey, AABBkey)
-    maxdist2 = self.resultset._e[0].weight
-    maxdist = maxdist2 ** 0.5
-      
+    maxdist = size[0]
+    maxdist2 = 0
+
+    # iterate 
     while True:
-      self.resultset.reset()
+      scratch.reset()
       for d in range(3):
         size[d] = maxdist
       self._getAABBkey(pos, size, AABBkey)
 
-      self.execute_one(centerkey, AABBkey)
-      if self.resultset._e[0].weight <= maxdist2: break
-      maxdist2 = self.resultset._e[0].weight
+      self.execute_one(iter, scratch, centerkey, AABBkey)
+
+      thisdist2 = (<Element*>scratch.get_ptr(0)).weight
+      if thisdist2 <= maxdist2: break
+      maxdist2 = thisdist2
       maxdist = maxdist2 ** 0.5 
       
-  cdef void execute_one(self, fckey_t centerkey, fckey_t AABBkey[2]) nogil:
+  cdef void execute_one(self, TreeIter iter, Scratch scratch, fckey_t centerkey, fckey_t AABBkey[2]) nogil:
     cdef fckey_t key
     cdef int order 
     cdef int flag
 
-    node = self.iter.get_next_child()
+    node = iter.get_next_child()
     while node >= 0:
       key = self.tree.get_node_key(node)
       order = self.tree.get_node_order(node)
       flag = fillingcurve.heyinAABB(key, order, AABBkey)
       if flag == 0:
         # not intersecting
-        node = self.iter.get_next_sibling()
+        node = iter.get_next_sibling()
       elif flag == -2:
-        self._add_node_weighted(centerkey, node)
-        node = self.iter.get_next_sibling()
+        self._add_node_weighted(scratch, centerkey, node)
+        node = iter.get_next_sibling()
       elif self.tree.get_node_nchildren(node) == 0:
-        self._add_node_weighted(centerkey, node)
-        node = self.iter.get_next_sibling()
+        self._add_node_weighted(scratch, centerkey, node)
+        node = iter.get_next_sibling()
       else:
-        node = self.iter.get_next_child()
+        node = iter.get_next_child()
 
   cdef void _getAABBkey(self, double pos[3], double size[3], fckey_t AABBkey[2]) nogil:
     cdef double pos1[3]
@@ -148,12 +166,12 @@ cdef class NGBQueryN(Query):
     fillingcurve.f2i(self.tree._scale, pos2, ipos)
     fillingcurve.i2fc(ipos, &AABBkey[1])
   
-  cdef void _add_node_weighted(self, fckey_t centerkey, node_t node) nogil:
-    cdef intptr_t item
-    cdef double weight
+  cdef void _add_node_weighted(self, Scratch scratch, fckey_t centerkey, node_t node) nogil:
+    cdef Element e
     cdef size_t nodenpar = self.tree.get_node_npar(node)
     cdef intptr_t nodefirst = self.tree.get_node_first(node)
     for item in range(nodefirst, nodefirst + nodenpar, 1):
-      weight = fillingcurve.key2key2(self.tree._scale, centerkey, self.tree._zkey[item])
-      self.resultset.add_item_weighted(item, weight)
+      e.index = item
+      e.weight = fillingcurve.key2key2(self.tree._scale, centerkey, self.tree._zkey[item])
+      scratch.add_item(&e)
 

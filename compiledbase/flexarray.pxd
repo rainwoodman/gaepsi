@@ -24,11 +24,11 @@ cdef inline void init(FlexArray * array, void ** delegate, int itemsize, size_t 
   array.size = size
   array.used = 0
   (array.delegate)[0] = malloc(itemsize * (size + 1))
-
+  array.cmpfunc = NULL
 cdef inline intptr_t append(FlexArray * array, size_t additional) nogil:
   cdef void * ptr = array.delegate[0]
-  while array.used + additional > (array.size + 1):
-    array.size = array.size * 2
+  while array.used + additional > array.size:
+    array.size = (array.size + 1)* 2 - 1
   (array.delegate)[0] = realloc(ptr, array.itemsize * (array.size + 1))
   cdef intptr_t index = array.used 
   array.used = array.used + additional
@@ -36,6 +36,9 @@ cdef inline intptr_t append(FlexArray * array, size_t additional) nogil:
 
 cdef inline void * append_ptr(FlexArray * array, size_t additional) nogil:
   cdef intptr_t index = append(array, additional)
+  return &((array.delegate)[0][array.itemsize * index])
+
+cdef inline void * get_ptr(FlexArray * array, intptr_t index) nogil:
   return &((array.delegate)[0][array.itemsize * index])
 
 cdef inline void remove(FlexArray * array, size_t additional) nogil:

@@ -4,50 +4,104 @@ import numpy
 cimport numpy
 from ztree cimport Tree, node_t, TreeIter
 from libc.stdint cimport *
+from libc.string cimport memcpy
+from libc.stdlib cimport free, malloc
 cimport npyiter
 from libc.math cimport sqrt
 cimport flexarray
 
 numpy.import_array()
 
-cdef int elecmpfunc(Element * e1, Element * e2) nogil:
-  return (e1.weight < e2.weight) - (e1.weight > e2.weight)
-
-cdef class ResultSet:
-  property used:
-    def __get__(self): return self.fa.used
-
-  property array:
-    def __get__(self): return flexarray.tonumpy(&self.fa, [('indices', 'i8'), ('weights', 'f8')], self)
-
-  property indices:
-    def __get__(self): return self.array['indices']
-  property weights:
-    def __get__(self): return self.array['weights']
-
-  def __cinit__(self, int size):
-    flexarray.init(&self.fa, <void**>&self._e, sizeof(Element), size)
-    self.fa.cmpfunc = <flexarray.cmpfunc> elecmpfunc
+cdef class Scratch:
+  def __cinit__(self, dtype, int size):
+    self.dtype = numpy.dtype(dtype)
+    flexarray.init(&self.fa, NULL, self.dtype.itemsize, size)
 
   def __dealloc__(self):
     flexarray.destroy(&self.fa)
 
+  property A:
+    def __get__(self): return flexarray.tonumpy(&self.fa, 
+       self.dtype, self)
+
+  cdef void add_item(self, void * data) nogil:
+    cdef void * newitem
+    cdef int itemsize = self.dtype.itemsize
+    if self.fa.cmpfunc == NULL:
+      newitem = flexarray.append_ptr(&self.fa, 1)
+      memcpy(&newitem[0], data, itemsize)
+    else:
+      if self.fa.used < self.fa.size:
+        newitem = flexarray.append_ptr(&self.fa, 1)
+        memcpy(&newitem[0], data, itemsize)
+        if self.fa.used == self.fa.size:
+          # heapify when full
+          flexarray.heapify(&self.fa)
+      else:
+        # heap push pop
+        if self.fa.cmpfunc(data, self.get_ptr(0)) > 0:
+          memcpy(self.get_ptr(0), data, itemsize)
+          flexarray.siftup(&self.fa, 0)
+        #  with gil:
+        #    print 'itemadded', self.A['weights']
+
+cdef class _freeobj:
+  cdef void * ptr
+  def __dealloc__(self):
+    free(self.ptr)
+
 cdef class Query:
   """ base class for queries,
-      provide an iter for iterating over the tree and a resultset for scratch
+      provide an iter for iterating over the tree and a scratch for scratch
   """
-  def __cinit__(self):
-    flexarray.init(&self.indices, NULL, sizeof(intptr_t), 1024)
-
-  def __init__(self, tree, size):
+  def __init__(self, tree, dtype, sizehint):
     self.tree = tree
-    self.iter = TreeIter(tree)
-    self.resultset = ResultSet(size)
+    self.dtype = numpy.dtype(dtype)
+    self.sizehint = sizehint
+    self.cmpfunc = NULL
 
-  def __dealloc__(self):
-    flexarray.destroy(&self.indices)
-
-  cdef void execute(self, char** data) nogil:
-    """ query.iter and query.resultset are reset before execute is called """
+  cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil:
+    """ query.iter and query.scratch are reset before execute is called """
     pass
+
+  cdef tuple _iterover(self, variables, dtypes, flags):
+    cdef flexarray.FlexArray results
+    cdef int itemsize = self.dtype.itemsize
+    cdef Scratch scratch = Scratch(self.dtype, self.sizehint)
+    cdef TreeIter treeiter = TreeIter(self.tree)
+
+    flexarray.init(&results, NULL, itemsize, 4)
+
+    # important 
+    scratch.set_cmpfunc(self.cmpfunc)
+
+    iter = numpy.nditer([None] + variables, 
+           op_dtypes=['intp'] + dtypes,
+           op_flags=[['writeonly', 'allocate']] + flags,
+           flags=['zerosize_ok', 'external_loop', 'buffered'],
+           casting='unsafe')
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    with nogil:
+      while size > 0:
+        while size > 0:
+
+          treeiter.reset()
+          self.execute(treeiter, scratch, citer.data + 1)
+          # harvest
+          newitems = <void *>flexarray.append_ptr(&results, scratch.fa.used)
+          memcpy(newitems, scratch.fa.ptr, 
+              scratch.fa.used * itemsize)
+          (<intptr_t* >(citer.data[0]))[0] = scratch.fa.used
+          with gil: 
+            print 'used', scratch.fa.used
+            print (<intptr_t*>scratch.get_ptr(0))[0]
+          scratch.reset()
+          npyiter.advance(&citer)
+          size = size - 1
+        size = npyiter.next(&citer)
+    owner = _freeobj()
+    owner.ptr = results.ptr
+    return flexarray.tonumpy(&results, self.dtype, owner), iter.operands[0]
+
        
