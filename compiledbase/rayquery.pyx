@@ -17,17 +17,15 @@ cdef struct Element:
   double leave
 
 cdef class RayQueryNodes(Query):
-  def __init__(self, tree, int sizehint, int root=0):
-    """ if return_nodes is True, return the complete nodes.
-        A complete node is a node has either 8 or 0 children.
-        if return_nodes is False, return the particles
-        in the leaf nodes that intersect with the children.
+  def __init__(self, tree, int sizehint):
+    """ returns the complete nodes that intersects the rays.
+        and enter, leave.
     """
-    Query.__init__(self, tree, root, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
+    Query.__init__(self, tree, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
 
-  def __call__(self, x, y, z, dir, length):
+  def __call__(self, x, y, z, dir, length, root=0):
     dir = numpy.asarray(dir)
-    return Query._iterover(self,
+    return Query._iterover(self, root,
       [x, y, z, dir[...,0], dir[...,1], dir[...,2], length],
       ['f8'] * 7,
       [['readonly']] * 7)
@@ -55,34 +53,24 @@ cdef class RayQueryNodes(Query):
           e.enter = tE
           e.leave = tL
           scratch.add_item(&e)
-          with gil:
-            print e.node, e.enter, e.leave
           node = iter.get_next_sibling()
         else:
           node = iter.get_next_child()
       else:
         node = iter.get_next_sibling()
 
-IF 0:
- cdef class RayQuery(Query):
-  cdef readonly bint return_nodes
-  def __init__(self, tree, int sizehint, return_nodes):
-    """ if return_nodes is True, return the complete nodes.
-        A complete node is a node has either 8 or 0 children.
-        if return_nodes is False, return the particles
-        in the leaf nodes that intersect with the children.
-    """
-    Query.__init__(self, tree, sizehint)
-    self.return_nodes = return_nodes
+cdef class RayQuery(Query):
+  def __init__(self, tree, int sizehint):
+    Query.__init__(self, tree, 'intp', sizehint)
 
-  def __call__(self, x, y, z, dir, length):
+  def __call__(self, x, y, z, dir, length, root=0):
     dir = numpy.asarray(dir)
-    return Query._iterover(self,
+    return Query._iterover(self, root,
       [x, y, z, dir[...,0], dir[...,1], dir[...,2], length],
       ['f8'] * 7,
       [['readonly']] * 7)
 
-  cdef void execute(self, char** data) nogil:
+  cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil:
     cdef double center[3], dir[3], tE, tL, tLmax
     cdef double pos[3], size[3]
     cdef int d
@@ -91,7 +79,7 @@ IF 0:
       center[d] = (<double *>data[d])[0]
       dir[d] = (<double *>data[d+3])[0]
 
-    node = self.iter.get_next_child()
+    node = iter.get_next_child()
     while node >= 0:
       tE = 0
       tL = (<double *>data[6])[0]
@@ -99,18 +87,17 @@ IF 0:
       self.tree.get_node_size(node, size)
       if LiangBarsky(pos, size, center, dir, &tE, &tL):
         nchildren = self.tree.get_node_nchildren(node)
-        if not self.return_nodes:
-          if nchildren == 0:
-            self.resultset.add_items_straight(self.tree.get_node_first(node), 
-                                          self.tree.get_node_npar(node))
-            node = self.iter.get_next_sibling()
-          else:
-            node = self.iter.get_next_child()
+        if nchildren == 0:
+          self._add_items(scratch, self.tree.get_node_first(node), 
+                                        self.tree.get_node_npar(node))
+          node = iter.get_next_sibling()
         else:
-          if nchildren == 8 or nchildren == 0:
-            self.resultset.add_item_straight(node)
-            node = self.iter.get_next_sibling()
-          else:
-            node = self.iter.get_next_child()
+          node = iter.get_next_child()
       else:
-        node = self.iter.get_next_sibling()
+        node = iter.get_next_sibling()
+  cdef void _add_items(self, Scratch scratch, intptr_t first, intptr_t npar) nogil:
+    cdef intptr_t i
+    for i in range(first, first + npar, 1):
+      scratch.add_item(&i)
+
+  

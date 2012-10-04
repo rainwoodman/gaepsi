@@ -115,11 +115,11 @@ cdef class TreeNode:
     return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
 cdef class TreeIter:
-  def __cinit__(self, tree, root=0):
+  def __cinit__(self, tree):
     self.tree = tree
-    self.root = root
+    self.root = 0
     # first visit root
-    self.reset()
+    self.reset(0)
 
   def next_children(self):
     return self._next(False)

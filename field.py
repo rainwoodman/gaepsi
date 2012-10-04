@@ -278,7 +278,7 @@ class Field(object):
       start, stop, step = index.indices(self.numpoints)
       subfield.numpoints = (stop + step - 1 - start) / step
       for comp in self.names:
-        subfield[comp] = self[comp][index]
+        subfield.dict[comp] = self.dict[comp][index]
       return subfield
     elif isinstance(index, numpy.ndarray) \
        and index.dtype == numpy.dtype('?'):
@@ -444,11 +444,16 @@ class Field(object):
     if scale is None:
       scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
     zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)
+
     with sharedmem.Pool(use_threads=True) as pool:
       def work(zkey, locations):
         X, Y, Z = locations.T
         fc.encode(X, Y, Z, scale=scale, out=zkey)
       pool.starmap(work, pool.zipsplit((zkey, self['locations'])))
+
+    # if already sorted, return directly without copying.
+    if (zkey[1:] > zkey[:-1]).all(): return zkey, scale
+
     # use sharemem.argsort, because it is faster
     arg = sharedmem.argsort(zkey)
     for comp in self.dict:

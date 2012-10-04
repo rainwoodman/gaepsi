@@ -171,7 +171,8 @@ cdef class TreeIter:
   cdef readonly node_t root
   cdef readonly int top
 
-  cdef inline void reset(self) nogil:
+  cdef inline void reset(self, int root) nogil:
+    self.root = root
     self.top = -2
 
   cdef inline node_t get_next_child(self) nogil:

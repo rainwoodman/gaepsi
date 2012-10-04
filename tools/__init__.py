@@ -357,78 +357,59 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n', preamble=None, c
 import numpy
 from itertools import izip
 
-class packarray(numpy.ndarray):
+class packarray:
   """ A packarray packs/copies several arrays into the same memory chunk.
 
       It feels like a list of arrays, but because the memory chunk is continuous,
-      arithmatic operations are easier to use.
+      
+      arithmatic operations are easier to use(via packarray.A)
   """
-  def __new__(cls, array, sizes):
-    self = array.view(type=cls)
-    self.start = numpy.zeros(shape=len(sizes), dtype='u8')
-    self.end = numpy.zeros(shape=len(sizes), dtype='u8')
-    self.end[:] = sizes.cumsum()
-    self.start[1:] = self.end[:-1]
-    return self
+  def __init__(self, array, start, end=None):
+    """ if end is none, start contains the sizes. """
+    if end is None:
+      sizes = start
+      self.start = numpy.zeros(shape=len(sizes), dtype='intp')
+      self.end = numpy.zeros(shape=len(sizes), dtype='intp')
+      self.end[:] = sizes.cumsum()
+      self.start[1:] = self.end[:-1]
+    else:
+      self.start = start
+      self.end = end
+    self.A = array
 
   @classmethod
   def join(cls, arrays):
-    L = numpy.array([len(arr) for arr in arrays], dtype='u8')
-    return cls.__new__(numpy.concatenate(arrays), L)
+    L = numpy.array([len(arr) for arr in arrays], dtype='intp')
+    return cls(numpy.concatenate(arrays), L)
 
   @classmethod
   def adapt(cls, source, template):
     """ adapt source to a packarray according to the layout of template """
-    rt = source.view(type=cls)
-    rt.start = template.start
-    rt.end = template.end
-    return rt
-
-  @classmethod
-  def adapt(cls, source, template):
-    """ adapt source to a packarray according to the layout of template """
-    rt = source.view(type=cls)
-    rt.start = template.start
-    rt.end = template.end
-    return rt
-
-  def __array_finalize__(self, obj):
-    if isinstance(obj, packarray):
-      self.start = obj.start
-      self.end = obj.end
-    self.A = self.view(type=numpy.ndarray)
-
-  def __array_wrap__(self, outarr, context=None):
-    if context is None:
-      # reduction always return ndarray
-      return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
-    # otherwise follow numpy tradition
-    return numpy.ndarray.__array_wrap__(self, outarr, context)
+    if not isinstance(template, packarray):
+      raise TypeError('template must be a packarray')
+    return cls(source, template.start, template.end)
 
   def __repr__(self):
     return 'packarray: %s, start=%s, end=%s' % \
-          (repr(self.view(type=numpy.ndarray)), 
+          (repr(self.A), 
            repr(self.start), repr(self.end))
   def __str__(self):
     return repr(self)
 
   def copy(self):
-    rt = numpy.ndarray.copy(self).view(type=packarray)
-    rt.start = self.start.copy()
-    rt.end = self.end.copy()
-    return rt
+    return packarray(self.A.copy(), self.start, self.end)
 
   def __getitem__(self, index):
     if isinstance(index, basestring):
-      return numpy.ndarray.__getitem__(self, index)
+      return packarray(
+         numpy.ndarray.__getitem__(self, index),
+         self.end - self.start)
+    if isinstance(index, (slice, list, numpy.ndarray)):
+      return packarray(self.A, self.start[index], self.end[index])
 
     if numpy.isscalar(index):
       return self.A[self.start[index]:self.end[index]]
-
-    if isinstance(index, numpy.ndarray) and index.dtype == numpy.dtype('?'):
-      return self.A[index]
-
-    return [self[i] for i in index]
+    raise IndexError('unsupported index type %s' % type(index))
 
   def __len__(self):
     return len(self.start)
@@ -437,6 +418,9 @@ class packarray(numpy.ndarray):
     for i in range(len(self.start)):
       yield self[i]
 
+  def __reduce__(self):
+    return packarray, (self.A, self.end - self.start)
+    
 class virtarray(numpy.ndarray):
   """ A virtual array that saves and gets from given functions
       instead of doing so from memory.

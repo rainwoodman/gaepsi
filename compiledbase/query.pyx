@@ -54,9 +54,8 @@ cdef class Query:
   """ base class for queries,
       provide an iter for iterating over the tree and a scratch for scratch
   """
-  def __init__(self, tree, root, dtype, sizehint):
+  def __init__(self, tree, dtype, sizehint):
     self.tree = tree
-    self.root = root
     self.dtype = numpy.dtype(dtype)
     self.sizehint = sizehint
     self.cmpfunc = NULL
@@ -65,20 +64,20 @@ cdef class Query:
     """ query.iter and query.scratch are reset before execute is called """
     pass
 
-  cdef tuple _iterover(self, variables, dtypes, flags):
+  cdef tuple _iterover(self, root, variables, dtypes, flags):
     cdef flexarray.FlexArray results
     cdef int itemsize = self.dtype.itemsize
     cdef Scratch scratch = Scratch(self.dtype, self.sizehint)
-    cdef TreeIter treeiter = TreeIter(self.tree, self.root)
+    cdef TreeIter treeiter = TreeIter(self.tree)
 
     flexarray.init(&results, NULL, itemsize, 4)
 
     # important 
     scratch.set_cmpfunc(self.cmpfunc)
 
-    iter = numpy.nditer([None] + variables, 
-           op_dtypes=['intp'] + dtypes,
-           op_flags=[['writeonly', 'allocate']] + flags,
+    iter = numpy.nditer([None, root] + variables, 
+           op_dtypes=['intp', 'intp'] + dtypes,
+           op_flags=[['writeonly', 'allocate'], ['readonly']] + flags,
            flags=['zerosize_ok', 'external_loop', 'buffered'],
            casting='unsafe')
     cdef npyiter.CIter citer
@@ -86,17 +85,13 @@ cdef class Query:
     with nogil:
       while size > 0:
         while size > 0:
-
-          treeiter.reset()
-          self.execute(treeiter, scratch, citer.data + 1)
+          treeiter.reset((<intptr_t* >(citer.data[1]))[0])
+          self.execute(treeiter, scratch, citer.data + 2)
           # harvest
           newitems = <void *>flexarray.append_ptr(&results, scratch.fa.used)
           memcpy(newitems, scratch.fa.ptr, 
               scratch.fa.used * itemsize)
           (<intptr_t* >(citer.data[0]))[0] = scratch.fa.used
-          with gil: 
-            print 'used', scratch.fa.used
-            print (<intptr_t*>scratch.get_ptr(0))[0]
           scratch.reset()
           npyiter.advance(&citer)
           size = size - 1
@@ -105,4 +100,3 @@ cdef class Query:
     owner.ptr = results.ptr
     return flexarray.tonumpy(&results, self.dtype, owner), iter.operands[0]
 
-       

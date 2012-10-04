@@ -28,14 +28,13 @@ cdef class Query:
   cdef readonly Tree tree
   cdef readonly numpy.dtype dtype
   cdef readonly size_t sizehint
-  cdef public node_t root
   # we do not temper with the cmpfunc in dtype. it's not worth the effort
   cdef flexarray.cmpfunc cmpfunc
   # called by subclasses
   cdef inline void set_cmpfunc(self, flexarray.cmpfunc cmpfunc):
     self.cmpfunc = cmpfunc
 
-  cdef tuple _iterover(self, variables, dtypes, flags)
+  cdef tuple _iterover(self, root, variables, dtypes, flags)
   # to be overidden
   cdef void execute(self, TreeIter iter, Scratch scratch, char** data) nogil
 
