@@ -1,24 +1,16 @@
-import numpy 
-from gaepsi.snapshot import Snapshot
-from gaepsi.field import Field, Cut
-from gaepsi.readers import Reader
-from gaepsi.compiledbase.camera import Camera
-from gaepsi.compiledbase import _fast
-from gaepsi.compiledbase import fillingcurve
-from gaepsi.tools.meshmap import Meshmap
-from gaepsi.tools import nl_, n_, normalize
-import sharedmem
-from gaepsi.cosmology import Cosmology
 import warnings
+import numpy 
+import sharedmem
 import matplotlib
 from matplotlib import cm
 
+from gaepsi.tools import nl_, n_, normalize
+from gaepsi.store import Store
+from gaepsi.compiledbase.camera import Camera
+
+
 DEG = numpy.pi / 180.
 
-def _ensurelist(a):
-  if numpy.isscalar(a):
-    return (a,)
-  return a
 def _fr10(n):
   """ base 10 frexp """
   exp = numpy.floor(numpy.log10(n))
@@ -91,45 +83,19 @@ def addspikes(image, x, y, s, color):
     work(image, (X, Y), S, 0)
     work(image, (X, Y), S, 1)
 
-class GaplotContext(object):
+class GaplotContext(Store):
   def __init__(self, shape = (600,600), thresh=(32, 64)):
     """ thresh is the fineness of the tree """
-    self.default_axes = None
-    self._format = None
-    self._thresh = thresh
-    # fields
-    self.F = {}
-    # ptypes
-    self.P = {}
-    # Trees
-    self.T = {}
-    # VT cache
-    self.VT = {}
-    # empty C avoiding __getattr__ recusive before first time use is called.
-    self.C = {}
 
-    self.periodic = False
-    self.origin = numpy.array([0, 0, 0.])
-    self.boxsize = numpy.array([0, 0, 0.])
+    Store.__init__(self, thresh)
+    self.default_axes = None
 
     self._shape = shape
     self.camera = Camera(width=self.shape[0], height=self.shape[1])
     self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=False, method='ortho')
-    from gaepsi.cosmology import default
-    self.cosmology = default
     
     # used to save the last state of plotting routines
     self.last = {}
-
-  def __getattr__(self, attr):
-    
-    if attr in self.C:
-      return self.C[attr]
-    else: raise AttributeError('attribute %s not found' % attr)
-
-  @property
-  def U(self):
-    return self.cosmology.units
 
   @property
   def shape(self):
@@ -139,31 +105,9 @@ class GaplotContext(object):
     self._shape = (newshape[0], newshape[1])
     self.camera.shape = self._shape
 
-  def __getitem__(self, ftype):
-    return self.F[ftype]
-
-  def __setitem__(self, ftype, value):
-    if not isinstance(value, Field):
-      raise TypeError('need a Field')
-    self.F[ftype] = value
-    self._rebuildtree(ftype)
-
   def image(self, color, luminosity=None, cmap=None, composite=False):
     # a convenient wrapper
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
-
-  def _rebuildtree(self, ftype, thresh=None):
-    if thresh is None: thresh = self._thresh
-    if (self.boxsize[...] == 0.0).all():
-      self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
-      scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
-    else:
-      scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
-    zkey, scale = self.F[ftype].zorder(scale)
-    self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
-    self.T[ftype].optimize()
-    if ftype in self.VT:
-      del self.VT[ftype]
 
   def print_png(self, *args, **kwargs):
     """ save the default figure to a png file """
@@ -184,13 +128,6 @@ class GaplotContext(object):
     self.default_axes = ax
     return figure, ax
 
-  def invalidate(self, *ftypes):
-    """ clear the VT cache of a ftype """
-    for ftype in ftypes:
-      for key in list(self.VT.keys()):
-        if key[0] == ftype:
-          del self.VT[key]
-    
   @property
   def extent(self):
     return self.camera.extent
@@ -333,30 +270,8 @@ class GaplotContext(object):
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
     
-  def _getcomponent(self, ftype, *components):
-    """
-      _getcomponent(Field(), 'locations') 
-      _getcomponent('gas', 'locations')
-      _getcomponent('gas', [1, 2, 3, 4, 5])
-      _getcomponent(Field(), [1, 2, 3, 4, 5]) 
-      _getcomponent(numpy.zeros((10, 3)), 'locations')
-      _getcomponent(numpy.zeros((10, 3)), numpy.zeros(10))
-    """
-    def one(component):
-      if isinstance(component, basestring):
-        if isinstance(ftype, Field):
-          field = ftype
-          return field[component]
-        elif isinstance(ftype, basestring):
-          field = self.F[ftype]
-          return field[component]
-        else:
-          return ftype
-      else:
-        return component
-    return [one(a) for a in components]
-
   def select(self, ftype, sml=0, camera=None):
+    """ return a mask whether particles are in the camera """
     locations, = self._getcomponent(ftype, 'locations')
     x, y, z = locations.T
     mask = numpy.zeros(len(x), dtype='?')
@@ -564,105 +479,6 @@ class GaplotContext(object):
       objs += [obj]
       ax.add_patch(obj)
     return objs
-
-  def schema(self, ftype, types, components):
-    """ loc dtype is the base dtype of the locations."""
-    reader = Reader(self._format)
-    schemed = {}
-    for comp in components:
-      if comp is tuple:
-        schemed[comp[0]] = comp[1]
-      elif comp in reader:
-        schemed[comp] = reader[comp].dtype
-
-    if 'pos' in reader:
-      self.F[ftype] = Field(components=schemed, dtype=reader['pos'].dtype.base)
-    else:
-      self.F[ftype] = Field(components=schemed, dtype=None)
-
-    self.P[ftype] = _ensurelist(types)
-
-  def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None):
-    self.snapname = snapname
-    self._format = format
-
-    try:
-      snapname = self.snapname % 0
-    except TypeError:
-      snapname = self.snapname
-
-    snap = Snapshot(snapname, self._format)
-
-    self.C = snap.C
-    self.origin[...] = numpy.ones(3) * origin
-
-    if boxsize is not None:
-      self.need_cut = True
-    else:
-      self.need_cut = False
-
-    if mapfile is not None:
-      self.map = Meshmap(mapfile)
-    else:
-      self.map = None
-
-    if boxsize is None and 'boxsize' in self.C:
-      boxsize = numpy.ones(3) * self.C['boxsize']
-
-    if boxsize is not None:
-      self.boxsize[...] = boxsize
-    else:
-      self.boxsize[...] = 1.0 
-
-    self.periodic = periodic
-    self.cosmology = Cosmology.from_snapshot(snap)
-    self.redshift = self.C['redshift']
-
-    self.schema('gas', 0, ['sml', 'mass'])
-    self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
-    self.schema('halo', 1, ['mass'])
-    self.schema('star', 4, ['mass', 'sft'])
- 
-  def saveas(self, ftypes, snapshots, np=None):
-    for ftype in _ensurelist(ftypes):
-      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype], np=np, save_and_clear=True)
-
-  def read(self, ftypes, fids=None, np=None):
-    if self.need_cut:
-      cut = Cut(origin=self.origin, size=self.boxsize)
-      if fids is None and self.map is not None:
-        fids = self.map.cut2fid(cut)
-    else:
-      cut = None
-
-    if fids is not None:
-      snapnames = [self.snapname % i for i in fids]
-    elif '%d' in self.snapname:
-      snapnames = [self.snapname % i for i in range(self.C['Nfiles'])]
-    else:
-      snapnames = [self.snapname]
-
-    def getsnap(snapname):
-      try:
-        return Snapshot(snapname, self._format)
-      except IOError as e:
-        warnings.warn('file %s skipped for %s' %(snapname, str(e)))
-      return None
-
-    with sharedmem.Pool(use_threads=True) as pool:
-      snapshots = filter(lambda x: x is not None, pool.map(getsnap, snapnames))
-    
-    rt = []
-    for ftype in _ensurelist(ftypes):
-      self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
-      self._rebuildtree(ftype)
-      self.invalidate(ftype)
-      rt += [self[ftype]]
-
-    if numpy.isscalar(ftypes):
-      return rt[0]
-    else:
-      return rt
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
     """scale can be a dictionary or True.
