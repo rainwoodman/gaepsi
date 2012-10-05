@@ -288,7 +288,9 @@ cdef class Camera:
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
 
-  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline'):
+  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline', mask=True):
+    """ paint objects at x, y, z, with size(radius) of r, color, lumionosity.
+        where mask is True """
     if out is None:
       out = numpy.zeros(self.shape, dtype=('f8', 2))
     self.kernel_func = <kernelfunc> <intptr_t>KERNELS[kernel][0]
@@ -301,10 +303,10 @@ cdef class Camera:
     if color is None: color = 1
     if luminosity is None: luminosity = 1
     iter = numpy.nditer(
-          [x, y, z, r, color, luminosity], 
+          [x, y, z, r, color, luminosity, mask], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
-                ['readonly'], ['readonly'], ['readonly']], 
-     op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4'],
+                ['readonly'], ['readonly'], ['readonly'], ['readonly']], 
+     op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4', '?'],
          flags=['buffered', 'external_loop', 'zerosize_ok'], 
        casting='unsafe')
     cdef npyiter.CIter citer
@@ -316,21 +318,22 @@ cdef class Camera:
     with nogil:
       while size > 0:
         while size > 0:
-          pos[0] = (<double*>citer.data[0])[0]
-          pos[1] = (<double*>citer.data[1])[0]
-          pos[2] = (<double*>citer.data[2])[0]
-          R[0] = (<double*>citer.data[3])[0]
-          R[1] = (<double*>citer.data[3])[0]
-          R[2] = (<double*>citer.data[3])[0]
-          c3inv = self.transform_one(pos, uvt)
-          self.transform_size_one(R,
-              c3inv, 
-              whl)
-          self.paint_object_one(pos,
-              uvt, whl,
-              (<float*>citer.data[4])[0],
-              (<float*>citer.data[5])[0],
-              ccd)
+          if citer.data[6][0]:
+            pos[0] = (<double*>citer.data[0])[0]
+            pos[1] = (<double*>citer.data[1])[0]
+            pos[2] = (<double*>citer.data[2])[0]
+            R[0] = (<double*>citer.data[3])[0]
+            R[1] = (<double*>citer.data[3])[0]
+            R[2] = (<double*>citer.data[3])[0]
+            c3inv = self.transform_one(pos, uvt)
+            self.transform_size_one(R,
+                c3inv, 
+                whl)
+            self.paint_object_one(pos,
+                uvt, whl,
+                (<float*>citer.data[4])[0],
+                (<float*>citer.data[5])[0],
+                ccd)
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
