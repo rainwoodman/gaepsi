@@ -6,6 +6,7 @@ cimport cython
 import numpy
 import cython
 cimport npyufunc
+cimport npyiter
 from libc.stdint cimport *
 
 from warnings import warn
@@ -80,3 +81,25 @@ def finitemin(arr, axis=None):
   return __namespace['ffinitemin'].reduce(arr, axis=axis)
 def finitemax(arr, axis=None):
   return __namespace['ffinitemax'].reduce(arr, axis=axis)
+
+
+def buildmask(shape, start, length):
+  iter = numpy.nditer([start, length],
+       [['readonly']] * 2,
+       op_dtypes=['intp', 'intp'],
+       flags=['zerosize_ok', 'buffered', 'external_loop'])
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  cdef numpy.ndarray out = numpy.zeros(shape, '?')
+  cdef intptr_t i, i0, n
+  with nogil:
+    while size > 0:
+      while size > 0:
+        i0 = (<intptr_t*>(citer.data[0]))[0]
+        n = (<intptr_t*>(citer.data[1]))[0]
+        for i in range(i0, i0 + n, 1):
+          out.data[i] = 1
+        npyiter.advance(&citer)
+        size = size - 1
+  return out
+
