@@ -364,8 +364,13 @@ class packarray:
       
       arithmatic operations are easier to use(via packarray.A)
   """
-  def __init__(self, array, start, end=None):
-    """ if end is none, start contains the sizes. """
+  def __init__(self, array, start=None, end=None):
+    """ if end is none, start contains the sizes. 
+        if start is also none, array is a list of arrays to concatenate
+    """
+    if end is None and start is None:
+      start = numpy.array([len(arr) for arr in array], dtype='intp')
+      array = numpy.concatenate(array)
     if end is None:
       sizes = start
       self.start = numpy.zeros(shape=len(sizes), dtype='intp')
@@ -376,11 +381,6 @@ class packarray:
       self.start = start
       self.end = end
     self.A = array
-
-  @classmethod
-  def join(cls, arrays):
-    L = numpy.array([len(arr) for arr in arrays], dtype='intp')
-    return cls(numpy.concatenate(arrays), L)
 
   @classmethod
   def adapt(cls, source, template):
@@ -401,9 +401,8 @@ class packarray:
 
   def __getitem__(self, index):
     if isinstance(index, basestring):
-      return packarray(
-         numpy.ndarray.__getitem__(self, index),
-         self.end - self.start)
+      return packarray(self.A[index], self.end - self.start)
+
     if isinstance(index, (slice, list, numpy.ndarray)):
       return packarray(self.A, self.start[index], self.end[index])
 
