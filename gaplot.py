@@ -7,6 +7,7 @@ from matplotlib import cm
 from gaepsi.tools import nl_, n_, normalize
 from gaepsi.store import Store
 from gaepsi.compiledbase.camera import Camera
+from gaepsi.compiledbase.ztree import TreeProperty
 
 
 DEG = numpy.pi / 180.
@@ -226,9 +227,9 @@ class GaplotContext(Store):
       if kernel is None: kernel='cube'
       tree = self.T[ftype]
       if color is not None:
-        tree[color], = self._getcomponent(ftype, color)
+        colorprop = TreeProperty(tree, self._getcomponent(ftype, color)[0])
       if luminosity is not None:
-        tree[luminosity], = self._getcomponent(ftype, luminosity)
+        luminosityprop = TreeProperty(tree, self._getcomponent(ftype, luminosity)[0])
 
       for cam in self._mkcameras(camera):
         mask = cam.prunetree(tree)
@@ -238,8 +239,8 @@ class GaplotContext(Store):
         x,y,z = pos.T
         sml = size[:, 0] * 2
         c, l = None, None
-        if color is not None: c = tree[color][mask]
-        if luminosity is not None: l = tree[luminosity][mask]
+        if color is not None: c = colorprop[mask]
+        if luminosity is not None: l = luminosityprop[mask]
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity):
             _CCD = cam.paint(x,y,z,sml,color,luminosity, kernel=kernel)
@@ -256,14 +257,7 @@ class GaplotContext(Store):
         mask = cam.prunetree(tree, return_nodes=False)
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity, mask):
-            try: sml=sml[mask]
-            except: pass
-            try: color=color[mask]
-            except: pass
-            try: luminosity=luminosity[mask]
-            except: pass
-            
-            _CCD = cam.paint(x[mask],y[mask],z[mask],sml,color,luminosity, kernel=kernel)
+            _CCD = cam.paint(x,y,z,sml,color,luminosity, mask=mask, kernel=kernel)
             with pool.lock:
               CCD[...] += _CCD
           pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity, mask)))
