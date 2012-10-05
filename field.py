@@ -360,34 +360,16 @@ class Field(object):
     d2 = ((self['locations'] - origin) ** 2).sum(axis=1)
     return d2 ** 0.5
 
-  def smooth(self, tree, weight='mass', NGB=0):
-    """ smooth a field. when NGB<=0, a quick method is used to give
-        a smoothing length estimated from the nearest tree node size; 
-        the weight is not used.
-        otherwise the sph kernel of nearest NGB particles is used to find
-        a mass conserving smoothing length, the weight is used as the mass.
+  def smooth(self, tree):
+    """ smooth a field. 
+        dirty and quick way, estimating sml from the size of the immediate
+        tree node containing the particle.
     """
-    # important to first zorder the tree because it reorders the components.
-    if weight is not None:
-      weight = self[weight]
-    else:
-      # an 0d array is not chunked by the pool. 
-      weight = numpy.asarray(1.0, dtype='f4')
-
-    points = self['locations']
-    try:
-      sml = self['sml']
-    except KeyError:
-      self['sml'] = numpy.zeros(self.numpoints, 'f4')
-      sml = self['sml']
-
-    from compiledbase._field import solve_sml
-    
-    def work(points, w, out): 
-      solve_sml(points, w, self['locations'], numpy.atleast_1d(weight), out, tree, NGB)
-    with sharedmem.Pool(use_threads=True) as pool:
-      pool.starmap(work, pool.zipsplit((points, weight, sml), nchunks=1024))
-
+    size = numpy.concatenate((tree['size'][tree._:][:, 0], [0,]))
+    npar = tree['npar'][tree._:]
+    npar = numpy.concatenate((npar, numpy.array([self.numpoints - npar.sum(),], dtype=npar.dtype)))
+    self['sml'] = numpy.repeat(size, npar)
+  
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
     angle *= (3.14159/180)
