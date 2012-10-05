@@ -12,16 +12,19 @@ numpy.import_array()
 
 cdef struct Element:
  # watchout, we store an intptr no matter what node_t is.
-  intptr_t node
+  intptr_t index
   double enter
   double leave
 
 cdef class RayQueryNodes(Query):
-  def __init__(self, tree, int sizehint):
+  cdef bint full
+  def __init__(self, tree, int sizehint, bint full=False):
     """ returns the complete nodes that intersects the rays.
         and enter, leave.
+        if full is true, return the leave nodes, instead of the toplevel complete nodes.
     """
     Query.__init__(self, tree, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
+    self.full = full
 
   def __call__(self, x, y, z, dir, length, root=0):
     dir = numpy.asarray(dir)
@@ -48,8 +51,8 @@ cdef class RayQueryNodes(Query):
       self.tree.get_node_size(node, size)
       if LiangBarsky(pos, size, center, dir, &tE, &tL):
         nchildren = self.tree.get_node_nchildren(node)
-        if nchildren == 8 or nchildren == 0:
-          e.node = node
+        if ((not self.full) and nchildren == 8) or nchildren == 0:
+          e.index = node
           e.enter = tE
           e.leave = tL
           scratch.add_item(&e)
@@ -60,8 +63,13 @@ cdef class RayQueryNodes(Query):
         node = iter.get_next_sibling()
 
 cdef class RayQuery(Query):
-  def __init__(self, tree, int sizehint):
-    Query.__init__(self, tree, 'intp', sizehint)
+  cdef bint with_distance
+  def __init__(self, tree, int sizehint, with_distance=False):
+    self.with_distance
+    if not with_distance:
+      Query.__init__(self, tree, 'intp', sizehint)
+    else:
+      Query.__init__(self, tree, [('indices', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
 
   def __call__(self, x, y, z, dir, length, root=0):
     dir = numpy.asarray(dir)
@@ -89,15 +97,17 @@ cdef class RayQuery(Query):
         nchildren = self.tree.get_node_nchildren(node)
         if nchildren == 0:
           self._add_items(scratch, self.tree.get_node_first(node), 
-                                        self.tree.get_node_npar(node))
+                                        self.tree.get_node_npar(node), tE, tL)
           node = iter.get_next_sibling()
         else:
           node = iter.get_next_child()
       else:
         node = iter.get_next_sibling()
-  cdef void _add_items(self, Scratch scratch, intptr_t first, intptr_t npar) nogil:
-    cdef intptr_t i
-    for i in range(first, first + npar, 1):
-      scratch.add_item(&i)
 
-  
+  cdef void _add_items(self, Scratch scratch, intptr_t first, intptr_t npar, double tE, double tL) nogil:
+    cdef Element e
+    for i in range(first, first + npar, 1):
+      e.index = i
+      e.enter = tE
+      e.leave = tL
+      scratch.add_item(&i)
