@@ -33,6 +33,8 @@ cdef packed struct LeafNode:
   short child_length # padding, shall aways be 0
 
 cdef inline node_t mark_leaf(node_t index) nogil:
+  """ mark a linear leaf node index as a leaf node index,
+      setting the highest bit, basically"""
   return index | (<node_t>1 << (sizeof(node_t) * 8 - 1))
 
 cdef class TreeNode:
@@ -40,6 +42,7 @@ cdef class TreeNode:
   cdef readonly Tree tree
 
 cdef class Tree:
+  cdef object __weakref__
   cdef Node * nodes
   cdef LeafNode * leafnodes
   cdef FlexArray _nodes
@@ -51,7 +54,7 @@ cdef class Tree:
   cdef readonly numpy.ndarray zkey
   cdef readonly numpy.ndarray scale
   cdef double * _scale
-  cdef dict propertyvalues
+  cdef dict dict 
 
   cdef inline void * get_node_pointer(Tree self, node_t index) nogil:
     if index & (<node_t>1 << (sizeof(node_t) * 8 - 1)):
