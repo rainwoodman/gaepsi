@@ -23,7 +23,7 @@ cdef class RayQueryNodes(Query):
         and enter, leave.
         if full is true, return the leave nodes, instead of the toplevel complete nodes.
     """
-    Query.__init__(self, tree, [('node', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
+    Query.__init__(self, tree, [('indices', 'intp'), ('enter', 'f8'), ('leave', 'f8')], sizehint)
     self.full = full
 
   def __call__(self, x, y, z, dir, length, root=0):

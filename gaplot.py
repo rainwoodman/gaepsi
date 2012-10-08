@@ -223,49 +223,72 @@ class GaplotContext(Store):
     """
     CCD = numpy.zeros(self.shape, dtype=(dtype,2))
 
-    if sml is None:
-      if kernel is None: kernel='cube'
-      tree = self.T[ftype]
-      if color is not None:
-        colorprop = TreeProperty(tree, self._getcomponent(ftype, color)[0])
-      if luminosity is not None:
-        luminosityprop = TreeProperty(tree, self._getcomponent(ftype, luminosity)[0])
+    tree = self.T[ftype]
+    if kernel is None: kernel='spline'
+    locations, color, luminosity, sml = self._getcomponent(ftype,
+      'locations', color, luminosity, sml)
 
-      for cam in self._mkcameras(camera):
-        mask = cam.prunetree(tree)
-        pos = tree['pos'][mask]
-        size = tree['size'][mask]
-        pos += size * 0.5
-        x,y,z = pos.T
-        sml = size[:, 0] * 2
-        c, l = None, None
-        if color is not None: c = colorprop[mask]
-        if luminosity is not None: l = luminosityprop[mask]
-        with sharedmem.Pool(use_threads=True) as pool:
-          def work(x,y,z,sml,color,luminosity):
-            _CCD = numpy.zeros_like(CCD)
-            cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=_CCD)
-            with pool.lock:
-              CCD[...] += _CCD
-          pool.starmap(work, pool.zipsplit((x,y,z,sml,c,l)))
-    else:
-      tree = self.T[ftype]
-      if kernel is None: kernel='spline'
-      locations, color, luminosity, sml = self._getcomponent(ftype,
-        'locations', color, luminosity, sml)
-      x, y, z = locations.T
-      for cam in self._mkcameras(camera):
-        mask = cam.prunetree(tree, return_nodes=False)
-        with sharedmem.Pool(use_threads=True) as pool:
-          def work(x,y,z,sml,color,luminosity, mask):
-            _CCD = numpy.zeros_like(CCD)
-            cam.paint(x,y,z,sml,color,luminosity, mask=mask, kernel=kernel, out=_CCD)
-            with pool.lock:
-              CCD[...] += _CCD
-          pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity, mask)))
+    if sml is None:
+      warnings.warn('sml is None and the on-the-fly calculation is buggy, will run field.smooth first, sml is overwritten')
+      self['ftype'].smooth(tree)
+      sml = self['ftype']['sml']
+
+    x, y, z = locations.T
+    for cam in self._mkcameras(camera):
+      with sharedmem.Pool(use_threads=True) as pool:
+        cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
+        def work(cam, offx, offy):
+          smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
+          cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
+          CCD[offx:offx + cam.shape[0], offy:offy+cam.shape[1], :] += smallCCD
+        pool.starmap(work, cams.reshape(-1, 3))
+
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
     
+  def paint2(self, ftype, color, luminosity, camera=None, kernel=None, dtype='f8'):
+    """ paint field to CCD, (this paints the tree nodes)
+         returns
+        C, L where
+          C is the color of the pixel
+          L is the exposure of the pixel
+        Notice that if color is None, 
+          C will be undefined,
+          L will still be the exposure.
+        the return values can be normalized by
+        nl_ or n_, then feed to imshow
+    """
+    CCD = numpy.zeros(self.shape, dtype=(dtype,2))
+
+    tree = self.T[ftype]
+    if kernel is None: kernel='spline'
+    color, luminosity= self._getcomponent(ftype,
+      color, luminosity)
+
+    if color is None:
+      color = 1.0
+    if luminosity is None:
+      luminosity = 1.0
+
+    colorp = TreeProperty(tree, color)
+    luminosityp = TreeProperty(tree, luminosity)
+
+    for cam in self._mkcameras(camera):
+      with sharedmem.Pool(use_threads=True) as pool:
+        cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
+        def work(cam, offx, offy):
+          mask = cam.prunetree(tree)
+          x, y, z = tree['pos'][mask].T
+          sml = tree['size'][mask][:, 0].copy() * 2
+          luminosity = luminosityp[mask]
+          color = colorp[mask]
+          smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
+          cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD)
+          CCD[offx:offx + cam.shape[0], offy:offy+cam.shape[1], :] += smallCCD
+        pool.starmap(work, cams.reshape(-1, 3))
+
+    C, L = CCD[...,0], CCD[...,1]
+    return C/L, L
   def select(self, ftype, sml=0, camera=None):
     """ return a mask whether particles are in the camera """
     locations, = self._getcomponent(ftype, 'locations')

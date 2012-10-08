@@ -129,6 +129,7 @@ cdef class Camera:
   cdef readonly numpy.ndarray up
   cdef readonly numpy.ndarray model
   cdef readonly numpy.ndarray proj
+  cdef readonly double D # distance to target
   cdef size_t _shape[2]
   cdef float _hshape[2]
   cdef readonly float near
@@ -144,6 +145,7 @@ cdef class Camera:
   cdef double * _pos
   cdef double (*_frustum)[4]
   cdef int _fade
+  cdef int type # 0 if it is orth, 1 if persp
   cdef kernelfunc kernel_func
   # normalization factor of the kernel, integration of kernel_factor * kernel = 1.0 
   cdef double kernel_factor
@@ -202,6 +204,35 @@ cdef class Camera:
     self.shape = (width, height)
     self.lookat(up=[0,0,1], target=[0, 1, 0], pos=[0,0,0])
 
+  def divide(self, ncol, nrow):
+    """ divide a camera into sub cameras, each
+        with a smaller CCD and covers a smaller area
+        so that in the end they will paste together into one
+    """
+    left = self.shape[0] * numpy.arange(ncol) / ncol
+    right = self.shape[0] * (numpy.arange(ncol) + 1)/ ncol
+    bottom = self.shape[1] * (numpy.arange(nrow)) / nrow
+    top = self.shape[1] * (numpy.arange(nrow) + 1) / nrow
+
+    width = right - left
+    height = top - bottom
+    
+    cameras = [[(self.copy(), left[i], bottom[j]) for i in range(ncol)] for j in range(nrow)]
+    cdef Camera cam
+    for row, t, b, h in zip(cameras, top, bottom, height):
+      for camoff, l, r, w in zip(row, left, right, width):
+        cam = camoff[0]
+        cam.shape = (w, h)
+        cam.l = (l * 1.0 / self.shape[0]) * (self.r - self.l) + self.l
+        cam.r = (r * 1.0 / self.shape[0]) * (self.r - self.l) + self.l
+        cam.b = (b * 1.0 / self.shape[1]) * (self.t - self.b) + self.b
+        cam.t = (t * 1.0 / self.shape[0]) * (self.t - self.b) + self.b
+        if self.type == 0:
+          cam.ortho(near=self.near, far=self.far, extent=(cam.l, cam.r, cam.b, cam.t))
+        else:
+          cam.persp(near=self.near, far=self.far, fov=(cam.l, cam.r, cam.b, cam.t))
+    return numpy.array(cameras)
+
   def copy(self):
     a = Camera(self.shape[0], self.shape[1])
     a.lookat(up=self.up, target=self.target, pos=self.pos)
@@ -235,19 +266,29 @@ cdef class Camera:
       return (self.l, self.r, self.b, self.t)
       
   def persp(self, near, far, fov, aspect=1.0):
-    """ fov is in radian """
+    """ 
+      fov is in radian, or (l, r, b, t) FOV size at the target plane
+    """
     self.near = near
     self.far = far
-    self.fov = fov
-    self.aspect = aspect
-    D = ((self.target - self.pos) ** 2).sum() ** 0.5
-    self.l = - numpy.tan(fov * 0.5) * aspect * D
-    self.r = - self.l
-    self.b = - numpy.tan(fov * 0.5) * D
-    self.t = - self.b
+    self.type = 1
+    if numpy.isscalar(fov):
+      self.fov = fov
+      self.aspect = aspect
+      self.l = - numpy.tan(fov * 0.5) * aspect * self.D
+      self.r = - self.l
+      self.b = - numpy.tan(fov * 0.5) * self.D
+      self.t = - self.b
+    else:
+      self.l = fov[0]
+      self.r = fov[1]
+      self.b = fov[2]
+      self.t = fov[3]
+
     persp = numpy.zeros((4,4))
-    persp[0, 0] = 1.0 / numpy.tan(fov * 0.5) / aspect
-    persp[1, 1] = 1.0 / numpy.tan(fov * 0.5)
+ 
+    persp[0, 0] = 2. * self.D / (self.r - self.l)
+    persp[1, 1] = 2. * self.D / (self.t - self.b)
     persp[2, 2] = - (1. *(far + near)) / (far - near)
     persp[2, 3] = - (2. * far * near) / (far - near)
     persp[3, 2] = -1
@@ -258,6 +299,7 @@ cdef class Camera:
     """ set up the zoom by extent=(left, right, top, bottom """
     self.near = near
     self.far = far
+    self.type = 0
     l, r, b, t = extent
     self.l = l
     self.r = r
@@ -297,9 +339,9 @@ cdef class Camera:
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
 
-  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline', mask=True):
+  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline', mask=True, tree=None):
     """ paint objects at x, y, z, with size(radius) of r, color, lumionosity.
-        where mask is True """
+        where mask is True if a tree is given, it must be the tree for x, y, z"""
     if out is None:
       out = numpy.zeros(self.shape, dtype=('f8', 2))
     self.kernel_func = <kernelfunc> <intptr_t>KERNELS[kernel][0]
@@ -318,29 +360,93 @@ cdef class Camera:
 
     if color is None: color = 1
     if luminosity is None: luminosity = 1
+    if r is None: r = -1 # -1 will use tree node size.
+
     iter = numpy.nditer(
           [x, y, z, r, color, luminosity, mask], 
       op_flags=[['readonly'], ['readonly'], ['readonly'], 
                 ['readonly'], ['readonly'], ['readonly'], ['readonly']], 
      op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4', '?'],
-         flags=['buffered', 'external_loop', 'zerosize_ok'], 
+         flags=['buffered', 'zerosize_ok', 'external_loop', 'ranged'], 
        casting='unsafe')
     cdef npyiter.CIter citer
-    cdef size_t size = npyiter.init(&citer, iter)
+    npyiter.init(&citer, iter)
     cdef void * ccd = <void*> out.data
+    cdef intptr_t first, npar
+    cdef TreeIter treeiter
+    cdef double pos[3], size[3]
+    cdef int nchildren
+    if tree is not None:
+      treeiter = TreeIter(tree)
+    else:
+      first = 0
+      npar = npyiter.itersize(&citer)
+
+    cdef Tree treetree = tree
+    with nogil:
+      if tree is None:
+        ## treetree is not used !
+        self.paint_range(&citer, first, npar, ccd, write_ccd)
+      else:
+        node = treeiter.get_next_child()
+
+        while node >= 0:
+
+          treetree.get_node_pos(node, pos)
+          treetree.get_node_size(node, size)
+          for d in range(3): 
+            pos[d] += size[d] * 0.5
+            # add some bleeding,
+            # this will also take care of particle sml. no particle gonna be
+            # bleeding over the bounding node except those at the corner.
+            #
+            size[d] *= 1.733 # sml = 2 * size * 1.733
+
+          children = treetree.get_node_children(node, &nchildren)
+          # in FOV?
+          flag = self.mask_object_one(pos, size)
+          first = treetree.get_node_first(node)
+          npar = treetree.get_node_npar(node)
+          if flag == 0:
+            #not
+            node = treeiter.get_next_sibling()
+            pass
+          elif nchildren == 0 or npar < 8192:
+            # fully in
+          #  with gil:
+          #    print 'painting', node, npar, self.l, self.b
+            self.paint_range(&citer, first, npar, ccd, write_ccd)
+            node = treeiter.get_next_sibling()
+          else:
+            # partially in, look at children
+            node = treeiter.get_next_child()
+
+    return out
+
+  cdef int paint_range(self, npyiter.CIter * citer, intptr_t first, intptr_t npar, void * ccd, write_ccd_func write_ccd) nogil except -1:
     cdef double pos[3], R[3]
     cdef float uvt[3], whl[3], c3inv
-   
-    with nogil:
+
+    cdef char * error
+    cdef intptr_t size = npyiter.select(citer, first, first + npar, &error)
+    cdef double sml
+
+    if size == -1:
+      with gil:
+        raise RuntimeError(error)
+    else:
       while size > 0:
         while size > 0:
           if citer.data[6][0]:
             pos[0] = (<double*>citer.data[0])[0]
             pos[1] = (<double*>citer.data[1])[0]
             pos[2] = (<double*>citer.data[2])[0]
-            R[0] = (<double*>citer.data[3])[0]
-            R[1] = (<double*>citer.data[3])[0]
-            R[2] = (<double*>citer.data[3])[0]
+            sml = (<double*>citer.data[3])[0]
+
+            R[0] = sml
+            R[1] = sml
+            R[2] = sml
+
             c3inv = self.transform_one(pos, uvt)
             self.transform_size_one(R,
                 c3inv, 
@@ -350,35 +456,36 @@ cdef class Camera:
                 (<float*>citer.data[4])[0],
                 (<float*>citer.data[5])[0],
                 ccd, write_ccd)
-          npyiter.advance(&citer)
+          npyiter.advance(citer)
           size = size - 1
-        size = npyiter.next(&citer)
-    return out
-
-  def prunetree(self, Tree tree, out=None, bint return_nodes=True):
+        size = npyiter.next(citer)
+    
+  def prunetree(self, Tree tree, bint return_nodes=True):
     """ scan the tree and find the nodes that are inside FOV,
-        returns a mask, 0 if node is out, 2 if node is over resolved,
+        returns a mask, 0 if node is out, 0 if node is over resolved,
         and 1 if the node shall be painted as a particle. 
         if return_particles is true, return a mask for particles
         """
     cdef int nchildren
+    cdef intptr_t i, npar, first
     cdef size_t start = tree.node_length
     cdef double size[3]
     cdef double pos[3]
     cdef TreeIter iter = TreeIter(tree)
 
     cdef numpy.ndarray mask 
+
     if return_nodes:
-      mask = numpy.zeros(len(tree), 'int8')
+      mask = numpy.zeros(len(tree), '?')
     else:
-      mask = numpy.zeros(len(tree.zkey), 'int8')
+      mask = numpy.zeros(len(tree.zkey), '?')
     cdef char * _mask = <char*> mask.data
 
     cdef node_t parent
     cdef int d
     # mask = 0 if node is out of view
     # mask = 1 if node is unresolved  (paint them as a particle)
-    # mask = 2 if node is over resolved. (do not paint them)
+    # mask = 0 (2) if node is over resolved. (do not paint them)
 
     # visit first child of root
     node = iter.get_next_child()
@@ -395,31 +502,27 @@ cdef class Camera:
 #        with gil: print 'top', top, j, tree[j].order, tree[j].key, tree[j].children
         # in FOV?
         flag = self.mask_object_one(pos, size)
+        first = tree.get_node_first(node)
+        npar = tree.get_node_npar(node)
         if flag == 0:
           if return_nodes:
             _mask[node] = 0
           else:
-            for i in range(tree.get_node_first(node), 
-               tree.get_node_first(node) + tree.get_node_npar(node), 1):
+            for i in range(first, first + npar, 1):
               _mask[i] = 0
           node = iter.get_next_sibling()
         elif nchildren == 0:
           if return_nodes:
             _mask[node] = 1
           else:
-            for i in range(tree.get_node_first(node), 
-               tree.get_node_first(node) + tree.get_node_npar(node), 1):
+            for i in range(first, first + npar, 1):
               _mask[i] = 1
           node = iter.get_next_sibling()
         else:
-          _mask[node] = 2
+          _mask[node] = 0 # over resolved 2
           node = iter.get_next_child()
 
-    if out is None: 
-      out = mask == 1
-    else:
-      out[:] = mask == 1
-    return out
+    return mask
 
   def transform(self, x, y, z, r=None, out=None):
     """ calculates the viewport positions and distance**2
@@ -540,6 +643,9 @@ cdef class Camera:
     self.pos[...] = pos[...]
     target = numpy.asarray(target)
     self.target[...] = target[...]
+
+    self.D = ((self.target - self.pos) ** 2).sum() ** 0.5
+
     self.up[...] = numpy.asarray(up)
     self.dir[...] = target - pos
     self.dir[...] = self.dir / (self.dir **2).sum() ** 0.5
@@ -563,6 +669,7 @@ cdef class Camera:
     DieseFunktionFrustum(self.frustum, self.matrix)
 
   cdef inline void transform_size_one(self, double r[3], float c3inv, float whl[3]) nogil:
+    """ this is correct only if r is small """
     whl[0] = r[0] * self._scale[0] * c3inv
     whl[1] = r[1] * self._scale[1] * c3inv
     whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)

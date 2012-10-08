@@ -9,7 +9,7 @@ from libc.stdint cimport *
 from libc.stdlib cimport malloc, realloc, free
 cimport fillingcurve
 from fillingcurve cimport fckey_t, ipos_t
-
+from libc.stdlib cimport abort
 ctypedef int node_t
 cimport flexarray
 from flexarray cimport FlexArray
@@ -20,7 +20,8 @@ cdef packed struct Node:
   intptr_t first 
   intptr_t npar
   node_t parent # if parent is -1, this node is unused/reclaimable
-  short order
+  char order
+  char complete
   short child_length
   node_t child[8] # child[0]  may save first_par and child[1] may save npar
 
@@ -29,7 +30,8 @@ cdef packed struct LeafNode:
   intptr_t first 
   intptr_t npar
   node_t parent # if parent is -1, this node is unused/reclaimable.
-  short order
+  char order
+  char complete
   short child_length # padding, shall aways be 0
 
 cdef inline node_t mark_leaf(node_t index) nogil:
@@ -80,6 +82,7 @@ cdef class Tree:
       return -1
 
   cdef inline node_t node_index(Tree self, node_t index) nogil:
+    """ converts an internal index to an external index """
     if index & (<node_t>1 << (sizeof(node_t) * 8 - 1)):
       return (index & ~(<node_t>1<<(sizeof(node_t) * 8 - 1))) + self._nodes.used
     else:
@@ -90,6 +93,9 @@ cdef class Tree:
 
   cdef inline bint get_node_reclaimable(Tree self, node_t index) nogil:
     return (index != 0) and (self.get_node_parent(index) == -1)
+
+  cdef inline bint get_node_complete(Tree self, node_t index) nogil:
+    return (<LeafNode*>self.get_node_pointer(index))[0].complete
 
   cdef inline void get_node_pos(Tree self, node_t index, double pos[3]) nogil:
     """ returns the topleft corner of the node """
@@ -150,13 +156,18 @@ cdef class Tree:
     children = self.get_node_children(this, &nchildren)
     while this != -1 and nchildren > 0:
       next = this
+      children = self.get_node_children(this, &nchildren)
       for i in range(nchildren):
-        if fillingcurve.keyinkey(key, self.get_node_key(children[i]), self.get_node_order(children[i])):
+        if fillingcurve.keyinkey(key, 
+             self.get_node_key(children[i]), 
+             self.get_node_order(children[i])):
           next = children[i]
           break
-      if next == this: break
+      if next == this: # not in any children
+        break
       else:
-        if self.get_node_npar(next) < atleast: break
+        if self.get_node_npar(next) < atleast: 
+          break
         this = next
         continue
     return this

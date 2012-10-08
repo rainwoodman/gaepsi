@@ -29,8 +29,16 @@ class ConstBase:
           if isinstance(attr, (tuple, basestring)): continue
           self._header[item] = attr
       
+  def __iter__(self):
+    def func():
+      for name in sorted(numpy.unique(dir(self) + list(self._header.dtype.names))):
+        if name[0] == '_': continue
+        yield name
+    return func()
+    
   def __contains__(self, item):
     return item in self._header.dtype.names or hasattr(self, item)
+
   def __getitem__(self, item):
     if hasattr(self, item):
       attr = getattr(self, item)
@@ -52,6 +60,7 @@ class ConstBase:
         raise IndexError("can't set %s" % attr)
     elif item in self._header.dtype.names:
       self._header[item] = value
+
   def __str__(self):
     s = []
     for name in sorted(numpy.unique(dir(self) + list(self._header.dtype.names))):

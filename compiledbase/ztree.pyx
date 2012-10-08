@@ -23,9 +23,16 @@ DEF BITS = 40
 numpy.import_array()
 
 cdef class TreeNode:
-  def __cinit__(self, Tree tree, node_t index):
+  def __init__(self, Tree tree, node_t index):
+    """ takes an external tree index (leaf nodes >= length of nodes, not
+        leaf nodes with highest bit set """
     self.tree = tree
+    cdef int l = tree.get_length()
+    if index < 0: index += l
     self._index = index
+    if index >= l:
+      raise IndexError('index out of bounds')
+
   property pos:
     """ top-left corner of the node ('f8', 3)"""
     def __get__(self):
@@ -96,16 +103,14 @@ cdef class TreeNode:
     if points.dtype in (fillingcurve.fckeytype, numpy.dtype('object')):
       X, Y, Z = points, None, None
       return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out)
-    elif len(points.shape) > 1 and points.shape[-1] == 3:
-      X, Y, Z = points.rollaxis(-1)
+    else:
+      X, Y, Z = points[..., 0], points[..., 1], points[..., 2]
       if X.dtype.kind == 'i':
         return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out, scale=None)
       elif X.dtype.kind == 'f':
         return fillingcurve.contains(self.key, self.order, X, Y, Z, out=out, scale=self.tree.scale)
       else:
         raise RuntimeError('dtype not supported')
-    else:
-      raise RuntimeError('dtype not supported %s' % str(points.dtype))
 
   def __str__(self):
     return str(dict(parent=self.parent, children=self.children,
@@ -142,6 +147,8 @@ cdef class TreeProperty:
   cdef npyarray.CArray cvalues
   cdef intptr_t method
   cdef readonly size_t length
+  cdef int use_scalar_value
+  cdef double scalar_value # if values is a scalar, use this
   actions = {
        'key':(fillingcurve.fckeytype, <intptr_t> Tree.get_node_key),
        'used':('?', <intptr_t> -1),
@@ -161,9 +168,13 @@ cdef class TreeProperty:
         do not use managed=True. it's for internal use in Tree[prop]
      """
     if isinstance(values, basestring):
-
       dtype, method = self.actions[values]
     else:
+      if numpy.isscalar(values):
+        self.scalar_value = values
+        self.use_scalar_value = True
+      else:
+        self.use_scalar_value = False
       dtype, method = 'f4', 0
       npyarray.init(&self.cvalues, numpy.asarray(values))
 
@@ -178,8 +189,24 @@ cdef class TreeProperty:
     self._cache = <void *> self.cache.data
     self.method = method
     self.length = len(tree)
+
   def __len__(self):
     return self.length
+
+  def finalize(self):
+    """ calculates and return the cache """
+    cdef Tree tree
+    cdef intptr_t i
+    if self._tree is None:
+      tree = self.treeref()
+      if tree is None:
+        raise RuntimeError("tree does no longer exist")
+    else:
+      tree = self._tree
+    with nogil:
+      for i in range(self.length):
+        self.ensure_node(tree, i)
+    return self.cache
 
   def __getitem__(self, item):
     cdef numpy.ndarray temp
@@ -206,7 +233,6 @@ cdef class TreeProperty:
             self.ensure_node(tree, i)
     return self.cache[item]
 
-
   cdef float eval_node_value(self, Tree tree, node_t node) nogil:
     cdef int nchildren
     cdef int k
@@ -220,7 +246,10 @@ cdef class TreeProperty:
       if nchildren == 0:
         first = tree.get_node_first(node)
         for k in range(tree.get_node_npar(node)):
-          npyarray.flat(&self.cvalues, k+first, &abit)
+          if self.use_scalar_value:
+            abit = self.scalar_value
+          else:
+            npyarray.flat(&self.cvalues, k+first, &abit)
           value += abit
       else:
         for k in range(nchildren):
@@ -291,6 +320,33 @@ cdef class Tree:
      pass
      # raise ValueError("tree build failed. Is the input zkey sorted?")
 
+  def update_complete(self):
+    cdef node_t parent
+    cdef int mycomplete
+    cdef intptr_t i
+    with nogil:
+      # first assume all complete
+      for i in range(self._nodes.used):
+        self.nodes[i].complete = 1
+
+      for i in range(self._leafnodes.used):
+        parent = self.leafnodes[i].parent
+        mycomplete = 1
+        while parent >= 0:
+          # if node already marked incomplete, no need go further,
+          # as all parents are marked incomplete, too.
+          if self.nodes[parent].complete == 0:
+            break
+          # if this node is incomplete,
+          # or the parent has insufficient nodes, 
+          if not mycomplete or self.nodes[parent].child_length != 8:
+            self.nodes[parent].complete = 0
+            mycomplete = 0
+          else:
+            self.nodes[parent].complete = 1
+            mycomplete = 1
+          parent = self.nodes[parent].parent
+
   def optimize(self):
     raise RuntimeError("do not call this thing!")
     while self._optimize() > 0: continue
@@ -321,17 +377,24 @@ cdef class Tree:
     if item in self.dict:
       del self.dict[item]
 
-  def declare(self, item, values=None):
+  def declare(self, item, values=None, finalize=False):
     """ values can be none, if item is a builtin property,
         otherwise values need to be an array of length zkey.
         one for each particle. the tree node property is just the
         sume of values of particles in a node.
+        
+        if finalize is True, the property will be caclulated
+        immediately and the array filled.
+        otherwize the calculation will be on the demand.
     """
     if values is None: 
       # assuming item is the builtin property.
       self.dict[item] = TreeProperty(self, item, managed=True)
     else:
       self.dict[item] = TreeProperty(self, values, managed=True)
+
+    if finalize:
+      self.dict[item] = self.dict[item].finalize()
 
   def __getitem__(self, item):
     """ for attached property, this will 

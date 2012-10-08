@@ -32,6 +32,7 @@ setup(name="gaepsi", version="0.2",
              depends = extra
         ) for name, extra in [
          ('compiledbase._fast', []),
+         ('compiledbase.geometry', []),
 #         ('compiledbase._field', []), orphan, pending removal?
          ('compiledbase.camera', []),
          ('compiledbase.ztree', ['compiledbase/npyiter.pxd',]),
