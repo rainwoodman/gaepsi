@@ -210,7 +210,7 @@ class GaplotContext(Store):
       else:
         continue
 
-  def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None):
+  def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None, dtype='f8'):
     """ paint field to CCD, returns
         C, L where
           C is the color of the pixel
@@ -221,7 +221,7 @@ class GaplotContext(Store):
         the return values can be normalized by
         nl_ or n_, then feed to imshow
     """
-    CCD = numpy.zeros(self.shape, dtype=('f8',2))
+    CCD = numpy.zeros(self.shape, dtype=(dtype,2))
 
     if sml is None:
       if kernel is None: kernel='cube'
@@ -243,7 +243,8 @@ class GaplotContext(Store):
         if luminosity is not None: l = luminosityprop[mask]
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity):
-            _CCD = cam.paint(x,y,z,sml,color,luminosity, kernel=kernel)
+            _CCD = numpy.zeros_like(CCD)
+            cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=_CCD)
             with pool.lock:
               CCD[...] += _CCD
           pool.starmap(work, pool.zipsplit((x,y,z,sml,c,l)))
@@ -257,7 +258,8 @@ class GaplotContext(Store):
         mask = cam.prunetree(tree, return_nodes=False)
         with sharedmem.Pool(use_threads=True) as pool:
           def work(x,y,z,sml,color,luminosity, mask):
-            _CCD = cam.paint(x,y,z,sml,color,luminosity, mask=mask, kernel=kernel)
+            _CCD = numpy.zeros_like(CCD)
+            cam.paint(x,y,z,sml,color,luminosity, mask=mask, kernel=kernel, out=_CCD)
             with pool.lock:
               CCD[...] += _CCD
           pool.starmap(work, pool.zipsplit((x,y,z,sml,color,luminosity, mask)))

@@ -108,7 +108,16 @@ cdef void _register():
 numpy.import_array()
 numpy.import_ufunc()
 _register()
- 
+ctypedef void (*write_ccd_func)(void * ccd, intptr_t p, double bit, double color) nogil
+
+cdef void write_ccd_double(double * ccd, intptr_t p, double bit, double color) nogil:
+  ccd[p] = bit * color
+  ccd[p + 1] += bit
+
+cdef void write_ccd_float(float * ccd, intptr_t p, double bit, double color) nogil:
+  ccd[p] = bit * color
+  ccd[p + 1] += bit
+  
 cdef class Camera:
   """ One big catch is that 
       we use C arrays whilst OpenGL uses
@@ -295,7 +304,14 @@ cdef class Camera:
       out = numpy.zeros(self.shape, dtype=('f8', 2))
     self.kernel_func = <kernelfunc> <intptr_t>KERNELS[kernel][0]
     self.kernel_factor = <double> KERNELS[kernel][1]
-    assert out.dtype == numpy.dtype('f8')
+    cdef write_ccd_func write_ccd
+    if out.dtype == numpy.dtype('f8'):
+      write_ccd = <write_ccd_func>write_ccd_double
+    elif out.dtype == numpy.dtype('f4'):
+      write_ccd = <write_ccd_func>write_ccd_float
+    else:
+      raise TypeError('out has to be single or double float')
+
     assert (<object>out).shape[0] == self.shape[0]
     assert (<object>out).shape[1] == self.shape[1]
     assert (<object>out).shape[2] == 2
@@ -311,7 +327,7 @@ cdef class Camera:
        casting='unsafe')
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef double * ccd = <double*> out.data
+    cdef void * ccd = <void*> out.data
     cdef double pos[3], R[3]
     cdef float uvt[3], whl[3], c3inv
    
@@ -333,7 +349,7 @@ cdef class Camera:
                 uvt, whl,
                 (<float*>citer.data[4])[0],
                 (<float*>citer.data[5])[0],
-                ccd)
+                ccd, write_ccd)
           npyiter.advance(&citer)
           size = size - 1
         size = npyiter.next(&citer)
@@ -551,7 +567,7 @@ cdef class Camera:
     whl[1] = r[1] * self._scale[1] * c3inv
     whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)
     
-  cdef void paint_object_one(self, double pos[3], float uvt[3], float whl[3], float color, float luminosity, double * ccd) nogil:
+  cdef void paint_object_one(self, double pos[3], float uvt[3], float whl[3], float color, float luminosity, void * ccd, write_ccd_func write_ccd) nogil:
 
     if whl[0] > 2 or whl[1] > 2:
       # over resolved
@@ -638,8 +654,7 @@ cdef class Camera:
     p = (imin[0] * self._shape[1] + imin[1]) * 2
 
     if di[0] == 1 and di[1] == 1:
-      ccd[p] += color * brightness 
-      ccd[p + 1] += brightness 
+      write_ccd(ccd, p, brightness, color)
       return
 
     cdef int cachept
@@ -685,8 +700,7 @@ cdef class Camera:
         else:
           tmp3 = self.kernel_func(tmp1, tmp2)
         if tmp3 > 0:
-          ccd[q] += color * bit * tmp3
-          ccd[q + 1] += bit * tmp3
+          write_ccd(ccd, q, bit * tmp3, color)
         iy = iy + 1
         tmp2 += tmp2fac
         q += 2
