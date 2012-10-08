@@ -291,6 +291,8 @@ cdef class Camera:
     persp[1, 1] = 2. * self.D / (self.t - self.b)
     persp[2, 2] = - (1. *(far + near)) / (far - near)
     persp[2, 3] = - (2. * far * near) / (far - near)
+    persp[0, 2] = (self.r + self.l) / (self.r - self.l)
+    persp[1, 2] = (self.t + self.b) / (self.t - self.b)
     persp[3, 2] = -1
     persp[3, 3] = 0
     self.set_proj(persp)
