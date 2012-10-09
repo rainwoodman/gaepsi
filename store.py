@@ -186,7 +186,7 @@ class Store(object):
     # i suspect this optimize has been deprecated.
 #    self.T[ftype].optimize()
 
-  def unfold(self, M):
+  def unfold(self, M, ftype=None):
     """ unfold the field position by transformation M
         the field shall be periodic. M is an
         list of column integer vectors of the shearing
@@ -194,19 +194,23 @@ class Store(object):
         the field has to be in a cubic box located from (0,0,0)
     """
     assert self.periodic
-    for ftype in self.F:
+    q, boxsize = self.periodic.cubenoid(M)
+    self.periodic.rotate(q)
+    self.boxsize[...] = boxsize
+
+    if ftype is None: ftypes = self.F.keys()
+    else: ftypes = _ensurelist(ftype)
+    for ftype in ftypes:
       locations, = self._getcomponent(ftype, 'locations')
       x, y, z = locations.T
       with sharedmem.Pool(use_threads=True) as pool:
         def work(x, y, z):
-          bdy = self.periodic.attach(x, y, z)
-          return (bdy.transform(M) > 0).sum()
+          rt = self.periodic.apply(x, y, z, self.boxsize, apply_rotation=True)
+          return (rt > 0).sum()
         badness = pool.starmap(work, pool.zipsplit((x, y, z))).sum()
       print badness
-    self.periodic.transform(M)
-    self.boxsize[...] = self.periodic.boxsize[...]
 
-    for ftype in self.F:
+    for ftype in ftypes:
       self._rebuildtree(ftype)
 
   def _getcomponent(self, ftype, *components):

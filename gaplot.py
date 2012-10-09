@@ -194,15 +194,19 @@ class GaplotContext(Store):
     if not self.periodic:
       yield camera
       return
-    target_residual = numpy.remainder(camera.target - self.origin, self.boxsize)
+    target_residual = camera.target.copy()
+    self.periodic.apply(target_residual[0:1], target_residual[1:2], target_residual[2:3], self.boxsize)
+
     shift = target_residual - camera.target
     pos_residual = camera.pos + shift
     
     x, y, z = 0.5 * self.boxsize
     for celloffset in numpy.broadcast(*numpy.ogrid[-2:3,-2:3,-2:3]):
       c = camera.copy()
-      c.lookat(pos=pos_residual+self.boxsize * celloffset,
-               target=target_residual+self.boxsize * celloffset)
+      celloffset = numpy.array(celloffset)
+      shift = celloffset.dot(self.periodic.edges)
+      c.lookat(pos=pos_residual + shift,
+               target=target_residual+ shift)
       if c.dir.dot(camera.dir) < 0:
         continue
       if c.mask(x, y, z, (x,y,z)):
@@ -443,7 +447,6 @@ class GaplotContext(Store):
       im = self.image(color=color, luminosity=luminosity, cmap=cmap)
     else:
       im = color
-    print im[:, :, 3].min()
     ax.imshow(im.swapaxes(0,1), **realkwargs)
 
     self.last['color'] = color
