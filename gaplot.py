@@ -237,6 +237,7 @@ class GaplotContext(Store):
     for cam in self._mkcameras(camera):
       with sharedmem.Pool(use_threads=True) as pool:
         cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
+#        cams = cam.divide(2, 1)
         def work(cam, offx, offy):
           smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
           cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
@@ -289,6 +290,7 @@ class GaplotContext(Store):
 
     C, L = CCD[...,0], CCD[...,1]
     return C/L, L
+
   def select(self, ftype, sml=0, camera=None):
     """ return a mask whether particles are in the camera """
     locations, = self._getcomponent(ftype, 'locations')

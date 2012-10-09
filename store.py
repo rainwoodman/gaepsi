@@ -9,6 +9,7 @@ from gaepsi.tools.meshmap import Meshmap
 from gaepsi.cosmology import Cosmology
 
 from gaepsi.compiledbase import fillingcurve
+from gaepsi.compiledbase.geometry import PeriodicBoundary
 
 def _ensurelist(a):
   if numpy.isscalar(a):
@@ -58,10 +59,22 @@ class Store(object):
     self.F[ftype] = value
     self._rebuildtree(ftype)
 
+  @property 
+  def periodic(self):
+    return self._periodic
+
+  @periodic.setter
+  def periodic(self, value):
+    if value:
+      self._periodic = PeriodicBoundary(self.origin, self.boxsize)
+    else:
+      self._periodic = False
+
   def _rebuildtree(self, ftype, thresh=None):
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
       self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
+      if self.periodic: self.periodic = True
       scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
       scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
@@ -120,6 +133,7 @@ class Store(object):
       self.boxsize[...] = 1.0 
 
     self.periodic = periodic
+
     self.cosmology = Cosmology.from_snapshot(snap)
     self.redshift = self.C['redshift']
 
@@ -171,6 +185,30 @@ class Store(object):
     self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
     # i suspect this optimize has been deprecated.
 #    self.T[ftype].optimize()
+
+  def unfold(self, M):
+    """ unfold the field position by transformation M
+        the field shall be periodic. M is an
+        list of column integer vectors of the shearing
+        vectors. abs(det(M)) = 1
+        the field has to be in a cubic box located from (0,0,0)
+    """
+    assert self.periodic
+    for ftype in self.F:
+      locations, = self._getcomponent(ftype, 'locations')
+      x, y, z = locations.T
+      with sharedmem.Pool(use_threads=True) as pool:
+        def work(x, y, z):
+          bdy = self.periodic.attach(x, y, z)
+          return (bdy.transform(M) > 0).sum()
+        badness = pool.starmap(work, pool.zipsplit((x, y, z))).sum()
+      print badness
+    self.periodic.transform(M)
+    self.boxsize[...] = self.periodic.boxsize[...]
+
+    for ftype in self.F:
+      self._rebuildtree(ftype)
+
   def _getcomponent(self, ftype, *components):
     """
       _getcomponent(Field(), 'locations') 

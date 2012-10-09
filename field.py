@@ -394,22 +394,6 @@ class Field(object):
         if len(self[comp].shape) > 1:
           self[comp] = numpy.inner(self[comp], M)
 
-  def unfold(self, M, boxsize):
-    """ unfold the field position by transformation M
-        the field shall be periodic. M is an
-        list of column integer vectors of the shearing
-        vectors. abs(det(M)) = 1
-        the field has to be in a cubic box located from (0,0,0)
-    """
-    from tools.remap import remap
-
-    pos = self['locations']
-    pos /= boxsize
-    newpos,newboxsize = remap(M, pos)
-    newpos *= boxsize
-    self['locations'] = newpos
-    return newboxsize * boxsize
-
   def ztree(self, zkey, scale, minthresh, maxthresh):
     from compiledbase import ztree as zt
     return zt.Tree(zkey=zkey, scale=scale, minthresh=minthresh, maxthresh=maxthresh)

@@ -17,8 +17,10 @@ def bindmethods(obj, locals, before=None, after=None, excludes=[]):
     if x.startswith('_'): continue 
     elif isinstance(m, MethodType):
       locals[x] = _wrapfunc(m, before=before, after=after)
-    elif isinstance(m, property):
-      locals[x] = lambda : m.fget(obj)
+    elif hasattr(obj.__class__, x) and isinstance(getattr(obj.__class__, x), property):
+      m = getattr(obj.__class__, x)
+      locals['get_' + x] = lambda m=m: m.fget(obj)
+      locals['set_' + x] = lambda v,m=m: m.fset(obj, v)
     else:
       locals[x] = m
 

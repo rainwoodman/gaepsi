@@ -111,11 +111,11 @@ _register()
 ctypedef void (*write_ccd_func)(void * ccd, intptr_t p, double bit, double color) nogil
 
 cdef void write_ccd_double(double * ccd, intptr_t p, double bit, double color) nogil:
-  ccd[p] = bit * color
+  ccd[p] += bit * color
   ccd[p + 1] += bit
 
 cdef void write_ccd_float(float * ccd, intptr_t p, double bit, double color) nogil:
-  ccd[p] = bit * color
+  ccd[p] += bit * color
   ccd[p + 1] += bit
   
 cdef class Camera:
@@ -226,7 +226,7 @@ cdef class Camera:
         cam.l = (l * 1.0 / self.shape[0]) * (self.r - self.l) + self.l
         cam.r = (r * 1.0 / self.shape[0]) * (self.r - self.l) + self.l
         cam.b = (b * 1.0 / self.shape[1]) * (self.t - self.b) + self.b
-        cam.t = (t * 1.0 / self.shape[0]) * (self.t - self.b) + self.b
+        cam.t = (t * 1.0 / self.shape[1]) * (self.t - self.b) + self.b
         if self.type == 0:
           cam.ortho(near=self.near, far=self.far, extent=(cam.l, cam.r, cam.b, cam.t))
         else:
@@ -778,7 +778,6 @@ cdef class Camera:
     while ix <= imax[0]:
       tmp2 = (imin[1] - xy[1]) * tmp2fac
       iy = imin[1]
-      q = p
       while iy <= imax[1]:
         tmp3 = self.kernel_func(tmp1, tmp2)
         if cachept < CACHESIZE:
@@ -787,10 +786,7 @@ cdef class Camera:
         sum += tmp3
         iy = iy + 1
         tmp2 += tmp2fac
-        q += 2
-        # 2 = 1(for color) + 1(for luminosity)
       tmp1 += tmp1fac
-      p += self._shape[1] * 2
       ix = ix + 1
 
     cachept = 0

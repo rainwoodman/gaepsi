@@ -179,8 +179,8 @@ cdef class Tree:
   cdef node_t _split_node(self, intptr_t node) nogil except -1
 
 cdef class TreeIter:
-  cdef node_t * head[32]
-  cdef node_t * end[32]
+  cdef node_t * head[128]
+  cdef node_t * end[128]
   cdef readonly Tree tree
   cdef readonly node_t root
   cdef readonly int top

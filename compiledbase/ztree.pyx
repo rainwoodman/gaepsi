@@ -153,6 +153,7 @@ cdef class TreeProperty:
        'key':(fillingcurve.fckeytype, <intptr_t> Tree.get_node_key),
        'used':('?', <intptr_t> -1),
        'order':('i2', <intptr_t> Tree.get_node_order),
+       'complete':('?', <intptr_t> Tree.get_node_complete),
        'first':('intp', <intptr_t> Tree.get_node_first),
        'npar':('intp', <intptr_t> Tree.get_node_npar),
        'parent':('intp', <intptr_t> Tree.get_node_parent),
@@ -277,6 +278,8 @@ cdef class TreeProperty:
       (<intptr_t *>self._cache)[node] = tree.get_node_parent(node)
     elif self.method == <intptr_t> tree.get_node_npar:
       (<intptr_t *>self._cache)[node] = tree.get_node_npar(node)
+    elif self.method == <intptr_t> tree.get_node_complete:
+      (<char *>self._cache)[node] = tree.get_node_complete(node)
     elif self.method == <intptr_t> tree.get_node_nchildren:
       (<short int *>self._cache)[node] = tree.get_node_nchildren(node)
     elif self.method == <intptr_t> tree.get_node_order:
@@ -320,32 +323,22 @@ cdef class Tree:
      pass
      # raise ValueError("tree build failed. Is the input zkey sorted?")
 
-  def update_complete(self):
-    cdef node_t parent
-    cdef int mycomplete
+  def update_complete(self, pin1, pin2):
     cdef intptr_t i
+    cdef fckey_t key1 = pin1
+    cdef fckey_t key2 = pin2
     with nogil:
-      # first assume all complete
       for i in range(self._nodes.used):
-        self.nodes[i].complete = 1
-
-      for i in range(self._leafnodes.used):
-        parent = self.leafnodes[i].parent
-        mycomplete = 1
-        while parent >= 0:
-          # if node already marked incomplete, no need go further,
-          # as all parents are marked incomplete, too.
-          if self.nodes[parent].complete == 0:
-            break
-          # if this node is incomplete,
-          # or the parent has insufficient nodes, 
-          if not mycomplete or self.nodes[parent].child_length != 8:
-            self.nodes[parent].complete = 0
-            mycomplete = 0
-          else:
-            self.nodes[parent].complete = 1
-            mycomplete = 1
-          parent = self.nodes[parent].parent
+        self.nodes[i].complete = not(
+            fillingcurve.keyinkey(
+            key1,
+            self.nodes[i].key,
+            self.nodes[i].order) \
+         and \
+            fillingcurve.keyinkey(
+            key2,
+            self.nodes[i].key,
+            self.nodes[i].order))
 
   def optimize(self):
     raise RuntimeError("do not call this thing!")
@@ -554,6 +547,7 @@ cdef class Tree:
       self.nodes[fullparent].npar = self.leafnodes[index].npar
       self.nodes[fullparent].parent = self.leafnodes[index].parent
       self.nodes[fullparent].child_length = 0
+      self.nodes[fullparent].complete = 1
       # now replace in the grandparent's children.
       grandparent = self.nodes[fullparent].parent
       for k in range(8):
