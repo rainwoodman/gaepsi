@@ -77,7 +77,7 @@ def _wrapfunc(m, before=None, after=None):
     """ % {'name':m.__name__, 
            'args':','.join(A), 
            'params':','.join(P)}
-    eval(compile(code, '', 'exec', 0, True), L)
+    eval(compile(code, '<wrapped code>', 'exec', 0, True), L)
     func = L[m.__name__]
     func.__doc__ = m.__doc__
     func.source = code
