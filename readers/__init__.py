@@ -21,7 +21,10 @@ def Reader(reader):
 
 class ConstBase:
   def __init__(self, header, init=False):
+    """ if init is True, the values are initialized """
     self._header = header
+    # extra is the extra values
+    self._extra = {}
     if init:
       for item in self._header.dtype.names:
         if hasattr(self, item):
@@ -31,13 +34,15 @@ class ConstBase:
       
   def __iter__(self):
     def func():
-      for name in sorted(numpy.unique(dir(self) + list(self._header.dtype.names))):
+      for name in sorted(numpy.unique(dir(self) \
+         + list(self._header.dtype.names) \
+         + list(self._extra.keys()))):
         if name[0] == '_': continue
         yield name
     return func()
     
   def __contains__(self, item):
-    return item in self._header.dtype.names or hasattr(self, item)
+    return item in self._header.dtype.names or hasattr(self, item) or item in self._extra
 
   def __getitem__(self, item):
     if hasattr(self, item):
@@ -51,6 +56,9 @@ class ConstBase:
         return attr
     elif item in self._header.dtype.names:
       return self._header[item]
+    else:
+      return self._extra[item]
+
   def __setitem__(self, item, value):
     if hasattr(self, item):
       attr = getattr(self, item)
@@ -60,13 +68,17 @@ class ConstBase:
         raise IndexError("can't set %s" % attr)
     elif item in self._header.dtype.names:
       self._header[item] = value
+    else:
+      self._extra[item] = value
 
   def __str__(self):
     s = []
-    for name in sorted(numpy.unique(dir(self) + list(self._header.dtype.names))):
+    for name in self:
       if name[0] == '_': continue
       if name in self._header.dtype.names:
         s += ['%s(header) = %s' % (name, str(self[name]))]
+      elif name in self._extra:
+        s += ['%s(extra) = %s' % (name, str(self[name]))]
       else:
         s += ['%s(class) = %s' % (name, str(self[name]))]
     return '\n'.join(s)

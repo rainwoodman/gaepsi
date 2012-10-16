@@ -98,7 +98,10 @@ class Store(object):
 
     self.P[ftype] = _ensurelist(types)
 
-  def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None):
+  def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None, **kwargs):
+    """ kwargs will override values saved in the snapshot file,
+        only particles within origin and boxsize are loaded.
+    """
     self.snapname = snapname
     self._format = format
 
@@ -110,6 +113,9 @@ class Store(object):
     snap = Snapshot(snapname, self._format)
 
     self.C = snap.C
+    for item in kwargs:
+      self.C[item] = kwargs[item]
+
     self.origin[...] = numpy.ones(3) * origin
 
     if boxsize is not None:
