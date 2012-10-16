@@ -6,7 +6,7 @@ cimport npyiter
 cimport npyarray
 cimport npyufunc
 from libc.stdint cimport *
-from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint
+from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint, ceil, floor
 from warnings import warn
 cimport fillingcurve
 from fillingcurve cimport fckey_t
@@ -828,3 +828,164 @@ cdef class Camera:
     uvt[1] = coord[1] * c3inv
     uvt[2] = coord[2] * c3inv
     return c3inv
+
+
+def draw_spike(numpy.ndarray rgb, X, Y, R, color):
+  iter = numpy.nditer([X, Y, R],
+          op_dtypes=['f8'] * 3,
+          casting='unsafe',
+          flags=['external_loop', 'buffered', 'zerosize_ok'])
+
+  cdef unsigned char * buffer = <unsigned char*>rgb.data
+  cdef float spikecolor[4] 
+  cdef intptr_t shape[3]
+
+  if len(color) > 4: raise "color is bad format, needs to be 3, or 4 tuple"
+
+  spikecolor[3] = 1.0
+  for i, c in enumerate(color):
+    spikecolor[i] = c
+
+  # premultiply alpha
+  for i in range(3):
+    spikecolor[i] *= spikecolor[3]
+
+  shape[0] = rgb.shape[0]
+  shape[1] = rgb.shape[1]
+  shape[2] = rgb.shape[2]
+  assert shape[2] == 3 or shape[2] == 4 # rgb or rgba
+  cdef npyiter.CIter citer
+  cdef size_t size = npyiter.init(&citer, iter)
+  with nogil:
+    while size > 0:
+      while size > 0:
+        draw_spike_one(buffer, shape, spikecolor,
+           (<double*> (citer.data[0]))[0],
+           (<double*> (citer.data[1]))[0],
+           (<double*> (citer.data[2]))[0])
+        npyiter.advance(&citer)
+        size = size - 1
+      size = npyiter.next(&citer)
+
+cdef void draw_spike_one(unsigned char* buffer, intptr_t shape[3], float color[4], double x, double y, double r) nogil:
+    draw_line_one(buffer, shape, color, x + r, y + r, x, y)
+    draw_line_one(buffer, shape, color, x - r, y - r, x, y)
+    draw_line_one(buffer, shape, color, x - r, y + r, x, y)
+    draw_line_one(buffer, shape, color, x + r, y - r, x, y)
+
+cdef void draw_spike_one0(unsigned char* buffer, intptr_t shape[3], float color[4], int x, int y, int r) nogil:
+  cdef intptr_t i
+  i = 1
+  cdef float alpha
+  blend(buffer, shape, color, x, y, 1.0)
+  while i < r:
+    alpha = (1.0 - <float>i / r)
+
+    blend(buffer, shape, color, x - i, y - i, alpha)
+    blend(buffer, shape, color, x + i, y - i, alpha)
+    blend(buffer, shape, color, x - i, y + i, alpha)
+    blend(buffer, shape, color, x + i, y + i, alpha)
+    i = i + 1
+
+cdef inline void blend(unsigned char * buffer, intptr_t shape[3], float color[4], int x, int y, double alpha) nogil:
+  cdef float a
+  if x < 0: return
+  if x >= shape[0]: return
+  if y < 0: return
+  if y >= shape[1]: return
+  if alpha <= 0: return
+  cdef unsigned char * pix = &buffer[x * shape[1] * shape[2] + y * shape[2]]
+
+  if shape[2] == 3:
+    a = 1.0
+  else:
+    a = pix[3] / 255.
+
+  for d in range(3):
+    pix[d] = <unsigned char> (pix[d] * a * (1.0 - color[3] * alpha) + color[d] * alpha * 255.9999)
+
+  # notice we do not touch the alpha channel of the original image
+  # , on purpose
+
+cdef void draw_line_one(unsigned char* buffer, intptr_t shape[3], float color[4], double x0, double y0, double x1, double y1) nogil:
+  """Xiaolin Wu antialias drawing, with gradient, more opaque from x0 to x1 """
+  cdef int steep = fabs(y1 - y0) > fabs(x1 - x0)
+  cdef int xend, yend, xpxl1, ypxl1, xpxl2, ypxl2
+  cdef int sign = 1
+  cdef int i, x
+  cdef float alpha
+  cdef double t, dx, dy, gradient, xgap, f
+  if steep:
+    t = x0;x0 = y0;y0 = t
+    t = x1;x1 = y1;y1 = t
+
+  if x0 > x1:
+    t = x0;x0 = x1;x1 = t
+    t = y0;y0 = y1;y1 = t
+    sign = -1
+  
+  dx = x1 - x0
+  dy = y1 - y0
+  gradient = dy / dx
+  xend = <int>(x0 + 0.5)
+  yend = <int>(y0 + gradient * (xend - x0))
+  xgap = 1.0 - (x0 + 0.5 - floor(x0 + 0.5))
+  xpxl1 = xend
+  ypxl1 = <int>yend
+  if sign > 0:
+    alpha = 0.0
+  else:
+    alpha = 1.0
+  f = yend - floor(yend)
+  if steep:
+    blend(buffer, shape, color, ypxl1, xpxl1, 
+           (1. - f) * xgap * alpha)
+    blend(buffer, shape, color, ypxl1 + 1, xpxl1, 
+           f * xgap * alpha)
+  else:
+    blend(buffer, shape, color, xpxl1, ypxl1, 
+           (1. - f) * xgap * alpha)
+    blend(buffer, shape, color, xpxl1, ypxl1 + 1, 
+           f * xgap * alpha)
+
+  cdef double intery = yend + gradient
+  
+  xend = <int>(x1 + 0.5)
+  yend = <int>(y1 + gradient * (xend - x1))
+  xgap = 1.0 - (x1 + 0.5 - floor(x1 + 0.5))
+  xpxl2 = xend
+  ypxl2 = <int> yend
+  if sign > 0:
+    alpha = 1.0
+  else:
+    alpha = 0.0
+  f = yend - floor(yend)
+  if steep:
+    blend(buffer, shape, color, ypxl2, xpxl2, 
+           (1. - f) * xgap * alpha)
+    blend(buffer, shape, color, ypxl2 + 1, xpxl2, 
+           f * xgap * alpha)
+  else:
+    blend(buffer, shape, color, xpxl2, ypxl2, 
+           (1. - f) * xgap * alpha)
+    blend(buffer, shape, color, xpxl2, ypxl2 + 1, 
+           (f) * xgap * alpha)
+  
+  for x in range(xpxl1 + 1, xpxl2, 1):
+    if sign > 0:
+      alpha = <float>(x - xpxl1) / (xpxl2 - xpxl1)
+    else:
+      alpha = <float>(xpxl2 - x) / (xpxl2 - xpxl1)
+    f = intery - floor(intery)
+    if steep:
+      blend(buffer, shape, color, <int>intery, x, 
+           alpha * (1 - f))
+      blend(buffer, shape, color, <int>intery + 1, x, 
+           alpha * f)
+    else:
+      blend(buffer, shape, color, x, <int>intery,
+           alpha * (1 - f))
+      blend(buffer, shape, color, x, <int>intery + 1,
+           alpha * f)
+    intery = intery + gradient
+
