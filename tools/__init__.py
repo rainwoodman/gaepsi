@@ -448,16 +448,16 @@ class virtarray(numpy.ndarray):
     return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
 
 
-def n_(value, vmin=None, vmax=None):
-  return normalize(value, vmin, vmax, logscale=False)
+def n_(value, vmin=None, vmax=None, gamma=1.0):
+  return normalize(value, vmin, vmax, logscale=False, gamma=gamma)
 
-def nl_(value, vmin=None, vmax=None):
-  return normalize(value, vmin, vmax, logscale=True)
+def nl_(value, vmin=None, vmax=None, gamma=1.0):
+  return normalize(value, vmin, vmax, logscale=True, gamma=gamma)
 
 from gaepsi.compiledbase import _fast
 class normalize(numpy.ndarray):
   __array_priority__ = - 100.0
-  def __new__(cls, value, vmin=None, vmax=None, logscale=False, out=None):
+  def __new__(cls, value, vmin=None, vmax=None, logscale=False, gamma=1.0, out=None):
     """normalize an array to 0 and 1, value is returned.
        if logscale is True, and vmin is in format 'nn db', then
        vmin = vmax - nn * 0.1
@@ -498,9 +498,11 @@ class normalize(numpy.ndarray):
     else:
       out[...] /= (vmax - vmin)
     out.clip(0, 1, out=out)
+    out **= gamma
     self = out.view(type=cls)
     self.vmin = vmin
     self.vmax = vmax
+    self.gamma = gamma
     self.logscale = logscale
     return self
 
@@ -512,9 +514,8 @@ class normalize(numpy.ndarray):
     pass
 
   def __repr__(self):
-    return 'normed values = %s, vmin=%s, vmax=%s, logscale=%s' % \
-          (repr(self.view(type=numpy.ndarray)), 
-           repr(self.vmin), repr(self.vmax), repr(self.logscale))
+    return 'normed values, vmin=%s, vmax=%s, logscale=%s gamma=%s' % \
+          (repr(self.vmin), repr(self.vmax), repr(self.logscale), repr(self.gamma))
 
 def spinner(vec, omega, axis, time, out=None):
   """ spin a vector vec by angular velocity omega, along axis,
@@ -548,3 +549,8 @@ def spinner(vec, omega, axis, time, out=None):
 
   return out
 
+def loadconfig(filename=None):
+  import imp
+  import sys
+  if filename is None: filename = sys.argv[1]
+  return imp.load_source('', filename)

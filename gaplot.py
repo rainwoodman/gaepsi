@@ -5,7 +5,8 @@ import matplotlib
 from matplotlib import cm
 
 from gaepsi.tools import nl_, n_, normalize
-from gaepsi.store import Store
+from gaepsi.store import *
+from gaepsi.tools import loadconfig
 from gaepsi.compiledbase.camera import Camera
 from gaepsi.compiledbase.ztree import TreeProperty
 
@@ -194,19 +195,16 @@ class GaplotContext(Store):
     if not self.periodic:
       yield camera
       return
-    target_residual = camera.target.copy()
-    self.periodic.apply(target_residual[0:1], target_residual[1:2], target_residual[2:3], self.boxsize)
-
+    target_residual = numpy.remainder(camera.target - self.origin, self.boxsize)
     shift = target_residual - camera.target
     pos_residual = camera.pos + shift
     
     x, y, z = 0.5 * self.boxsize
+
     for celloffset in numpy.broadcast(*numpy.ogrid[-2:3,-2:3,-2:3]):
       c = camera.copy()
-      celloffset = numpy.array(celloffset)
-      shift = celloffset.dot(self.periodic.edges)
-      c.lookat(pos=pos_residual + shift,
-               target=target_residual+ shift)
+      c.lookat(pos=pos_residual+self.boxsize * celloffset,
+               target=target_residual+self.boxsize * celloffset)
       if c.dir.dot(camera.dir) < 0:
         continue
       if c.mask(x, y, z, (x,y,z)):
@@ -249,7 +247,8 @@ class GaplotContext(Store):
         pool.starmap(work, cams.reshape(-1, 3))
 
     C, L = CCD[...,0], CCD[...,1]
-    return C/L, L
+    C[...] /= L
+    return C, L
     
   def paint2(self, ftype, color, luminosity, camera=None, kernel=None, dtype='f8'):
     """ paint field to CCD, (this paints the tree nodes)
@@ -293,7 +292,8 @@ class GaplotContext(Store):
         pool.starmap(work, cams.reshape(-1, 3))
 
     C, L = CCD[...,0], CCD[...,1]
-    return C/L, L
+    C[...] /= L
+    return C, L
 
   def select(self, ftype, sml=0, camera=None):
     """ return a mask whether particles are in the camera """
@@ -466,7 +466,8 @@ class GaplotContext(Store):
     
     from matplotlib.markers import MarkerStyle
     from matplotlib.patches import PathPatch
-    from matplotlib.transforms import Affine2D
+    from matplotlib.collections import PathCollection
+    from matplotlib.transforms import Affine2D, IdentityTransform
     def filter(image, dpi):
       # this is problematic if the marker is clipped.
       if image.shape[0] <=1 and image.shape[1] <=1: return image
@@ -476,32 +477,47 @@ class GaplotContext(Store):
       ygrad = 1.0 \
          - numpy.fabs(numpy.linspace(0, 2, 
             image.shape[1], endpoint=True) - 1.0)
-      image[..., 3] *= xgrad[:, None] ** 1.3
-      image[..., 3] *= ygrad[None, :] ** 1.3
+      image[..., 3] *= xgrad[:, None] ** 0.5
+      image[..., 3] *= ygrad[None, :] ** 0.5
       return image, 0, 0
 
     marker = kwargs.pop('marker', None)
     verts = kwargs.pop('verts', None)
-    transform = kwargs.pop('transform', ax.transData)
     # to be API compatible
     if marker is None and not (verts is None):
         marker = (verts, 0)
         verts = None
 
-    marker_obj = MarkerStyle(marker)
-    path = marker_obj.get_path()
-
     objs = []
-    m = transform.get_affine().get_matrix()
-    sx = m[0, 0]
-    sy = m[1, 1]
-    for x,y,r in zip(X, Y, s):
-      patch_transform = Affine2D().scale(r / 72. * sx, r / 72. * sy).translate(x, y)
-      obj = PathPatch(path.transformed(patch_transform), transform=transform, **kwargs)
+    colors = kwargs.pop('color', None)
+    edgecolors = kwargs.pop('edgecolor', None)
+    linewidths = kwargs.pop('linewidth', kwargs.pop('lw', None))
+
+    marker_obj = MarkerStyle(marker)
+    path = marker_obj.get_path().transformed(
+         marker_obj.get_transform())
+    if not marker_obj.is_filled():
+        edgecolors = 'face'
+
+    for x,y,r in numpy.nditer([X, Y, s], flags=['zerosize_ok']):
+      obj = PathCollection(
+                (path,), (r*r,),
+                facecolors = colors,
+                edgecolors = edgecolors,
+                linewidths = linewidths,
+                offsets = ((x,y),),
+                transOffset = ax.transData,
+              )
+      obj.set_transform(IdentityTransform())
+      obj.set_alpha(1.0)
+
+#      obj = PathPatch(path.transformed(patch_transform), transform=transform, **kwargs)
       obj.set_agg_filter(filter)
       obj.rasterized = True
       objs += [obj]
-      ax.add_patch(obj)
+      ax.add_collection(obj)
+      ax.autoscale_view()
+
     return objs
 
   def frame(self, axis=None, bgcolor=None, scale=None, ax=None):
@@ -614,18 +630,20 @@ class GaplotContext(Store):
   def makeT(self, ftype, Xh=0.76, halo=False):
     """T will be in Kelvin"""
     gas = self.F[ftype]
-    if halo:
-      gas['T'] = gas['vel'][:, 0] ** 2
-      gas['T'] += gas['vel'][:, 1] ** 2
-      gas['T'] += gas['vel'][:, 2] ** 2
-      gas['T'] *= 0.5
-      gas['T'] *= self.U.TEMPERATURE
-    else:
-      gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-      self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
-      gas['T'] *= self.U.TEMPERATURE
     
-
+    gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
+    with sharedmem.Pool(use_threads=True) as pool:
+      def work(gas):
+        if halo:
+          gas['T'][:] = gas['vel'][:, 0] ** 2
+          gas['T'] += gas['vel'][:, 1] ** 2
+          gas['T'] += gas['vel'][:, 2] ** 2
+          gas['T'] *= 0.5
+          gas['T'] *= self.U.TEMPERATURE
+        else:
+          self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
+          gas['T'] *= self.U.TEMPERATURE
+      pool.starmap(work, pool.zipsplit((gas,)))
 
 context = GaplotContext()
 from gaepsi.tools import bindmethods as _bindmethods
