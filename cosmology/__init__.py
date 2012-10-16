@@ -2,7 +2,7 @@ import numpy
 import SI
 from units import Units
 import _cosmology
-
+import warnings
 def sphdist(ra1, dec1, ra2, dec2, out=None):
   """ all in radians """
   return _cosmology.sphdist(ra1, dec1, ra2, dec2, out)
@@ -65,14 +65,14 @@ class Cosmology(object):
   @classmethod
   def from_snapshot(cls, snapshot):
     if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
-      warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
+      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
       return WMAP7
     else:
       return cls(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
     
   def to_snapshot(self, snapshot):
     if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
-      warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
+      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
       return
     snapshot.C['OmegaM'] = self.cosmology.M
     snapshot.C['OmegaL'] = self.cosmology.L
