@@ -1,7 +1,7 @@
 class Reader:
   format = 'C'
-  header = [('Ngroups', ('i4', 1)),
-            ('TotNgroups', ('i4', 1)),
+  header = [('Ngroups', ('i4', (1,))),
+            ('TotNgroups', ('i4', (1,))),
             ('Nids',  'i4'),
             ('TotNids', 'u8'),
             ('Nfiles', 'i4')]
