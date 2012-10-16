@@ -9,7 +9,6 @@ from gaepsi.tools.meshmap import Meshmap
 from gaepsi.cosmology import Cosmology
 
 from gaepsi.compiledbase import fillingcurve
-from gaepsi.compiledbase.geometry import PeriodicBoundary
 
 def _ensurelist(a):
   if numpy.isscalar(a):
@@ -66,7 +65,7 @@ class Store(object):
   @periodic.setter
   def periodic(self, value):
     if value:
-      self._periodic = PeriodicBoundary(self.origin, self.boxsize)
+      self._periodic = True
     else:
       self._periodic = False
 
@@ -74,7 +73,6 @@ class Store(object):
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
       self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
-      if self.periodic: self.periodic = True
       scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
       scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
@@ -186,7 +184,7 @@ class Store(object):
     # i suspect this optimize has been deprecated.
 #    self.T[ftype].optimize()
 
-  def unfold(self, M, ftype=None):
+  def unfold(self, M, ftype=None, center=None):
     """ unfold the field position by transformation M
         the field shall be periodic. M is an
         list of column integer vectors of the shearing
@@ -194,9 +192,15 @@ class Store(object):
         the field has to be in a cubic box located from (0,0,0)
     """
     assert self.periodic
-    q, boxsize = self.periodic.cubenoid(M)
-    self.periodic.rotate(q)
-    self.boxsize[...] = boxsize
+    from gaepsi.compiledbase.geometry import Rotation, Cubenoid
+    if center is None:
+      cub = Cubenoid(M, self.origin, self.boxsize, center=0, neworigin=0)
+    else:
+      cub = Cubenoid(M, self.origin, self.boxsize, center=center)
+
+    self.boxsize[...] = cub.newboxsize
+    self.origin[...] = cub.neworigin
+    self.periodic = False
 
     if ftype is None: ftypes = self.F.keys()
     else: ftypes = _ensurelist(ftype)
@@ -205,8 +209,8 @@ class Store(object):
       x, y, z = locations.T
       with sharedmem.Pool(use_threads=True) as pool:
         def work(x, y, z):
-          rt = self.periodic.apply(x, y, z, self.boxsize, apply_rotation=True)
-          return (rt > 0).sum()
+          rt = cub.apply(x, y, z)
+          return (rt < 0).sum()
         badness = pool.starmap(work, pool.zipsplit((x, y, z))).sum()
       print badness
 
