@@ -45,6 +45,11 @@ cdef class TreeNode:
       cdef numpy.ndarray size = numpy.empty(3, dtype='f8')
       self.tree.get_node_size(self._index, <double*>size.data)
       return size
+  property complete:
+    """ complete? """
+    def __get__(self):
+      return self.tree.get_node_complete(self._index)
+    
   property nchildren:
     """ number of children (0 if none) """
     def __get__(self):
@@ -117,7 +122,7 @@ cdef class TreeNode:
                index=self.index, leafindex=self.leafindex,
                order=self.order, key=self.key,
                first=self.first, npar=self.npar,
-               pos=self.pos, size=self.size))
+               pos=self.pos, size=self.size, complete=self.complete))
   def __repr__(self):
     return "TreeNode(%s, %s): %s" % (repr(self.tree), repr(self._index), str(self))
 
@@ -334,7 +339,7 @@ cdef class Tree:
             key1,
             self.nodes[i].key,
             self.nodes[i].order) \
-         and \
+         or \
             fillingcurve.keyinkey(
             key2,
             self.nodes[i].key,

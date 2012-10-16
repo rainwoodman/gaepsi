@@ -51,7 +51,7 @@ cdef class RayQueryNodes(Query):
       self.tree.get_node_size(node, size)
       if LiangBarsky(pos, size, center, dir, &tE, &tL):
         nchildren = self.tree.get_node_nchildren(node)
-        if ((not self.full) and nchildren == 8) or nchildren == 0:
+        if ((not self.full) and self.tree.get_node_complete(node)) or nchildren == 0:
           e.index = node
           e.enter = tE
           e.leave = tL
