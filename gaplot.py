@@ -232,8 +232,8 @@ class GaplotContext(Store):
 
     if sml is None:
       warnings.warn('sml is None and the on-the-fly calculation is buggy, will run field.smooth first, sml is overwritten')
-      self['ftype'].smooth(tree)
-      sml = self['ftype']['sml']
+      self[ftype].smooth(tree)
+      sml = self[ftype]['sml']
 
     x, y, z = locations.T
     for cam in self._mkcameras(camera):
