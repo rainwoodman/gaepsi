@@ -3,9 +3,9 @@ import numpy
 import sharedmem
 
 from gaepsi.snapshot import Snapshot
-from gaepsi.field import Field, Cut
+from gaepsi.field import Field
 from gaepsi.readers import Reader
-from gaepsi.tools.meshmap import Meshmap
+from gaepsi.meshindex import MeshIndex
 from gaepsi.cosmology import Cosmology
 
 from gaepsi.compiledbase import fillingcurve
@@ -124,7 +124,7 @@ class Store(object):
       self.need_cut = False
 
     if mapfile is not None:
-      self.map = Meshmap(mapfile)
+      self.map = MeshIndex.fromfile(mapfile)
     else:
       self.map = None
 
@@ -152,9 +152,8 @@ class Store(object):
 
   def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
-      cut = Cut(origin=self.origin, size=self.boxsize)
       if fids is None and self.map is not None:
-        fids = self.map.cut2fid(cut)
+        fids = self.map.cut(self.origin, self.boxsize)
     else:
       cut = None
 

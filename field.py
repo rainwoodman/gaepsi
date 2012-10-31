@@ -14,69 +14,6 @@ def is_scalar_like(v):
     if v.ndim == 0: return True
   return False
 
-class Cut:
-  def __init__(self, origin=None, center=None, size=None):
-    if size is not None:
-      self.size = numpy.ones(3) * size
-      if origin is not None:
-        self.center = self.size * 0.5 + origin
-      elif center is not None:
-        self.center = numpy.ones(3) * center
-      else:
-        self.center = self.size * 0.5
-    else:
-      self.center = None
-      self.size = None
-
-  @property
-  def empty(self):
-    return self.center is None
-
-  @property
-  def origin(self):
-    return self.center - self.size * 0.5
-
-  def take(self, cut):
-    if cut is not None:
-      if cut.empty:
-        self.center = None
-        self.size = None
-      else:
-        self.size = cut.size.copy()
-        self.center = cut.center.copy()
-
-  def __repr__(self):
-    if self.center is None:
-      return 'Cut()'
-    return 'Cut(center=%s, size=%s)' % (repr(self.center), repr(self.size))
-
-  def __getitem__(self, axis):
-    if axis == 'x': axis = 0
-    if axis == 'y': axis = 1
-    if axis == 'z': axis = 2
-    return numpy.asarray([self.center[axis] - self.size[axis] * 0.5, 
-                    self.center[axis] + self.size[axis] * 0.5])
-
-  def __setitem__(self, axis, value):
-    if axis == 'x': axis = 0
-    if axis == 'y': axis = 1
-    if axis == 'z': axis = 2
-    value = tuple(value)
-    if len(value) != 2:
-      raise ValueError("accepts only (lower, upper)")
-    self.center[axis] = (value[0] + value[1]) * 0.5
-    self.size[axis] = (value[1] - value[0])
-
-  def select(self, locations):
-    """return a mask of the locations in the cut"""
-    if self.empty:
-      return None
-    mask = numpy.ones(dtype='?', shape = locations.shape[0])
-    for axis in range(3):
-      mask[:] &= (locations[:, axis] >= self[axis][0])
-      mask[:] &= (locations[:, axis] < self[axis][1])
-    return mask
-
 class Field(object):
   @staticmethod
   def from_recarray(recarray):

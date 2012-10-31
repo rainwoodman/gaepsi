@@ -401,6 +401,11 @@ class packarray:
   def copy(self):
     return packarray(self.A.copy(), self.start, self.end)
 
+  def compress(self, mask):
+    count = self.end - self.start
+    realmask = numpy.repeat(mask, count)
+    return packarray(self.A[realmask], self.start[mask], self.end[mask])
+
   def __getitem__(self, index):
     if isinstance(index, basestring):
       return packarray(self.A[index], self.end - self.start)
