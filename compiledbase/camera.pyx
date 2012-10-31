@@ -521,7 +521,8 @@ cdef class Camera:
               _mask[i] = 1
           node = iter.get_next_sibling()
         else:
-          _mask[node] = 0 # over resolved 2
+          if return_nodes:
+            _mask[node] = 0 # over resolved 2
           node = iter.get_next_child()
 
     return mask
