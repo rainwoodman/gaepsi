@@ -148,7 +148,7 @@ class Store(object):
  
   def saveas(self, ftypes, snapshots, np=None):
     for ftype in _ensurelist(ftypes):
-      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype], np=np, save_and_clear=True)
+      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype][0], np=np, save_and_clear=True, cosmology=self.cosmology)
 
   def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
