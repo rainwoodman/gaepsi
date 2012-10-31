@@ -10,13 +10,17 @@ def is_string_like(v):
 def get_reader(reader):
   return Reader(reader)
 
-def Reader(reader):
+def Reader(reader, forcedouble=False):
   if is_string_like(reader) :
     module = __import__('gaepsi.readers.%s' % reader, globals(), {}, [''], 0)
     if not hasattr(module, 'Reader'):
       raise ImportError('Reader class not found in %s', reader)
     reader = module.Reader
-  reader = ReaderMeta(reader.__name__, (reader, object), dict(reader.__dict__))
+  if not isinstance(reader, ReaderMeta):
+    reader = ReaderMeta(reader.__name__, (reader, object), dict(reader.__dict__))
+  if forcedouble:
+    reader.schema.force_double_precision()
+
   return reader
 
 class ConstBase:
@@ -64,8 +68,11 @@ class ConstBase:
       attr = getattr(self, item)
       if isinstance(attr, basestring):
         self._header[attr] = value
+      elif isinstance(attr, tuple) or isinstance(attr, list):
+        dtype, get, set = attr
+        virtarray(None, dtype, MethodType(get, self, None), MethodType(set, self, None))[...] = value
       else:
-        raise IndexError("can't set %s" % attr)
+        raise IndexError("can't set %s" % item)
     elif item in self._header.dtype.names:
       self._header[item] = value
     else:
@@ -96,6 +103,21 @@ class Schema:
         conditions = entry[3]
       self.dict[entry[0]] = Schema.Entry._make((entry[0], numpy.dtype(entry[1]), entry[2], conditions))
       self.list += [entry[0]]
+
+  def force_single_precision(self):
+    for name in self.list:
+      entry = self.dict[name]
+      self.dict[name] = Schema.Entry._make((
+         name, eval(str(entry[1]).replace('f8', 'f4').replace('float64', 'float32'), {'numpy':numpy}),
+         entry[2], entry[3]))
+     
+  def force_double_precision(self):
+    for name in self.list:
+      entry = self.dict[name]
+      self.dict[name] = Schema.Entry._make((
+         name, eval(repr(entry[1]).replace('f4', 'f8').replace('float32', 'float64'), {'dtype':numpy.dtype}),
+         entry[2], entry[3]))
+    
   def __contains__(self, index):
     return index in self.dict
   def __getitem__(self, index):
@@ -112,6 +134,7 @@ class ReaderMeta(type):
       'header': None,
       'schema': None,
       'constants': {},
+      'usemasstab': True,
       'endian': '<'}
 
     missing = []
@@ -181,7 +204,7 @@ class ReaderMeta(type):
     s = cls[block]
     for cond in s.conditions:
       if snapshot.header[cond] == 0 : return False
-    if ptype in s.ptypes: return True
+    if ptype is None or ptype in s.ptypes: return True
     return False
 
   def update_offsets(cls, snapshot):
@@ -196,9 +219,7 @@ class ReaderMeta(type):
         snapshot.offsets[s.name] = None
         continue
 
-      N = 0
-      for ptype in s.ptypes:
-        N += snapshot.C['N'][ptype]
+      N = cls.count_particles(snapshot, s, None)
       blocksize = N * s.dtype.itemsize
 
       snapshot.sizes[s.name] = blocksize
@@ -208,6 +229,20 @@ class ReaderMeta(type):
 
     return blockpos
 
+  def count_particles(cls, snapshot, schema, endptype=None):
+    N = 0
+    for i in range(len(snapshot.C['N'])):
+      if cls.usemasstab and schema.name == 'mass' and snapshot.C['mass'][i] != 0:
+        continue
+      if i in schema.ptypes and (endptype is None or i < endptype) :
+        N += snapshot.C['N'][i]
+    return N
+
+  def write_header(cls, snapshot):
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
+    file.seek(0)
+    file.write_record(snapshot.header)
+    
   def create_structure(cls, snapshot):
     file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
     cls.update_offsets(snapshot)
@@ -219,18 +254,18 @@ class ReaderMeta(type):
     file.write_record(snapshot.header)
 
   def save(cls, snapshot, ptype, name):
-    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
-
     s = cls[name]
     if not ptype in s.ptypes: 
       return
-    file.seek(snapshot.offsets[s.name])
+    if cls.usemasstab and s.name == 'mass' and snapshot.C['mass'][ptype] != 0.0:
+      if (snapshot.P[ptype][s.name] != snapshot.C['mass'][ptype]).any():
+        warnings.warn('mismatching particle mass detected')
+      return
 
+    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
+    file.seek(snapshot.offsets[s.name])
     length = snapshot.sizes[s.name] // s.dtype.base.itemsize
-    offset = 0
-    for i in range(len(snapshot.C['N'])):
-      if i in s.ptypes and i < ptype :
-        offset += snapshot.C['N'][i]
+    offset = cls.count_particles(snapshot, s, ptype)
     offset *= s.dtype.itemsize / s.dtype.base.itemsize
     file.write_record(snapshot.P[ptype][s.name], length, offset)
    
@@ -242,19 +277,40 @@ class ReaderMeta(type):
       file.skip_record(s.dtype, length)
 
   def load(cls, snapshot, ptype, name):
-    file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
-
+    """ if ptype is None, read in all ptypes """
     s = cls[name]
-    file.seek(snapshot.offsets[s.name])
-    length = snapshot.sizes[s.name] // s.dtype.itemsize
-    if not ptype in s.ptypes : 
+    if ptype is None:
+      file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
+      file.seek(snapshot.offsets[s.name])
+      length = snapshot.sizes[s.name] // s.dtype.itemsize
+      try:
+        snapshot.P[None][s.name] = file.read_record(s.dtype, length)
+      except IOError as e:
+        raise IOError('failed to read block %s:%s' % (s.name, e))
+      for ptype in s.ptypes:
+        if cls.usemasstab and s.name == 'mass' and snapshot.C['mass'][ptype] != 0.0:
+          snapshot.P[ptype][s.name] = numpy.empty(snapshot.C['N'][ptype], s.dtype)
+          snapshot.P[ptype][s.name][:] = snapshot.C['mass'][ptype]
+        else:
+          offset = cls.count_particles(snapshot, s, ptype)
+          snapshot.P[ptype][s.name] = snapshot.P[None][s.name]\
+               [offset:offset + snapshot.C['N'][ptype]]
+
+    if not ptype in s.ptypes: 
       snapshot.P[ptype][s.name] = None
       return
-    offset = 0
-    for i in range(len(snapshot.C['N'])):
-      if i in s.ptypes and i < ptype :
-        offset += snapshot.C['N'][i]
-    snapshot.P[ptype][s.name] = file.read_record(s.dtype, length, offset, snapshot.C['N'][ptype])
+    if cls.usemasstab and s.name == 'mass' and snapshot.C['mass'][ptype] != 0.0:
+      snapshot.P[ptype][s.name] = numpy.empty(snapshot.C['N'][ptype], s.dtype)
+      snapshot.P[ptype][s.name][:] = snapshot.C['mass'][ptype]
+    else:
+      file = cls.file_class(snapshot.file, endian=cls.endian, mode='r')
+      file.seek(snapshot.offsets[s.name])
+      length = snapshot.sizes[s.name] // s.dtype.itemsize
+      offset = cls.count_particles(snapshot, s, ptype)
+      try:
+        snapshot.P[ptype][s.name] = file.read_record(s.dtype, length, offset, snapshot.C['N'][ptype])
+      except IOError as e:
+        raise IOError('failed to read block %s:%s' % (s.name, e))
 
 class CFile(file):
   def get_size(size):

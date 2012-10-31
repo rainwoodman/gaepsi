@@ -29,8 +29,10 @@ class Snapshot:
 
     #self.C is set after reader.create / reader.open
     # particle data
-    self.P = [{} for n in self.C['N']]
-
+    self.P = {}
+    for n in range(len(self.C['N'])):
+      self.P[n] = {}
+    self.P[None] = {}
 
   def __del__(self):
     if hasattr(self, 'save_on_delete') and self.save_on_delete:
@@ -49,6 +51,9 @@ class Snapshot:
   def has(self, blockname, ptype):
     return self.reader.has_block(self, ptype, blockname)
     
+  def save_header(self):
+    self.reader.write_header(self)
+
   def create_structure(self):
     self.reader.create_structure(self)
 
