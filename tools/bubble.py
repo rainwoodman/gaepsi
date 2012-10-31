@@ -2,7 +2,7 @@
 Detecting bubble edge(Rs) mostly for stromgren sphere growth
 """
 
-import healpy as hy
+import chealpy as hy
 from numpy import zeros, zeros_like, arange, linspace, digitize, newaxis, bincount
 from numpy import arange, argmax, argmin, where
 from numpy import exp
@@ -33,7 +33,7 @@ def sum(nside, field, component, center=None, rmax=None, rmin=None):
   r = (disp[:,0:3] **2).sum(axis=-1) ** 0.5
   mask = (r < rmax) & (r > rmin)
   npix = hy.nside2npix(nside)
-  pixid = hy.vec2pix(nside, disp[mask,0]/r[mask], disp[mask, 1]/r[mask], disp[mask,2]/r[mask])
+  pixid = hy.vec2pix_nest(nside, disp[mask,0]/r[mask], disp[mask, 1]/r[mask], disp[mask,2]/r[mask])
 
   Mhist = zeros(npix)
 
@@ -56,7 +56,7 @@ def Rs(nside, field, component, weight, levels=[0.1, 0.5, 0.9], center=None, rma
   mask = (r < rmax) & (r > rmin)
   if nside > 0:
     npix = hy.nside2npix(nside)
-    pixid = hy.vec2pix(nside, disp[mask,0]/r[mask], disp[mask, 1]/r[mask], disp[mask,2]/r[mask])
+    pixid = hy.vec2pix_nest(nside, disp[mask,0]/r[mask], disp[mask, 1]/r[mask], disp[mask,2]/r[mask])
   else:
     npix = 1
     pixid = 0
