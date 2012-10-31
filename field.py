@@ -88,7 +88,7 @@ class Field(object):
   def __init__(self, components=None, numpoints = 0, dtype='f4'):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
-    self.numpoints = numpoints
+    self.numpoints = int(numpoints)
     if dtype is not None:
       self['locations'] = numpy.zeros(shape = numpoints, dtype = (dtype, 3))
     if components is not None:
@@ -108,16 +108,18 @@ class Field(object):
     if comp == 'locations': return 'pos'
     return comp
 
-  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, np=None):
+  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, cosmology=None, np=None):
     """ dump field into snapshots.
         if save_and_clear is True, immediately save the file and clear the snapshot object,
         using less memory.
-        otherwise, leave the data in memory in snapshot object.
+        otherwise, leave the data in memory in snapshot object. and only the header is written.
     """
     Nfile = len(snapshots)
     starts = numpy.zeros(dtype = 'u8', shape = Nfile)
     for i in range(Nfile):
       snapshot = snapshots[i]
+      if cosmology is not None:
+        cosmology.to_snapshot(snapshot)
       starts[i] = self.numpoints * i / Nfile
       snapshot.C['N'][ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
       tmp = snapshot.C['Ntot']
@@ -185,7 +187,7 @@ class Field(object):
 
     starts.flat[1:] = lengths.cumsum()[:-1]
 
-    self.numpoints = lengths.sum()
+    self.numpoints = int(lengths.sum())
 
     blocklist = []
 
@@ -276,20 +278,20 @@ class Field(object):
     elif isinstance(index, slice):
       subfield = Field()
       start, stop, step = index.indices(self.numpoints)
-      subfield.numpoints = (stop + step - 1 - start) / step
+      subfield.numpoints = int((stop + step - 1 - start) / step)
       for comp in self.names:
         subfield.dict[comp] = self.dict[comp][index]
       return subfield
     elif isinstance(index, numpy.ndarray) \
        and index.dtype == numpy.dtype('?'):
         subfield = Field()
-        subfield.numpoints = index.sum()
+        subfield.numpoints = int(index.sum())
         for comp in self.names:
           subfield[comp] = self[comp][index]
         return subfield
     elif not numpy.isscalar(index):
       subfield = Field()
-      subfield.numpoints = len(index)
+      subfield.numpoints = int(len(index))
       for comp in self.names:
         subfield[comp] = self[comp][index]
       return subfield
