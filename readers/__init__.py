@@ -120,6 +120,9 @@ class Schema:
         conditions = None
       else:
         dtype, ptypes, conditions = entry
+      try: ptypes[0]
+      except :
+        ptypes = (ptypes,)
       dtype = numpy.dtype(dtype)
       self.__dict__[block] = Schema.Entry._make((block, dtype, ptypes, conditions))
     self.nptypes = nptypes
@@ -164,7 +167,7 @@ class ReaderObj(object):
     cls.file_class = cls.filedict[cls.format]
 
     if hasattr(cls.constants, 'N'):
-      nptypes = numpy.dtype(N[0]).shape[0]
+      nptypes = numpy.dtype(cls.constants.N[0]).shape[0]
     else:
       nptypes = cls.header['N'].shape[0]
     cls.schema = Schema(cls.schema, nptypes)
@@ -211,7 +214,7 @@ class ReaderObj(object):
       snapshot.sizes[block] = blocksize
       snapshot.offsets[block] = blockpos
       blockpos += cls.file_class.get_size(blocksize);
-
+      print block, blocksize
     return blockpos
 
   def has_block(cls, snapshot, block, ptype=None):
@@ -234,7 +237,7 @@ class ReaderObj(object):
       if cls.needmasstab(snapshot, name, ptype):
         continue
       if ptype in schema.ptypes:
-        N += snapshot.C['N'][ptype]
+        N += int(snapshot.C['N'][ptype])
     return N
 
   def write_header(cls, snapshot):

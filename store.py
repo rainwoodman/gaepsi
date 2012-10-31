@@ -85,6 +85,7 @@ class Store(object):
     """ loc dtype is the base dtype of the locations."""
     reader = Reader(self._format)
     schemed = {}
+      
     for comp in components:
       if comp is tuple:
         schemed[comp[0]] = comp[1]
@@ -139,7 +140,10 @@ class Store(object):
     self.periodic = periodic
 
     self.cosmology = Cosmology.from_snapshot(snap)
-    self.redshift = self.C['redshift']
+    try:
+      self.redshift = self.C['redshift']
+    except:
+      self.redshift = 0.0
 
     self.schema('gas', 0, ['sml', 'mass'])
     self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
