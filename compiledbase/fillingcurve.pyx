@@ -11,6 +11,8 @@ from numpy cimport PyUFunc_FromFuncAndData, PyUFunc_None
 cimport npyiter
 DEF BITS = 40
 
+bits = BITS
+bitmask = (1L << BITS) - 1
 cdef class fckeyobject:
   cdef fckey_t value
   def __cinit__(self, value):
@@ -90,12 +92,15 @@ cdef void i2f0(double scale[4], ipos_t point[3], double pos[3]) nogil:
 
 def scale(origin, boxsize):
   scale = numpy.empty(4, 'f8')
+  _boxsize = numpy.empty(3, 'f8')
+  _boxsize[:] = boxsize
   scale[:3] = origin
-  scale[3] = ((<ipos_t>1 << BITS) - 1) / numpy.array(boxsize).max()
+  scale[3] = ((<ipos_t>1 << BITS) - 1) / _boxsize.max()
   return scale
 
 def contains(fckey, order, X, Y=None, Z=None, out=None, scale=None):
-  """ when scale is None X, Y, Z are i8.
+  """ returns if X, Y, Z is in (fckey, order) 
+      when scale is None X, Y, Z are i8.
       if Y, Z is None, X is fckey """
   cdef double min[4]
   cdef int mode = 0
@@ -290,9 +295,13 @@ cdef numpy.dtype _register_dtype(typeobj):
   f.compare = <void*> _compare
 
   f.cast[<int>numpy.NPY_INT64] = <void*> _downcasti8
+  f.cast[<int>numpy.NPY_UINT64] = <void*> _downcastu8
   f.cast[<int>numpy.NPY_INT32] = <void*> _downcasti4
+  f.cast[<int>numpy.NPY_UINT32] = <void*> _downcastu4
   f.cast[<int>numpy.NPY_INT16] = <void*> _downcasti2
+  f.cast[<int>numpy.NPY_UINT16] = <void*> _downcastu2
   f.cast[<int>numpy.NPY_INT8] = <void*> _downcasti1
+  f.cast[<int>numpy.NPY_UINT8] = <void*> _downcastu1
 
   cdef int typenum = register_dtype(descr, f,
      dict(elsize=16, kind='i', byteorder='=', type='z', alignment=8, typeobj=typeobj, metadata={})
@@ -613,7 +622,17 @@ cdef void _upcastlong(void** src, fckey_t * dst, intptr_t n, void * NOTUSED, voi
      i = i + 1
 
 
+cdef void _downcastu8(fckey_t * src, uint64_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
 cdef void _downcasti8(fckey_t * src, int64_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+cdef void _downcastu4(fckey_t * src, uint32_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
    cdef intptr_t i = 0
    while i < n:
      dst[i] = src[i]
@@ -623,7 +642,17 @@ cdef void _downcasti4(fckey_t * src, int32_t *dst, intptr_t n, void * NOTUSED, v
    while i < n:
      dst[i] = src[i]
      i = i + 1
+cdef void _downcastu2(fckey_t * src, uint16_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
 cdef void _downcasti2(fckey_t * src, int16_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
+   cdef intptr_t i = 0
+   while i < n:
+     dst[i] = src[i]
+     i = i + 1
+cdef void _downcastu1(fckey_t * src, uint8_t *dst, intptr_t n, void * NOTUSED, void * NOT_USED2) nogil:
    cdef intptr_t i = 0
    while i < n:
      dst[i] = src[i]
