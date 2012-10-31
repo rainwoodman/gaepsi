@@ -35,12 +35,30 @@ def sphrotate(ra, dec, ref, new=(0, 0)):
 class Cosmology(object):
   cache = {}
   def __new__(klass, h, M, L, K=0):
-    key = repr((h, M, L, K))
+    rt, key = klass.getcached(h, M, L, K)
+    if rt is not None: return rt
     if len(klass.cache) > 10: 
       klass.cache.clear()
-    if key in klass.cache:
-      return klass.cache[key]
+    rt = klass.realnew(h, M, L, K)
+    klass.setcache(rt)
+    return rt
 
+  @classmethod
+  def getcached(klass, h, M, L, K):
+    key = repr((h, M, L, K))
+    if key in klass.cache:
+      return klass.cache[key], key
+    else: 
+      return None, key
+
+  @classmethod
+  def setcache(klass, obj):
+    cached, key = klass.getcached(obj.h, obj.M, obj.L, obj.K)
+    if cached is None:
+      klass.cache[key] = obj
+
+  @classmethod
+  def realnew(klass, h, M, L, K):
     self = object.__new__(klass)
     self.M = M
     self.L = L
@@ -50,7 +68,9 @@ class Cosmology(object):
     self.DH = self.units.C / self.units.H0
     self.tH = 1.0 / self.units.H0
     self._cosmology = _cosmology.Cosmology(self.M, self.K, self.L, self.h)
+    return self
 
+  def setup_tables(self):
     z = numpy.linspace(0, 1, 1024*1024)
     z = z ** 6 * 255
     Ezinv = 1 / self.Ez(z)
@@ -59,19 +79,22 @@ class Cosmology(object):
     self._intEzinv_table = (Ezinv * dz).cumsum()[::256].copy()
     self._z_table = z[::256].copy()
     self._Ezinv_table = Ezinv[::256].copy()
-    klass.cache[key] = self
-    return self
+    self.setup_tables = lambda : None
 
   @classmethod
   def from_snapshot(cls, snapshot):
-    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
+    if not 'OmegaM' in snapshot.C \
+    or not 'OmegaL' in snapshot.C \
+    or not 'h' in snapshot.C:
       warnings.warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
       return WMAP7
     else:
       return cls(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
     
   def to_snapshot(self, snapshot):
-    if not 'OmegaM' in snapshot.C or not 'OmegaL' in snapshot.C or not 'h' in snapshot.C:
+    if not 'OmegaM' in snapshot.C \
+    or not 'OmegaL' in snapshot.C \
+    or not 'h' in snapshot.C:
       warnings.warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
       return
     snapshot.C['OmegaM'] = self.cosmology.M
@@ -79,7 +102,8 @@ class Cosmology(object):
     snapshot.C['h'] = self.cosmology.h
     
   def __repr__(self):
-    return "Cosmology(h=%g, M=%g, L=%g, K=%g)" % (self.h, self.M, self.L, self.K)
+    return "Cosmology(h=%g, M=%g, L=%g, K=%g)" \
+      % (self.h, self.M, self.L, self.K)
 
   def Ez(self, z, out=None):
    # Ez is dimensionless, and so is _cosmology
@@ -87,6 +111,7 @@ class Cosmology(object):
 
   def intEzinvdz(self, z1, z2, func):
     """integrate func(z) * 1 /Ez dz, always from the smaller z to the higher"""
+    self.setup_tables()
     if z1 < z2:
       mask = (self._z_table >= z1) & (self._z_table <= z2)
     else:
@@ -95,7 +120,9 @@ class Cosmology(object):
     Ezinv = self._Ezinv_table[mask]
     v = func(z)
     return numpy.trapz(v * Ezinv, z)
+
   def intdV(self, z1, z2, func):
+    self.setup_tables()
     return self.intEzinvdz(z1, z2, lambda z: self.Dc(z) ** 2 * 4 * numpy.pi * self.DH * func(z))
 
   def Vsky(self, z1, z2):
@@ -125,45 +152,12 @@ class Cosmology(object):
   def t2z(self, t):
     return 1 / self.t2a(t) - 1
 
-  def fomega(self, a=None, z=None):
-    """!===============================================================================
-       !  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for
-       !  lambda+matter-dominated cosmology.
-       !  Omega0 := Omega today (a=1) in matter only.  Omega_lambda = 1 - Omega0.
-       !===============================================================================
-    """
-    if a is None: a = 1 / (1.+z)
-    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
-    return (2.5 / self.dplus(a) - 1.5 * self.M / a + 1 - self.M - self.L) * eta **-2
-
-  def dplus(self, a=None, z=None):
-    """!===============================================================================
-    !  Evaluate D+(a) (linear growth factor) for FLRW cosmology.
-    !  Omegam := Omega today (a=1) in matter.
-    !  Omegav := Omega today (a=1) in vacuum energy.
-    !===============================================================================
-    """
-    if a is None: a = 1 / (1.+z)
-    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
-    agrid = numpy.linspace(1e-8, a, 100000)
-    data = self.ddplus(agrid)
-    return eta / a * numpy.trapz(y=data, x=agrid)
-
-  def ddplus(self, a, out=None):
-    return self._cosmology.eval('ddplus', a, out)
-
-  def dladt(self, a, out=None):
-    """===============================================================================
-    !  Evaluate dln(a)/dtau for FLRW cosmology.
-    !===============================================================================
-    """
-    return self._cosmology.eval('dladt', a, out)
-
   def Dc(self, z1, z2=None, t=None, out=None):
     """ returns the comoing distance between z1 and z2 
         along two light of sights of angle t. 
         out cannot be an alias of t. """
 
+    self.setup_tables()
     shape = numpy.broadcast(z1, z2, t).shape
     DH = self.DH
     if z2 is None: 
@@ -182,6 +176,7 @@ class Cosmology(object):
 
   def D2z(self, z0, d):
     """returns the z satisfying Dc(z0, z) = d, and z > z0"""
+    self.setup_tables()
     d0 = numpy.interp(z0, self._z_table, self._intEzinv_table)
     z = numpy.interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
     return z
@@ -211,8 +206,10 @@ class Cosmology(object):
     return out
 
   def DtoZ(self, distance, z0):
-    """ Use D2z. integrate the redshift on a sightline based on the distance taking GADGET, comoving. 
+    """ Use D2z. integrate the redshift on a sightline 
+        based on the distance taking GADGET, comoving. 
         REF transform 3.38) in Barbara Ryden. """
+    raise 'This is deprecated'
     z = numpy.zeros_like(distance)
     dd =numpy.diff(distance)
     z[0] = z0
@@ -221,7 +218,8 @@ class Cosmology(object):
     return z
 
   def Rvir(self, m, z, Deltac=200):
-    """returns the virial radius at redshift z. taking GADGET, return GADGET, comoving.
+    """returns the virial radius at redshift z. 
+        taking GADGET, return GADGET, comoving.
        REF Rennna Barkana astro-ph/0010468v3 eq (24) [proper in eq 24]"""
     M,L,K = self.M, self.L, self.K
     OmegaMz = M * (1 + z)**3 / self.Ez(z)
@@ -249,7 +247,8 @@ class Cosmology(object):
       return ie * mass * (Xh * (GAMMA - 1)) * abundance * mu
 
   def ie2T(self, Xh, ie, ye, out=None):
-    """ converts GADGET internal energy per mass to temperature. taking GADGET return GADGET.
+    """ converts GADGET internal energy per mass to temperature. 
+        taking GADGET return GADGET.
        multiply by units.TEMPERATURE to SI"""
     fac = self.units.PROTONMASS / self.units.BOLTZMANN
     GAMMA = 5 / 3.
@@ -259,6 +258,41 @@ class Cosmology(object):
       return out
     else:
       return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
+
+  def fomega(self, a=None, z=None):
+    """!=======================================================
+       !  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for
+       !  lambda+matter-dominated cosmology.
+       !  Omega0 := Omega today (a=1) in matter only. Omega_lambda = 1 - Omega0.
+       !==================================================================
+    """
+    if a is None: a = 1 / (1.+z)
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    return (2.5 / self.dplus(a) - 1.5 * self.M / a + 1 - self.M - self.L) * eta **-2
+
+  def dplus(self, a=None, z=None):
+    """!=========================================================
+    !  Evaluate D+(a) (linear growth factor) for FLRW cosmology.
+    !  Omegam := Omega today (a=1) in matter.
+    !  Omegav := Omega today (a=1) in vacuum energy.
+    !=========================================================
+    """
+    if a is None: a = 1 / (1.+z)
+    eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
+    agrid = numpy.linspace(1e-8, a, 100000)
+    data = self.ddplus(agrid)
+    return eta / a * numpy.trapz(y=data, x=agrid)
+
+  def ddplus(self, a, out=None):
+    return self._cosmology.eval('ddplus', a, out)
+
+  def dladt(self, a, out=None):
+    """======================================================
+    !  Evaluate dln(a)/dtau for FLRW cosmology.
+    !=================================================
+    """
+    return self._cosmology.eval('dladt', a, out)
+
 
 WMAP7 = Cosmology(K=0.0, M=0.272, L=0.728, h=0.702)
 default = WMAP7
