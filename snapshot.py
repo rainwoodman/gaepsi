@@ -49,7 +49,7 @@ class Snapshot:
     return [self.P[ptype][bn] for bn in blocknames]
 
   def has(self, blockname, ptype):
-    return self.reader.has_block(self, ptype, blockname)
+    return self.reader.has_block(self, blockname, ptype)
     
   def save_header(self):
     self.reader.write_header(self)
