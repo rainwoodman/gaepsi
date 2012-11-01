@@ -37,6 +37,12 @@ def Reader(reader, forcedouble=False):
   return reader
 
 class ConstBase:
+  """
+     a constant can be at the following locations:
+     the header, (saved in the snapshot file)
+     the class,  (may be converted to something in the header)
+     or extra.   (lost)
+  """
   def __init__(self, header, init=False):
     """ if init is True, the values are initialized """
     self._header = header
@@ -259,9 +265,9 @@ class ReaderObj(object):
       return
 
     if cls.needmasstab(snapshot, name, ptype):
-      if (snapshot.P[ptype][s.name] != snapshot.C['mass'][ptype]).any():
+      if (snapshot.P[ptype][name] != snapshot.C['mass'][ptype]).any():
         warnings.warn('mismatching particle mass detected')
-        return
+      return
 
     file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
     file.seek(snapshot.offsets[name])
@@ -269,6 +275,8 @@ class ReaderObj(object):
     length = snapshot.sizes[name] // dtype.base.itemsize
     offset = cls.count_particles(snapshot, name, ptype)
     offset *= dtype.itemsize // dtype.base.itemsize
+    if len(snapshot.P[ptype][name]) != snapshot.C['N'][ptype]:
+      raise IOError('snapshot memory image corrupted')
     file.write_record(snapshot.P[ptype][name], length, offset)
    
   def check(cls, snapshot):
