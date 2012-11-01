@@ -70,6 +70,8 @@ class Store(object):
       self._periodic = False
 
   def _rebuildtree(self, ftype, thresh=None):
+    if ftype in self.T and self.T[ftype] == False:
+      return
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
       self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
@@ -81,13 +83,24 @@ class Store(object):
     # optimize is useless I believe
     # self.T[ftype].optimize()
 
-  def schema(self, ftype, types, components):
-    """ loc dtype is the base dtype of the locations."""
+  def schema(self, ftype, types, components=None, tree=True):
+    """ give particle types a name, and associate
+        it with components.
+        
+        dtype is the base dtype of the locations.
+        components is a list of components in the Field
+        and also the blocks to read from snapshot files.
+        if components is None, all blocks defined
+        in the reader will be read in.
+    """
     reader = Reader(self._format)
     schemed = {}
       
+    if components is None:
+      components = reader.schema
+
     for comp in components:
-      if comp is tuple:
+      if isinstance(comp, tuple):
         schemed[comp[0]] = comp[1]
       elif comp in reader:
         schemed[comp] = reader[comp].dtype
@@ -98,6 +111,7 @@ class Store(object):
       self.F[ftype] = Field(components=schemed, dtype=None)
 
     self.P[ftype] = _ensurelist(types)
+    if not tree: self.T[ftype] = False
 
   def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None, **kwargs):
     """ kwargs will override values saved in the snapshot file,
