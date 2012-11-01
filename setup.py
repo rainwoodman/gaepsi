@@ -15,13 +15,11 @@ setup(name="gaepsi", version="0.2",
       packages = [
         'gaepsi', 'gaepsi.cosmology', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.compiledbase'
       ],
-      scripts = [ 'scripts/gadget-render.py', 
-                  'scripts/gadget-mklayers.py', 
-                  'scripts/gadget-hist.py',
+      scripts = [  
                   'scripts/gadget-dump-header.py',
+                  'scripts/gadget-make-meshindex.py',
+                  'scripts/gadget-extract-ptype.py',
                   'scripts/gadget-check-file.py',
-                  'scripts/gadget-gen-snapshot.py',
-                  'scripts/gadget-crop-snapshot.py',
                  ],
       ext_modules = [
         Extension("gaepsi.%s" % name, 
