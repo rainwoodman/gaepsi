@@ -21,7 +21,7 @@ class Snapshot:
       self.save_on_delete = True
       reader.create(self, overwrite=overwrite)
       for key in kwargs:
-        self.header[key] = kwargs[key]
+        self.C[key] = kwargs[key]
 
     else:
       self.save_on_delete = False
@@ -63,13 +63,14 @@ class Snapshot:
 
     # now ensure the structure of the file is complete
     for ptype in range(len(self.C['N'])):
-      for block in [sch.name for sch in self.reader]:
+      for block in self.reader.schema:
         if block in self.P[ptype]:
-          self.save(ptype = ptype, blocknames = [block])
+          self.save(ptype=ptype, blocknames=[block])
 
   def save(self, blocknames, ptype, clear=False) :
     self.save_on_delete = False
-    if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
+    if isinstance(blocknames, basestring) : 
+      blocknames = [blocknames]
     for bn in blocknames: 
       self.reader.save(self, ptype, bn)
     if clear: 
