@@ -3,25 +3,27 @@ import sharedmem
 from sys import argv
 import argparse
 import numpy
+from gaepsi.compiledbase import fillingcurve
 from gaepsi.snapshot import Snapshot
 from gaepsi.meshindex import MeshIndex
+from gaepsi.tools import packarray
 
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("-f", dest='format', default='genic', required=False)
   parser.add_argument("filename")
   # n is bits per chanel
-  parser.add_argument("-n", dest='bitsperaxis', default=6, required=False)
+  parser.add_argument("-n", dest='bitsperaxis', default=6, required=False, type=int)
   parser.add_argument("-o", dest='output', default=None, required=True)
   args = parser.parse_args()
   
   bits = args.bitsperaxis * 3
 
   if '%d' in args.filename:
-    snap0 = Snapshot(args.filename % 0, 'massiveblack')
+    snap0 = Snapshot(args.filename % 0, args.format)
     Nfile = snap0.C['Nfiles']
   else:
-    snap0 = Snapshot(args.filename, 'massiveblack')
+    snap0 = Snapshot(args.filename, args.format)
     Nfile = 1
 
   boxsize = snap0.C['boxsize']
