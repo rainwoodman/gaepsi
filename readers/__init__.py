@@ -214,7 +214,6 @@ class ReaderObj(object):
       snapshot.sizes[block] = blocksize
       snapshot.offsets[block] = blockpos
       blockpos += cls.file_class.get_size(blocksize);
-      print block, blocksize
     return blockpos
 
   def has_block(cls, snapshot, block, ptype=None):
@@ -256,7 +255,7 @@ class ReaderObj(object):
     file.write_record(snapshot.header)
 
   def save(cls, snapshot, ptype, name):
-    if not cls.has_block(name, ptype):
+    if not cls.has_block(snapshot, name, ptype):
       return
 
     if cls.needmasstab(snapshot, name, ptype):
