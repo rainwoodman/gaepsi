@@ -11,7 +11,7 @@ setup(name="gaepsi", version="0.2",
       zip_safe=False,
       install_requires=['cython', 'numpy', 'sharedmem', 'chealpy'],
       requires=['numpy', 'sharedmem', 'chealpy'],
-      package_dir = {'gaepsi': '.'},
+      package_dir = {'gaepsi': 'gaepsi'},
       packages = [
         'gaepsi', 'gaepsi.cosmology', 'gaepsi.readers', 'gaepsi.tools', 'gaepsi.compiledbase'
       ],
@@ -23,24 +23,24 @@ setup(name="gaepsi", version="0.2",
                  ],
       ext_modules = [
         Extension("gaepsi.%s" % name, 
-             [ name.replace('.', '/') + '.pyx',],
+             [ 'gaepsi/' + name.replace('.', '/') + '.pyx',],
              extra_compile_args=['-O0', '-g', '-Dintp=npy_intp'],
              libraries=[],
-             include_dirs=[get_include(), 'cosmology', 'compiledbase'],
+             include_dirs=[get_include(), 'gaepsi/cosmology', 'gaepsi/compiledbase'],
              depends = extra
         ) for name, extra in [
          ('compiledbase._fast', []),
          ('compiledbase.geometry', []),
 #         ('compiledbase._field', []), orphan, pending removal?
          ('compiledbase.camera', []),
-         ('compiledbase.ztree', ['compiledbase/npyiter.pxd',]),
+         ('compiledbase.ztree', ['gaepsi/compiledbase/npyiter.pxd',]),
 #         ('compiledbase.zfof', []),
          ('compiledbase.query', []),
          ('compiledbase.ngbquery', []),
          ('compiledbase.rayquery', []),
          ('compiledbase.fillingcurve', []),
          ('cosmology._cosmology', []),
-         ('cosmology._qlf', ['cosmology/qlf_calculator.c']),
+         ('cosmology._qlf', ['gaepsi/cosmology/qlf_calculator.c']),
         ]
       ])
 

@@ -28,7 +28,8 @@ def generate_a_cython_source(self, base, ext_name, source, extension):
                 options = Cython.Compiler.Main.CompilationOptions(
                     defaults=Cython.Compiler.Main.default_options,
                     include_path=extension.include_dirs,
-                    output_file=target_file)
+                    output_file=target_file
+                    )
                 #log.info('\n'.join([s + ' ' + str(getattr(options, s)) for s in dir(options)]))
                 # avoid calling compile_single, because it will give wrong module names.
                 cython_result = Cython.Compiler.Main.compile([source],
