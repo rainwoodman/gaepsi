@@ -39,17 +39,23 @@ class Snapshot:
 #      print 'saving snapshot %s at destruction' % self.file
       self.save_all()
 
-  def load(self, blocknames, ptype) :
+  def load(self, name, ptype) :
     """ Load blocks into memory if they are not """
-    if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
-    for bn in blocknames:
-      if bn in self.P[ptype]: continue
-      if not self.has(bn, ptype): continue
-      self.reader.load(self, ptype, bn)
-    return [self.P[ptype][bn] for bn in blocknames]
+    if name in self.P[ptype]: return self.P[ptype][name]
+    if not self.has(name, ptype): return None
+    self.reader.load(self, ptype, name)
+    return self.P[ptype][name]
 
-  def has(self, blockname, ptype):
-    return self.reader.has_block(self, blockname, ptype)
+  def alloc(self, name, ptype) :
+    """ Load blocks into memory if they are not """
+    if name in self.P[ptype]: return self.P[ptype][name]
+    if not self.has(name, ptype): return None
+    self.reader.alloc(self, ptype, name)
+    #print 'alloced snap', name, ptype, self.P[ptype][name]
+    return self.P[ptype][name]
+
+  def has(self, name, ptype):
+    return self.reader.has_block(self, name, ptype)
     
   def save_header(self):
     self.reader.write_header(self)
@@ -63,31 +69,26 @@ class Snapshot:
 
     # now ensure the structure of the file is complete
     for ptype in range(len(self.C['N'])):
-      for block in self.reader.schema:
-        if block in self.P[ptype]:
-          self.save(ptype=ptype, blocknames=[block])
+      for name in self.reader.schema:
+        if name in self.P[ptype]:
+          self.save(name, ptype)
 
-  def save(self, blocknames, ptype, clear=False) :
+  def save(self, name, ptype, clear=False) :
     self.save_on_delete = False
-    if isinstance(blocknames, basestring) : 
-      blocknames = [blocknames]
-    for bn in blocknames: 
-      self.reader.save(self, ptype, bn)
+    self.reader.save(self, ptype, name)
     if clear: 
-      self.clear(blocknames, ptype)
+      self.clear(name, ptype)
 
   def check(self):
     self.reader.check(self)
 
-  def clear(self, blocknames, ptype) :
+  def clear(self, name, ptype) :
     """ relase memory used by the blocks, do not flush to the disk """
-    if hasattr(blocknames, 'isalnum') : blocknames = [blocknames]
-    for name in blocknames :
-      if name in self.P[ptype]: del self.P[ptype][name]
+    if name in self.P[ptype]: del self.P[ptype][name]
 
   def __getitem__(self, index):
     ptype, block = index
-    return self.load([block], ptype)[0]
+    return self.load(block, ptype)
 
   def __setitem__(self, index, value):
     ptype, block = index
@@ -99,5 +100,5 @@ class Snapshot:
 
   def __delitem__(self, index):
     ptype, block = index
-    return self.clear([block], ptype)
+    return self.clear(block, ptype)
 

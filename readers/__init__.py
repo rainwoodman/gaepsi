@@ -286,6 +286,36 @@ class ReaderObj(object):
       length = snapshot.sizes[s.name] // s.dtype.itemsize
       file.skip_record(s.dtype, length)
 
+  def alloc(cls, snapshot, ptype, name):
+    """ allocate memory for the block """
+    dtype = cls.schema[name].dtype
+    ptypes = cls.schema[name].ptypes
+    if ptype is None:
+      length = snapshot.sizes[name] // dtype.itemsize
+      snapshot.P[None][name] = numpy.zeros(length, dtype)
+
+      for ptype in ptypes:
+        if cls.needmasstab(snapshot, name, ptype):
+          snapshot.P[ptype][name] = numpy.empty(snapshot.C['N'][ptype], dtype)
+          snapshot.P[ptype][name][:] = snapshot.C['mass'][ptype]
+        else:
+          offset = cls.count_particles(snapshot, name, ptype)
+          snapshot.P[ptype][name] = snapshot.P[None][name]\
+               [offset:offset + snapshot.C['N'][ptype]]
+      return 
+
+    if not cls.has_block(snapshot, name, ptype):
+      snapshot.P[ptype][name] = None
+      return
+
+    if cls.needmasstab(snapshot, name, ptype):
+      snapshot.P[ptype][name] = numpy.empty(snapshot.C['N'][ptype], dtype)
+      snapshot.P[ptype][name][:] = snapshot.C['mass'][ptype]
+    else:
+      length = snapshot.sizes[name] // dtype.itemsize
+      snapshot.P[ptype][name] = numpy.zeros(length, dtype)
+
+
   def load(cls, snapshot, ptype, name):
     """ if ptype is None, read in all ptypes """
     dtype = cls.schema[name].dtype
@@ -307,6 +337,7 @@ class ReaderObj(object):
           offset = cls.count_particles(snapshot, name, ptype)
           snapshot.P[ptype][name] = snapshot.P[None][name]\
                [offset:offset + snapshot.C['N'][ptype]]
+      return
 
     if not cls.has_block(snapshot, name, ptype):
       snapshot.P[ptype][name] = None

@@ -80,8 +80,8 @@ class Field(object):
         snapshot[ptype, block] = numpy.array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
 
         if save_and_clear:
-          snapshot.save([block], ptype=ptype)
-          snapshot.clear([block], ptype=ptype)
+          snapshot.save(block, ptype)
+          snapshot.clear(block, ptype)
       #skip if the reader doesn't save the block
 
     with sharedmem.Pool(use_threads=True, np=np) as pool:
