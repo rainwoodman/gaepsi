@@ -4,12 +4,14 @@ import numpy
 import sharedmem
 from gaepsi.snapshot import Snapshot
 from gaepsi.meshindex import MeshIndex
+
+#sharedmem.set_debug(True)
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("filename")
   parser.add_argument("-f", "--format", dest='format', required=True)
   parser.add_argument("-p", "--ptype", dest='ptypes', 
-              action='append', required=True, type=int)
+              action='append', required=False, type=int)
   parser.add_argument("-o", "--output", dest='output', 
               required=True)
   parser.add_argument("--maxnpar", dest='maxnpar', default=20*1024*1024,
@@ -19,7 +21,10 @@ def main():
   group = parser.add_argument_group()
   group.add_argument("-m", "--meshindex", dest='meshindex', 
               required=False, type=MeshIndex.fromfile)
-  group.add_argument("--origin", nargs='+', dest='origin', 
+  x = group.add_mutually_exclusive_group()
+  x.add_argument("--origin", nargs='+', dest='origin', 
+              type=float, required=False)
+  x.add_argument("--center", nargs='+', dest='center', 
               type=float, required=False)
   group.add_argument("--boxsize", nargs='+', dest='boxsize', 
               type=float, required=False)
@@ -36,6 +41,7 @@ def main():
     return snap
 
   def filter(snap, ptype, origin, boxsize):
+    if snap.C['N'][ptype] == 0: return None, 0
     if origin is None or boxsize is None:
       return None, snap.C['N'][ptype]
     tail = origin + boxsize
@@ -48,6 +54,7 @@ def main():
       m[...] = \
         (x >= origin[0]) & (y >= origin[1]) & (z >= origin[2]) \
       & (x <= tail  [0]) & (y <= tail  [1]) & (z <= tail  [2])
+      
     return iter.operands[3], iter.operands[3].sum()
     
   def select(snap, ptype, block, mask):
@@ -55,9 +62,14 @@ def main():
       result = snap[ptype, block]
     else:
       result = snap[ptype, block][mask]
+    del snap[ptype, block]
     return result
 
   snap0 = open(args.filename, 0)
+  nptypes = snap0.reader.schema.nptypes
+
+  if args.ptypes is None:
+    args.ptypes = range(nptypes)
 
   if '%d' in args.filename:
     Nfile = snap0.C['Nfiles']
@@ -66,26 +78,32 @@ def main():
 
   fids = range(Nfile)
 
-  if args.origin is not None:
-    if args.boxsize is None:
+  if args.boxsize is not None:
+    boxsize = numpy.empty(3, dtype='f8')
+    boxsize[:] = args.boxsize
+    if args.origin is None and args.center is None:
       parser.print_help()
       parser.exit()
     else:
       origin = numpy.empty(3, dtype='f8')
-      boxsize = numpy.empty(3, dtype='f8')
-      origin[:] = args.origin
-      boxsize[:] = args.boxsize
+      if args.origin is not None:
+        origin[:] = args.origin
+      else:
+        origin[:] = args.center
+        origin[:] = origin - boxsize * 0.5
+
       if args.meshindex is not None:
         fids = args.meshindex.cut(origin, boxsize)
-  
+      args.meshindex = None
+
   defaultheader = snap0.header
   Ntot = snap0.C['Ntot']
-  Ntot_out = numpy.zeros(snap0.reader.schema.nptypes, dtype='i8')
+  Ntot_out = numpy.zeros(nptypes, dtype='i8')
 
   with sharedmem.Pool(use_threads=True) as pool:
     def work(fid):
       snap = open(args.filename, fid)
-      N_out = numpy.zeros(snap0.reader.schema.nptypes, dtype='i8')
+      N_out = numpy.zeros(nptypes, dtype='i8')
       for ptype in args.ptypes:
         mask, count = filter(snap, ptype, origin, boxsize)
         N_out[ptype] = count
@@ -100,68 +118,67 @@ def main():
   if Nfile_out > 1 and '%d' not in args.output:
     args.output += '.%d'
 
-  print Nfile_out, args.output
-
   outputs = [open(args.output, fid, create=True) for fid in range(Nfile_out)]
-  written = [numpy.zeros_like(output.C['N']) for output in outputs]
-  cursor = numpy.zeros(snap0.reader.schema.nptypes, dtype='i8')
+  written = numpy.zeros((Nfile_out, nptypes), dtype='i8')
+  free = numpy.empty_like(written)
+  writing = numpy.zeros((Nfile_out, nptypes), dtype='i8')
+
+  cursor = numpy.zeros(nptypes, dtype='i8')
 
   for i, output in enumerate(outputs):
     output.header[...] = defaultheader
     output.C['Ntot'] = Ntot_out
     output.C['N'] = (Ntot_out * (i + 1) // Nfile_out) \
                  -  (Ntot_out * i // Nfile_out)
-    output.C['Nfile'] = Nfile_out
+    free[i] = output.C['N']
+    output.C['Nfiles'] = Nfile_out
     output.create_structure()
 
   with sharedmem.Pool(use_threads=True) as pool:
     def work(fid):
       snap = open(args.filename, fid)
-      finished_outputs = []
 
       for ptype in args.ptypes:
         mask, count = filter(snap, ptype, origin, boxsize)
-        for block in snap.reader.schema:
-          # prefetch in parallel
-          if (ptype, block) in snap:
-            snap[ptype, block]
-   
+        if count == 0: continue
         with pool.lock:
-          istart = 0
-          oldcursor = cursor[ptype]
-          while True:
-            if count == 0: break
-            i = cursor[ptype]
-            free = (outputs[i].C['N'] - written[i])[ptype]
-            ostart = written[i][ptype]
-            if free > count:
-              for block in snap.reader.schema:
-                if (ptype, block) in snap:
-                  towrite = select(snap, ptype, block, mask)
-                  outputs[i][ptype, block][ostart:ostart+count] = towrite
-              written[i][ptype] += count
-              count = 0
-            else:
-              for block in snap.reader.schema:
-                if (ptype, block) in snap:
-                  towrite = select(snap, ptype, block, mask)
-                  outputs[i][ptype, block][ostart:ostart+free] = towrite[istart:free]
-              written[i][ptype] += free
-              istart += free
-              count -= free
-              cursor[ptype] = cursor[ptype] + 1
-          for i in range(oldcursor, cursor[ptype]):
-            print i, written[i], outputs[i].C['N']
-            if (written[i] == outputs[i].C['N']).all():
-              finished_outputs.append(i)
-        for i in finished_outputs:
-          outputs[i].save_all()
-          print outputs[i][ptype, 'pos']
+          cumfree = free[:, ptype].cumsum()
+          last_output = cumfree.searchsorted(count, side='left')
+          first_output = cumfree.searchsorted(0, side='right')
+          table = numpy.zeros(last_output - first_output + 1, ('i8', 4))
+          outputid, istart, len, ostart = table.T
+          outputid[...] = range(first_output, last_output+1)
+          ostart[...] = written[first_output:last_output+1, ptype]
+          len[:-1] = free[first_output:last_output, ptype]
+          len[-1] = count - len[:-1].sum()
+          istart[1:] = len.cumsum()[:-1]
+
+          writing[first_output:last_output+1, ptype] += len
+          written[first_output:last_output+1, ptype] += len
+          free[first_output:last_output+1, ptype] -= len
+
+          for i in range(first_output, last_output + 1):
+            for block in snap.reader.schema:
+              outputs[i].alloc(block, ptype)
+
+        for block in snap.reader.schema:
+          if (ptype, block) not in snap: continue
+          towrite = select(snap, ptype, block, mask)
+          for id, i, l, o in table:
+            outputs[id][ptype, block][o:o+l] = towrite[i:i+l]
+
+      with pool.lock:
+        writing[first_output:last_output+1, ptype] -= len
+
+        for i, output in enumerate(outputs):
+          if (free[i] == 0).all() and (writing[i] == 0).all() and outputs[i] is not None:
+            print output[0, 'mass']
+            output.save_all()
+            outputs[i] = None
+            output = None
+            print 'saving ', i
       return
-
     pool.map(work, fids)
-
-  print Nfile_out, Ntot, Ntot_out
 
 if __name__ == '__main__':
   main()
