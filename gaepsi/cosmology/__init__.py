@@ -81,26 +81,6 @@ class Cosmology(object):
     self._Ezinv_table = Ezinv[::256].copy()
     self.setup_tables = lambda : None
 
-  @classmethod
-  def from_snapshot(cls, snapshot):
-    if not 'OmegaM' in snapshot.C \
-    or not 'OmegaL' in snapshot.C \
-    or not 'h' in snapshot.C:
-      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
-      return WMAP7
-    else:
-      return cls(K=0, M=snapshot.C['OmegaM'], L=snapshot.C['OmegaL'], h=snapshot.C['h'])
-    
-  def to_snapshot(self, snapshot):
-    if not 'OmegaM' in snapshot.C \
-    or not 'OmegaL' in snapshot.C \
-    or not 'h' in snapshot.C:
-      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
-      return
-    snapshot.C['OmegaM'] = self.cosmology.M
-    snapshot.C['OmegaL'] = self.cosmology.L
-    snapshot.C['h'] = self.cosmology.h
-    
   def __repr__(self):
     return "Cosmology(h=%g, M=%g, L=%g, K=%g)" \
       % (self.h, self.M, self.L, self.K)
@@ -227,7 +207,7 @@ class Cosmology(object):
 
   def Vvir(self, m, z, Deltac=200):
     """ returns the physical virial circular velocity"""
-    return (G * M / self.Rvir(m, z, Deltac) * (1.0 + z)) ** 0.5
+    return (self.units.G * M / self.Rvir(m, z, Deltac) * (1.0 + z)) ** 0.5
 
   def Tvir(self, m, z, Deltac=200, Xh=0.76, ye=1.16):
     return 0.5 * self.Vvir(m,z, Deltac) ** 2 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
@@ -260,22 +240,18 @@ class Cosmology(object):
       return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
 
   def fomega(self, a=None, z=None):
-    """!=======================================================
-       !  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for
-       !  lambda+matter-dominated cosmology.
-       !  Omega0 := Omega today (a=1) in matter only. Omega_lambda = 1 - Omega0.
-       !==================================================================
+    """  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for
+         lambda+matter-dominated cosmology.
+         Omega0 := Omega today (a=1) in matter only. Omega_lambda = 1 - Omega0.
     """
     if a is None: a = 1 / (1.+z)
     eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
     return (2.5 / self.dplus(a) - 1.5 * self.M / a + 1 - self.M - self.L) * eta **-2
 
   def dplus(self, a=None, z=None):
-    """!=========================================================
-    !  Evaluate D+(a) (linear growth factor) for FLRW cosmology.
-    !  Omegam := Omega today (a=1) in matter.
-    !  Omegav := Omega today (a=1) in vacuum energy.
-    !=========================================================
+    """ Evaluate D+(a) (linear growth factor) for FLRW cosmology.
+      Omegam := Omega today (a=1) in matter.
+      Omegav := Omega today (a=1) in vacuum energy.
     """
     if a is None: a = 1 / (1.+z)
     eta = (self.M / a + self.L * a ** 2 + 1 - self.M - self.L) ** 0.5
@@ -287,10 +263,7 @@ class Cosmology(object):
     return self._cosmology.eval('ddplus', a, out)
 
   def dladt(self, a, out=None):
-    """======================================================
-    !  Evaluate dln(a)/dtau for FLRW cosmology.
-    !=================================================
-    """
+    """Evaluate dln(a)/dtau for FLRW cosmology. """
     return self._cosmology.eval('dladt', a, out)
 
 

@@ -11,7 +11,7 @@ class constants:
       flag_double = 0
       flag_ic_info = 0
 
-Snapshot = _gadgetbase.Snapshot(
+Snapshot, GroupTab, SubHaloTab = _gadgetbase.Snapshot(
      idtype='u8',
      floattype='f8',
      constants=constants)

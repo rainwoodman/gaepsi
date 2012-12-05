@@ -10,6 +10,8 @@ from gaepsi.tools import loadconfig
 from gaepsi.compiledbase.camera import Camera
 from gaepsi.compiledbase.ztree import TreeProperty
 
+from gaepsi.tools.analyze import HaloCatalog
+from gaepsi.tools.analyze import profile
 
 DEG = numpy.pi / 180.
 
@@ -224,6 +226,10 @@ class GaplotContext(Store):
         nl_ or n_, then feed to imshow
     """
     CCD = numpy.zeros(self.shape, dtype=(dtype,2))
+
+    if isinstance(ftype, Field):
+      self['__temp__'] = ftype
+      ftype = '__temp__'
 
     tree = self.T[ftype]
     if kernel is None: kernel='spline'
@@ -453,7 +459,7 @@ class GaplotContext(Store):
 
   def scatter(self, x, y, s, ax=None, fancy=False, **kwargs):
     """ takes CCD coordinate x, y and plot them to a data coordinate axes,
-        s is the radius in points(72 points = 1 inch). 
+        s is the radius in data units. 
         When fancy is True, apply a radient filter so that the 
         edge is blent into the background; better with marker='o' or marker='+'. """
     x, y, s = numpy.asarray([x, y, s])
@@ -461,8 +467,6 @@ class GaplotContext(Store):
     l, r, b, t =self.extent
     X = x / self.shape[0] * (r - l) + l
     Y = y / self.shape[1] * (t - b) + b
-    if not fancy:
-      return ax.scatter(X, Y, s*s, **kwargs)
     
     from matplotlib.markers import MarkerStyle
     from matplotlib.patches import PathPatch
@@ -489,34 +493,31 @@ class GaplotContext(Store):
         verts = None
 
     objs = []
-    colors = kwargs.pop('color', None)
-    edgecolors = kwargs.pop('edgecolor', None)
-    linewidths = kwargs.pop('linewidth', kwargs.pop('lw', None))
+    color = kwargs.pop('color', None)
+    edgecolor = kwargs.pop('edgecolor', None)
+    linewidth = kwargs.pop('linewidth', kwargs.pop('lw', None))
 
     marker_obj = MarkerStyle(marker)
-    path = marker_obj.get_path().transformed(
-         marker_obj.get_transform())
     if not marker_obj.is_filled():
-        edgecolors = 'face'
+        edgecolor = 'face'
 
     for x,y,r in numpy.nditer([X, Y, s], flags=['zerosize_ok']):
-      obj = PathCollection(
-                (path,), (r*r,),
-                facecolors = colors,
-                edgecolors = edgecolors,
-                linewidths = linewidths,
-                offsets = ((x,y),),
-                transOffset = ax.transData,
+      path = marker_obj.get_path().transformed(
+         marker_obj.get_transform().scale(r).translate(x, y))
+      obj = PathPatch(
+                path,
+                facecolor = color,
+                edgecolor = edgecolor,
+                linewidth = linewidth,
+                transform = ax.transData,
               )
-      obj.set_transform(IdentityTransform())
       obj.set_alpha(1.0)
-
-#      obj = PathPatch(path.transformed(patch_transform), transform=transform, **kwargs)
-      obj.set_agg_filter(filter)
-      obj.rasterized = True
+      if fancy:
+        obj.set_agg_filter(filter)
+        obj.rasterized = True
       objs += [obj]
-      ax.add_collection(obj)
-      ax.autoscale_view()
+      ax.add_artist(obj)
+    ax.autoscale_view()
 
     return objs
 

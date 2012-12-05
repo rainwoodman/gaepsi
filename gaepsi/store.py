@@ -15,6 +15,26 @@ def _ensurelist(a):
     return (a,)
   return a
 
+def create_cosmology(C):
+    if not 'OmegaM' in C \
+    or not 'OmegaL' in C \
+    or not 'h' in C:
+      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, a default cosmology is used")
+      return WMAP7
+    else:
+      return Cosmology(K=0, M=C['OmegaM'], L=C['OmegaL'], h=C['h'])
+"""   
+  def save(self, C):
+    if not 'OmegaM' in C \
+    or not 'OmegaL' in C \
+    or not 'h' in C:
+      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
+      return
+    C['OmegaM'] = self.cosmology.M
+    C['OmegaL'] = self.cosmology.L
+    C['h'] = self.cosmology.h
+"""
+
 class Store(object):
   def __init__(self, thresh=(32, 64)):
     self._format = None
@@ -153,27 +173,25 @@ class Store(object):
 
     self.periodic = periodic
 
-    self.cosmology = Cosmology.from_snapshot(snap)
+    self.cosmology = create_cosmology(self.C)
     try:
       self.redshift = self.C['redshift']
     except:
       self.redshift = 0.0
 
-    self.schema('gas', 0, ['sml', 'mass'])
+    self.schema('gas', 0, ['sml', 'mass', 'id', 'ye', 'ie'])
     self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
-    self.schema('halo', 1, ['mass'])
-    self.schema('star', 4, ['mass', 'sft'])
+    self.schema('dark', 1, ['mass', 'id'])
+    self.schema('star', 4, ['mass', 'sft', 'id'])
  
   def saveas(self, ftypes, snapshots, np=None):
     for ftype in _ensurelist(ftypes):
-      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype][0], np=np, save_and_clear=True, cosmology=self.cosmology)
+      self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype][0], np=np, save_and_clear=True, C=self.C)
 
   def read(self, ftypes, fids=None, np=None):
     if self.need_cut:
       if fids is None and self.map is not None:
         fids = self.map.cut(self.origin, self.boxsize)
-    else:
-      cut = None
 
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
@@ -194,7 +212,10 @@ class Store(object):
     
     rt = []
     for ftype in _ensurelist(ftypes):
-      self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np, cut=cut)
+      if self.need_cut:
+        self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], boxsize=self.boxsize, origin=self.origin, np=np)
+      else:
+        self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np)
       self._rebuildtree(ftype)
       rt += [self[ftype]]
 
@@ -241,6 +262,9 @@ class Store(object):
       self._rebuildtree(ftype)
 
   def _getcomponent(self, ftype, *components):
+    return getcomponent(self, ftype, *components)
+
+def getcomponent(self, ftype, *components):
     """
       _getcomponent(Field(), 'locations') 
       _getcomponent('gas', 'locations')

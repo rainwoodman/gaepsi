@@ -68,9 +68,9 @@ def main():
   snap0 = open(args.filename, 0)
   nptypes = snap0.reader.schema.nptypes
 
-  if args.ptypes is None:
+  if args.ptypes is None or len(args.ptypes) == 0:
     args.ptypes = range(nptypes)
-
+  print 'doing', args.ptypes
   if '%d' in args.filename:
     Nfile = snap0.C['Nfiles']
   else:
@@ -96,6 +96,7 @@ def main():
         fids = args.meshindex.cut(origin, boxsize)
       args.meshindex = None
 
+  print origin, boxsize
   defaultheader = snap0.header
   Ntot = snap0.C['Ntot']
   Ntot_out = numpy.zeros(nptypes, dtype='i8')
@@ -167,16 +168,16 @@ def main():
           for id, i, l, o in table:
             outputs[id][ptype, block][o:o+l] = towrite[i:i+l]
 
-      with pool.lock:
-        writing[first_output:last_output+1, ptype] -= len
+        with pool.lock:
+          writing[first_output:last_output+1, ptype] -= len
 
-        for i, output in enumerate(outputs):
-          if (free[i] == 0).all() and (writing[i] == 0).all() and outputs[i] is not None:
-            print output[0, 'mass']
-            output.save_all()
-            outputs[i] = None
-            output = None
-            print 'saving ', i
+          for i, output in enumerate(outputs):
+            if (free[i] == 0).all() and (writing[i] == 0).all() and outputs[i] is not None:
+              print output[0, 'mass']
+              output.save_all()
+              outputs[i] = None
+              output = None
+              print 'saving ', i
       return
     pool.map(work, fids)
 

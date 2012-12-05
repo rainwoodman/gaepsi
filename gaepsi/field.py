@@ -14,6 +14,31 @@ def is_scalar_like(v):
     if v.ndim == 0: return True
   return False
 
+def filter(snap, ptype, origin, boxsize):
+  if snap.C['N'][ptype] == 0: return None, 0
+  if origin is None or boxsize is None:
+    return None, snap.C['N'][ptype]
+  tail = origin + boxsize
+  pos = snap[ptype, 'pos']
+  iter = numpy.nditer([pos[:, 0], pos[:, 1], pos[:, 2], None],
+        op_dtypes=[None, None, None, '?'],
+        op_flags=[['readonly']] * 3 + [['writeonly', 'allocate']],
+        flags=['external_loop', 'buffered'])
+  for x, y, z, m in iter:
+    m[...] = \
+      (x >= origin[0]) & (y >= origin[1]) & (z >= origin[2]) \
+    & (x <= tail  [0]) & (y <= tail  [1]) & (z <= tail  [2])
+    
+  return iter.operands[3], iter.operands[3].sum()
+
+def select(snap, ptype, block, mask):
+  if mask is None:
+    result = snap[ptype, block]
+  else:
+    result = snap[ptype, block][mask]
+  del snap[ptype, block]
+  return result
+
 class Field(object):
   @staticmethod
   def from_recarray(recarray):
@@ -44,19 +69,23 @@ class Field(object):
   def _comp_to_block(self, comp):
     if comp == 'locations': return 'pos'
     return comp
+  def _block_to_comp(self, block):
+    if block == 'pos': return 'locations'
+    return block
 
-  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, cosmology=None, np=None):
+  def dump_snapshots(self, snapshots, ptype, save_and_clear=False, C=None, np=None):
     """ dump field into snapshots.
         if save_and_clear is True, immediately save the file and clear the snapshot object,
         using less memory.
         otherwise, leave the data in memory in snapshot object. and only the header is written.
+        C is the template used for the snapshot headers.
     """
     Nfile = len(snapshots)
     starts = numpy.zeros(dtype = 'u8', shape = Nfile)
     for i in range(Nfile):
       snapshot = snapshots[i]
-      if cosmology is not None:
-        cosmology.to_snapshot(snapshot)
+      if C is not None:
+        snapshot.C[...] = C
       starts[i] = self.numpoints * i / Nfile
       snapshot.C['N'][ptype] = self.numpoints * (i + 1) / Nfile - self.numpoints * i / Nfile
       tmp = snapshot.C['Ntot']
@@ -88,9 +117,9 @@ class Field(object):
       pool.map(work, list(range(Nfile)))
 
     if skipped_comps:
-      print 'warning: blocks not supported in snapshot', skipped_comps
+      warnings.warn('warning: blocks not supported in snapshot: %s', str(skipped_comps))
 
-  def take_snapshots(self, snapshots, ptype, cut=None, np=None):
+  def take_snapshots(self, snapshots, ptype, origin=None, boxsize=None, np=None):
     """ ptype can be a list of ptypes, in which case all particles of the types are loaded into the field """
     if numpy.isscalar(ptype):
        ptypes = [ptype]
@@ -99,92 +128,41 @@ class Field(object):
 
     ptype = None
 
-    self.numpoints = 0
+    nptypes = snapshots[0].reader.schema.nptypes
+    N = numpy.zeros((len(snapshots), nptypes), dtype='i8')
+    O = N.copy()
 
-      
-    lengths = numpy.zeros(dtype='u8', shape=(len(snapshots), len(ptypes)))
-    starts  = lengths.copy()
+    with sharedmem.Pool(use_threads=True) as pool:
+      def work(i):
+        snapshot = snapshots[i]
+        for ptype in ptypes:
+          mask, count = filter(snapshot, ptype, origin, boxsize)
+          N[i, ptype] = count
+      pool.map(work, range(len(snapshots)))
 
-    with sharedmem.Pool(use_threads=True, np=np) as pool:
-      def work(i, snapshot):
-        for j, ptype in enumerate(ptypes):
-          mask = None
-          if (ptype, 'pos') in snapshot:
-            if snapshot.C['N'][ptype] != 0 and cut is not None:
-              pos = snapshot[ptype, 'pos']
-              mask = cut.select(pos)
-          if mask is not None:
-            lengths[i, j] = mask.sum()
-          else:
-            lengths[i, j] = snapshot.C['N'][ptype]
-      if cut is None:
-        pool.map_debug(work, list(enumerate(snapshots)), star=True)
-      else:
-        pool.starmap(work, list(enumerate(snapshots)))
-
-    starts.flat[1:] = lengths.cumsum()[:-1]
-
-    self.numpoints = int(lengths.sum())
-
-    blocklist = []
-
-    def resize(comp):
-      shape = list(self[comp].shape)
-      shape[0] = self.numpoints
-      self.dict[comp] = numpy.zeros(shape = shape,
-         dtype = self.dict[comp].dtype)
-
-    if (ptypes[0], 'pos') in snapshots[0]:
-      resize('locations')
+    O.flat[1:] = N.cumsum()[:-1]
+    O = O.reshape(*N.shape)
+    self.numpoints = N.sum()
 
     for comp in self.names:
-      if comp == 'locations': continue # skip locations it is handled differnently
-      block = self._comp_to_block(comp)
-
-      blocklist.append((comp, block))
-      resize(comp)
-
-    #  if not (ptypes[0], block) in snapshots[0]:
-    #    resize(comp)
-    #    if block == 'mass':
-    #      self[comp][:] = snapshots[0].header['mass'][ptype]
-    #    else:
-    #      print block, 'is not supported in snapshot'
-    #  else:
+      shape = list(self[comp].shape)
+      shape[0] = self.numpoints
+      self[comp] = numpy.zeros(shape, self[comp].dtype)
 
     with sharedmem.Pool(use_threads=True, np=np) as pool:
-      def work(snapshot, start, length):
-        for j, ptype in enumerate(ptypes):
-          if length[j] == 0: continue
-          mask = None
-          if (ptype, 'pos') in snapshot:
-            pos = snapshot[ptype, 'pos']
-            if snapshot.C['N'][ptype] != 0 and cut is not None:
-              mask = cut.select(pos)
-            if mask is None:
-              self['locations'][start[j]:start[j]+length[j]] = pos[:]
-            else:
-              length0 = mask.sum()
-              self['locations'][start[j]:start[j]+length[j]] = pos[mask]
-            del pos
-            del snapshot[ptype, 'pos']
+      def work(i):
+        snapshot = snapshots[i]
+        for ptype in ptypes:
+          mask, count = filter(snapshot, ptype, origin, boxsize)
+          for block in snapshot.reader.schema:
+            if N[i, ptype] == 0: continue
+            if (ptype, block) not in snapshot: continue
+            comp = self._block_to_comp(block)
+            if comp not in self.names: continue
+            data = select(snapshot, ptype, block, mask)
+            self[comp][O[i, ptype]:O[i, ptype]+N[i, ptype]] = data
   
-          for comp, block in blocklist:
-            if not (ptype, block) in snapshot:
-              if block != 'mass':
-                warn('ptype %d, %s not in snapshot file' % (ptype, block))
-              else:
-                self[comp][start[j]:start[j]+length[j]] = snapshot.header['mass'][ptype]
-              continue
-            data = snapshot[ptype, block]
-            if mask is None:
-              self[comp][start[j]:start[j]+length[j]] = data[:]
-            else:
-              self[comp][start[j]:start[j]+length[j]] = data[mask]
-            del data
-            del snapshot[ptype, block]
-          del mask
-      pool.starmap(work, zip(snapshots, starts, lengths))
+      pool.map(work, range(len(snapshots)))
 
   def __iter__(self):
     i = 0

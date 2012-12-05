@@ -19,6 +19,7 @@ setup(name="gaepsi", version="0.2",
                   'scripts/gadget-dump-header.py',
                   'scripts/gadget-make-meshindex.py',
                   'scripts/gadget-extract-ptype.py',
+                  'scripts/gadget-gen-snapshot.py',
                   'scripts/gadget-check-file.py',
                  ],
       ext_modules = [

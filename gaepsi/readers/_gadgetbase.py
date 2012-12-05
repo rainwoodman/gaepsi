@@ -4,7 +4,7 @@ def Snapshot(idtype, floattype, constants, blocks=None):
   baseconstants=constants
   if blocks is None:
     blocks = ['pos', 'vel', 'id', 'mass', 'ie', 'rho', 'ye', 
-            'xHI', 'sml', 'sfr', 'sft', 'met', 'bhmass', 'bhmdot']
+            'xHI', 'sml', 'sfr', 'sft', 'met', 'bhmass', 'bhmdot', 'bhnprogs']
   class MyReader:
     format = 'F'
     header = [
@@ -45,6 +45,7 @@ def Snapshot(idtype, floattype, constants, blocks=None):
       met = floattype, [0, 4], ['flag_met']
       bhmass = floattype, [5]
       bhmdot = floattype, [5]
+      bhnprogs = 'i8', [5]
       __blocks__ = blocks
       
     class constants(baseconstants):
@@ -64,18 +65,19 @@ def Snapshot(idtype, floattype, constants, blocks=None):
                 ('TotNids', 'u8'),
                 ('Nfiles', 'i4')]
       class schema:
-        length = 'i4'
-        offset = 'i4'
-        mass = 'f4'
-        pos = ('f4', 3)
-        vel = ('f4', 3)
-        lenbytype = ('u4', 6)
-        massbytype = ('f4', 6)
-        sfr = 'f4'
-        bhmass = 'f4'
-        bhmdot = 'f4'
+        length = 'i4', 0
+        offset = 'i4', 0
+        mass = 'f4', 0
+        pos = ('f4', 3), 0
+        vel = ('f4', 3), 0
+        lenbytype = ('u4', 6), 0
+        massbytype = ('f4', 6), 0
+        sfr = 'f4', 0
+        bhmass = 'f4', 0
+        bhmdot = 'f4', 0
         __blocks__ = ['length', 'offset', 'mass', 'pos', 'vel', 
              'lenbytype', 'massbytype', 'sfr', 'bhmass', 'bhmdot']
+      class constants(baseconstants): pass
     
   class MySubHaloTab:
       format = 'C'

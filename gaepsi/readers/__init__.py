@@ -68,7 +68,9 @@ class ConstBase:
     return item in self._header.dtype.names or hasattr(self, item) or item in self._extra
 
   def __getitem__(self, item):
-    if hasattr(self, item):
+    if item in self._header.dtype.names:
+      return self._header[item]
+    elif hasattr(self, item):
       attr = getattr(self, item)
       if isinstance(attr, basestring):
         return self._header[attr]
@@ -77,13 +79,17 @@ class ConstBase:
         return virtarray(None, dtype, MethodType(get, self, None), MethodType(set, self, None))
       else:
         return attr
-    elif item in self._header.dtype.names:
-      return self._header[item]
     else:
       return self._extra[item]
 
   def __setitem__(self, item, value):
-    if hasattr(self, item):
+    if item is Ellipsis:
+      assert isinstance(value, ConstBase)
+      self._header[...] = value._header
+      self._extra = value._extra.copy()
+    elif item in self._header.dtype.names:
+      self._header[item] = value
+    elif hasattr(self, item):
       attr = getattr(self, item)
       if isinstance(attr, basestring):
         self._header[attr] = value
@@ -92,8 +98,6 @@ class ConstBase:
         virtarray(None, dtype, MethodType(get, self, None), MethodType(set, self, None))[...] = value
       else:
         raise IndexError("can't set %s" % item)
-    elif item in self._header.dtype.names:
-      self._header[item] = value
     else:
       self._extra[item] = value
 
@@ -195,8 +199,13 @@ class ReaderObj(object):
     else:
       file = cls.file_class(snapshot.file, endian=cls.endian, mode='w+')
     snapshot.reader = cls
-    snapshot.header = numpy.zeros(dtype=cls.header, shape=None)
-    snapshot.C = cls.constants(snapshot.header, init=True)
+    snapshot.C = cls.create_header()
+    snapshot.header = snapshot.C._header
+
+  def create_header(cls):
+    header = numpy.zeros(dtype=cls.header, shape=None)
+    C = cls.constants(header, init=True)
+    return C
 
   def __getitem__(cls, key):
     return cls.schema[key]
@@ -276,7 +285,7 @@ class ReaderObj(object):
     offset = cls.count_particles(snapshot, name, ptype)
     offset *= dtype.itemsize // dtype.base.itemsize
     if len(snapshot.P[ptype][name]) != snapshot.C['N'][ptype]:
-      raise IOError('snapshot memory image corrupted')
+      raise IOError('snapshot memory image corrupted: %s %d %d %d' % (name, ptype, len(snapshot.P[ptype][name]), snapshot.C['N'][ptype]))
     file.write_record(snapshot.P[ptype][name], length, offset)
    
   def check(cls, snapshot):
@@ -312,7 +321,7 @@ class ReaderObj(object):
       snapshot.P[ptype][name] = numpy.empty(snapshot.C['N'][ptype], dtype)
       snapshot.P[ptype][name][:] = snapshot.C['mass'][ptype]
     else:
-      length = snapshot.sizes[name] // dtype.itemsize
+      length = snapshot.C['N'][ptype]
       snapshot.P[ptype][name] = numpy.zeros(length, dtype)
 
 
