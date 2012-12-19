@@ -463,7 +463,7 @@ cdef class Tree:
         if self.get_node_nchildren(j) > 0:
           # already not a leaf, create new child
           j = self._create_child(i, j) 
-        elif (self.get_node_npar(j) >= self.minthresh and self.get_node_order(j) > 0):
+        elif (self.get_node_npar(j) >= self.maxthresh and self.get_node_order(j) > 0):
           # too many points in the leaf, split it
           # NOTE: i is rewinded, because now some of the particles are no longer
           # in the new node.
@@ -478,8 +478,8 @@ cdef class Tree:
         # particle i is not in node j yet.
         # next particle to be considered is i+1,
         # now we try to fast forword to the first particle that is not in the current node
-        if self.minthresh > 1:
-          extrastep = self.minthresh - self.get_node_npar(j) - 1
+        if self.maxthresh > 1:
+          extrastep = self.maxthresh - self.get_node_npar(j) - 1
           if extrastep > 0 and i + extrastep < self._zkey_length:
             while not fillingcurve.keyinkey(self._zkey[i+extrastep], self.get_node_key(j), self.get_node_order(j)):
               extrastep >>= 1
@@ -602,7 +602,7 @@ cdef class Tree:
 #    if self.get_node_nchildren(parent) >= 7:
 #      return parent
 
-    if self.get_node_npar(parent) > self.maxthresh: 
+    if self.get_node_npar(parent) > 128 * self.maxthresh: 
       return parent
 
     grandparent = self.nodes[parent].parent
@@ -613,10 +613,16 @@ cdef class Tree:
     children = self.nodes[parent].child
 
     # see if this is an immediate parent of leaf nodes
+    cdef int needmerge = 0
     for k in range(nchildren):
       index = self.leafnode_index(children[k])
-      if index == -1: return parent
+      if index == -1: 
+        # not, do not merge for safety. may need more iterations !
+        return parent
+      if self.get_node_npar(children[k]) < self.minthresh:
+        needmerge = 1
 
+    if not needmerge: return parent
     # sanity check, shall disable later
     # if the leaf nodes are discontinues, give up
     # do not merge two loops(this and the above)
@@ -628,8 +634,9 @@ cdef class Tree:
       # on the most recently created node.
       #
       if index + nchildren - k != self._leafnodes.used:
-         return parent
-      #with gil: print '%d != %d' % (index + nchildren - k , self._leafnodes.used)
+        with gil: 
+          print '%d != %d' % (index + nchildren - k , self._leafnodes.used)
+        return parent
 
     if True: # for indentation
       # first mark the children reclaimable
