@@ -136,7 +136,7 @@ class BHDetail:
     data = numpy.empty(len(raw), dtlist)
     data[...] = raw
     data['mainid'] = data['id']
-    data['z'] = 1 / self['time'][mask] - 1
+    data['z'] = 1 / data['time'] - 1
     if mergerfile is not None:
       merger = numpy.loadtxt(mergerfile, dtype=[('time_q', 'f8'), 
            ('after', 'u8'), ('swallowed', 'u8')], ndmin=1)
@@ -151,22 +151,22 @@ class BHDetail:
     self.data = data
 
   def prog(self, id):
-    mask = self['mainid'] == id
-    ids = numpy.unique(self['id'][mask])
+    mask = self.data['mainid'] == id
+    ids = numpy.unique(self.data['id'][mask])
     return ids
 
   def plot(self, id, property, xdata=None, *args, **kwargs):
     """plot a series of blackholes"""
     if hasattr(id, '__iter__'):
-      return [ self.plotbh(i, property, xdata=xdata, *args, **kwargs) for i in id ]
+      return sum([ self.plot(i, property, xdata=xdata, *args, **kwargs) for i in id ], [])
     ax = kwargs.pop('ax', None)
-    mask = (self['id'] == id)
+    mask = (self.data['id'] == id)
   #plot(1./raw['time_q'][mask] - 1, numpy.convolve(raw[property][mask], numpy.ones(10) / 10, mode='same'), label='%d' % id, *args, **kwargs)
     if isinstance(property, basestring):
-      property = self[property]
+      property = self.data[property]
     if isinstance(xdata, basestring):
-      xdata = self[xdata]
+      xdata = self.data[xdata]
     if ax == None: 
       from matplotlib import pyplot
       ax = pyplot.gca()
-    return ax.plot(xdata, property[mask], *args, **kwargs)
+    return ax.plot(xdata[mask], property[mask], *args, **kwargs)

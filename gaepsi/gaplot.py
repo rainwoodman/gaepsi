@@ -11,6 +11,7 @@ from gaepsi.compiledbase.camera import Camera
 from gaepsi.compiledbase.ztree import TreeProperty
 
 from gaepsi.tools.analyze import HaloCatalog
+from gaepsi.tools.analyze import BHDetail
 from gaepsi.tools.analyze import profile
 
 DEG = numpy.pi / 180.
