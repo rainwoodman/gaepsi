@@ -226,6 +226,18 @@ class Cosmology(object):
     else:
       return ie * mass * (Xh * (GAMMA - 1)) * abundance * mu
 
+  def T2ie(self, Xh, T, ye, out=None):
+    """ from gadget temperature(K) to ie
+    """
+    GAMMA = 5 / 3.
+    fac = self.units.PROTONMASS / self.units.BOLTZMANN
+    mu = 1.0 / (ye * Xh + (1 - Xh) * 0.25 + Xh)
+    if out != None:
+      out[:] = T[:] / mu / (GAMMA - 1) / fac
+      return out
+    else:
+      return T / mu / (GAMMA - 1) / fac
+
   def ie2T(self, Xh, ie, ye, out=None):
     """ converts GADGET internal energy per mass to temperature. 
         taking GADGET return GADGET.
@@ -237,7 +249,7 @@ class Cosmology(object):
       out[:] = ie[:] * mu * (GAMMA - 1) * fac
       return out
     else:
-      return ie / (ye * Xh + (1 - Xh) * 0.25 + Xh) * (2.0 / 3.0) * fac
+      return ie * mu * (GAMMA - 1) * fac
 
   def fomega(self, a=None, z=None):
     """  Evaluate f := dlog[D+]/dlog[a] (logarithmic linear growth rate) for

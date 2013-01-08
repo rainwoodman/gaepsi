@@ -293,7 +293,10 @@ class ReaderObj(object):
     for s in cls:
       file.seek(snapshot.offsets[s.name])
       length = snapshot.sizes[s.name] // s.dtype.itemsize
-      file.skip_record(s.dtype, length)
+      try:
+        file.skip_record(s.dtype, length)
+      except Exception as e:
+        print 'error', snapshot.file, s.name, e
 
   def alloc(cls, snapshot, ptype, name):
     """ allocate memory for the block """
