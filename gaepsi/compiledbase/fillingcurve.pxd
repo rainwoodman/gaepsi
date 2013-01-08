@@ -1,13 +1,20 @@
 # cython:cdivision=True
 
-cdef extern from """math.h"
-typedef __int128_t fckey_t;
-typedef __uint128_t ufckey_t;
+cdef extern from """math.h\"
+#ifndef fckey_t
+#define fckey_t __int128_t
+#define ufckey_t __uint128_t
+#endif
+#ifndef ufckey_t
+#error need to define ufckey_t
+#endif
 typedef int64_t ipos_t;
+#define BITS (((sizeof(fckey_t) * 8) - 1) / 3)
 #define ______ \"""":
   ctypedef int fckey_t
   ctypedef unsigned int ufckey_t
   ctypedef int ipos_t
+  int BITS
 
 cdef bint keyinkey(fckey_t needle, fckey_t hey, int order) nogil
 cdef int f2i(double scale[4], double pos[3], ipos_t point[3]) nogil

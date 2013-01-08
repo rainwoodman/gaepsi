@@ -9,7 +9,6 @@ from cpython.object cimport PyObject, PyTypeObject
 from npydtype cimport *
 from numpy cimport PyUFunc_FromFuncAndData, PyUFunc_None
 cimport npyiter
-DEF BITS = 40
 
 bits = BITS
 bitmask = (1L << BITS) - 1
@@ -304,7 +303,7 @@ cdef numpy.dtype _register_dtype(typeobj):
   f.cast[<int>numpy.NPY_UINT8] = <void*> _downcastu1
 
   cdef int typenum = register_dtype(descr, f,
-     dict(elsize=16, kind='i', byteorder='=', type='z', alignment=8, typeobj=typeobj, metadata={})
+     dict(elsize=sizeof(fckey_t), kind='i', byteorder='=', type='z', alignment=8, typeobj=typeobj, metadata={})
   )
 
   register_safe_castfuncs(typenum, {

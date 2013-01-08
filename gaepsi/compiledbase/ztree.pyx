@@ -18,8 +18,6 @@ cimport fillingcurve
 import fillingcurve
 from warnings import warn
 
-DEF BITS = 40
-
 numpy.import_array()
 
 cdef class TreeNode:
@@ -432,7 +430,7 @@ cdef class Tree:
       self.nodes[0].key = 0
       self.nodes[0].first = i
       self.nodes[0].npar = 0
-      self.nodes[0].order = BITS
+      self.nodes[0].order = fillingcurve.BITS
       self.nodes[0].parent = -1
       self.nodes[0].child_length = 0
       while i < self._zkey_length:

@@ -1,4 +1,3 @@
-#define BITS 40
 /*
  * g = numpy.ogrid.__getitem__([slice(0, 2) * 8)
  * g.reverse()
