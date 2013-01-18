@@ -1,5 +1,5 @@
-def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=False, squeeze=True,
-                subplot_kw=None, **fig_kw):
+def subplots(nrows=1, ncols=1, gridspec=None, figure=None, sharex=False, sharey=False, squeeze=True,
+                **subplot_kw):
     """Create a figure with a set of subplots already made.
 
     This utility wrapper makes it convenient to create common layouts of
@@ -7,7 +7,7 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
 
     Keyword arguments:
 
-    figure: Figure to add subplots to.
+    figure: Figure to add subplots to, or a dict to be passed to pylab.figure
 
     nrows : int
       Number of rows of the subplot grid.  Defaults to 1.
@@ -43,7 +43,7 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
       If False, no squeezing at all is done: the returned axis object is always
       a 2-d array contaning Axis instances, even if it ends up being 1x1.
 
-    subplot_kw : dict
+    kwargs:
       Dict with keywords passed to the add_subplot() call used to create each
       subplots.
 
@@ -54,6 +54,7 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
         objects if more than one supblot was created.  The dimensions
         of the resulting array can be controlled with the squeeze
         keyword, see above.
+      - fig is the figure.
 
     **Examples:**
     """
@@ -61,14 +62,14 @@ def subplots(nrows=1, ncols=1, gridspec=None, fig=None, sharex=False, sharey=Fal
     import itertools
 
 
-    if subplot_kw is None: subplot_kw = {}
     if sharex == 'none': sharex = None
     if sharey == 'none': sharey = None
 
-    if fig is None: 
-        from pylab import figure
-        fig = figure(**fig_kw)
-
+    if isinstance(figure, dict):
+        from pylab import figure as pyfigure
+        fig = pyfigure(**figure)
+    else:
+        fig = figure
     # Create empty object array to hold all axes.  It's easiest to make it 1-d
     # so we can just append subplots upon creation, and then
     if gridspec: nrows, ncols = gridspec.get_geometry()
