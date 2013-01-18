@@ -7,8 +7,9 @@ import sharedmem
 import numpy
 
 def profile(field, component, center, rmin, rmax, weights=None, logscale=True, nbins=100, density=True, integrated=True):
-  """ returns centers, profile, and errors, 
-      if weights is None use 1 / shell volume """
+  """ returns centers, profile, and with of the bins, 
+      if density == True, divide by volume 
+      if integrated == True, use the sum of full enclose volume. otherwise use the shell"""
   locations = field['locations']
   component, weights = getcomponent(None, field, component, weights)
   if logscale:
@@ -150,13 +151,41 @@ class BHDetail:
     data.sort(order=('mainid', 'time'))
     self.data = data
 
+  def mainid(self, id):
+    return self['mainid'][self['id'] == id][0]
+
+  def mostmassive(self, id):
+    """ construct a data series for the most massive bh of id at any time"""
+    mask = self.data['mainid'] == self.mainid(id)
+    data = self.data[mask]
+    data.sort(order='time')
+    while True:
+      mass = data['mass']
+      mask = mass[1:] > mass[:-1]
+      if mask.all(): break
+      data = data[1:][mask]
+    return data
+
   def prog(self, id):
-    mask = self.data['mainid'] == id
+    """ returns a list of all progenitors """
+    mask = self.data['mainid'] == self.mainid(id)
     ids = numpy.unique(self.data['id'][mask])
     return ids
 
+  def __getitem__(self, index):
+    """ either by id (not mainid) or by the component"""
+    if isinstance(index, basestring):
+      return self.data[index]
+    if hasattr(index, '__iter__'):
+      return [self[i] for i in index]
+    else:
+      return self.data[self.data['id'] == id]
+
+
   def plot(self, id, property, xdata=None, *args, **kwargs):
-    """plot a series of blackholes"""
+    """plot a series of blackholes, deprecated. use matplotlib
+       and indexing directly
+    """
     if hasattr(id, '__iter__'):
       return sum([ self.plot(i, property, xdata=xdata, *args, **kwargs) for i in id ], [])
     ax = kwargs.pop('ax', None)
