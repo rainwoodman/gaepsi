@@ -65,6 +65,7 @@ class Cosmology(object):
     self.K = K
     self.h = h
     self.units = Units(h)
+    self.U = self.units
     self.DH = self.units.C / self.units.H0
     self.tH = 1.0 / self.units.H0
     self._cosmology = _cosmology.Cosmology(self.M, self.K, self.L, self.h)
