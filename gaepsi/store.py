@@ -7,6 +7,7 @@ from gaepsi.field import Field
 from gaepsi.readers import Reader
 from gaepsi.meshindex import MeshIndex
 from gaepsi.cosmology import Cosmology
+from gaepsi.cosmology import WMAP7
 
 from gaepsi.compiledbase import fillingcurve
 
