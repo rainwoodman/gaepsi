@@ -41,21 +41,21 @@ def select(snap, ptype, block, mask):
 
 class Field(object):
   @staticmethod
-  def from_recarray(recarray):
-    field = Field(numpoints = len(recarray))
+  def from_recarray(recarray, locations='pos'):
+    field = Field(numpoints=len(recarray), locations=locations)
     for name in recarray.dtype.fields:
       field[name] = recarray[name]
     return field
 
-  def __init__(self, components=None, numpoints = 0, dtype='f4'):
+  def __init__(self, components=None, numpoints=0, locations='pos'):
     """components is a dictionary of {component=>dtype}"""
     self.dict = {}
     self.numpoints = int(numpoints)
-    if dtype is not None:
-      self['locations'] = numpy.zeros(shape = numpoints, dtype = (dtype, 3))
+    self.locations = locations
+
     if components is not None:
       for comp in components:
-        self.dict[comp] = numpy.zeros(shape = numpoints, dtype = components[comp])
+        self.dict[comp] = numpy.zeros(shape=numpoints, dtype=components[comp])
 
   def todict(self):
     d = {}
@@ -65,13 +65,6 @@ class Field(object):
 
   def __len__(self):
     return self.numpoints
-
-  def _comp_to_block(self, comp):
-    if comp == 'locations': return 'pos'
-    return comp
-  def _block_to_comp(self, block):
-    if block == 'pos': return 'locations'
-    return block
 
   def dump_snapshots(self, snapshots, ptype, save_and_clear=False, C=None, np=None):
     """ dump field into snapshots.
@@ -100,17 +93,16 @@ class Field(object):
         snapshot.create_structure()
 
       for comp in self.names:
-        block = self._comp_to_block(comp)
         try:
-          dtype = snapshot.reader[block].dtype
+          dtype = snapshot.reader[comp].dtype
         except KeyError:
           skipped_comps.update(set([comp]))
           continue
-        snapshot[ptype, block] = numpy.array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
+        snapshot[ptype, comp] = numpy.array(self[comp][starts[i]:starts[i]+snapshot.C['N'][ptype]], dtype=dtype.base, copy=False)
 
         if save_and_clear:
-          snapshot.save(block, ptype)
-          snapshot.clear(block, ptype)
+          snapshot.save(comp, ptype)
+          snapshot.clear(comp, ptype)
       #skip if the reader doesn't save the block
 
     with sharedmem.Pool(use_threads=True, np=np) as pool:
@@ -157,10 +149,9 @@ class Field(object):
           for block in snapshot.reader.schema:
             if N[i, ptype] == 0: continue
             if (ptype, block) not in snapshot: continue
-            comp = self._block_to_comp(block)
-            if comp not in self.names: continue
+            if block not in self.names: continue
             data = select(snapshot, ptype, block, mask)
-            self[comp][O[i, ptype]:O[i, ptype]+N[i, ptype]] = data
+            self[block][O[i, ptype]:O[i, ptype]+N[i, ptype]] = data
   
       pool.map(work, range(len(snapshots)))
 
@@ -182,6 +173,8 @@ class Field(object):
     if isinstance(index, basestring):
       if index in self.dict:
         return self.dict[index]
+      elif index == 'locations':
+        return self.dict[self.locations]
       elif index == 'x':
         return self.dict['locations'][:, 0]
       elif index == 'y':
@@ -217,6 +210,7 @@ class Field(object):
       return result
  
   def __setitem__(self, index, value):
+    if index == "locations": index = self.locations
     if isinstance(index, basestring):
       if is_scalar_like(value):
         value = numpy.repeat(value, self.numpoints)

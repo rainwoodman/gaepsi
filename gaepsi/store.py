@@ -104,7 +104,7 @@ class Store(object):
     # optimize is useless I believe
     # self.T[ftype].optimize()
 
-  def schema(self, ftype, types, components=None, tree=True):
+  def schema(self, ftype, types, components=None, tree=True, locations='pos'):
     """ give particle types a name, and associate
         it with components.
         
@@ -120,16 +120,16 @@ class Store(object):
     if components is None:
       components = reader.schema
 
+    if locations not in components:
+      components += [locations]
+
     for comp in components:
       if isinstance(comp, tuple):
         schemed[comp[0]] = comp[1]
       elif comp in reader:
         schemed[comp] = reader[comp].dtype
 
-    if 'pos' in reader:
-      self.F[ftype] = Field(components=schemed, dtype=reader['pos'].dtype.base)
-    else:
-      self.F[ftype] = Field(components=schemed, dtype=None)
+    self.F[ftype] = Field(components=schemed, locations=locations)
 
     self.P[ftype] = _ensurelist(types)
     if not tree: self.T[ftype] = False
@@ -261,6 +261,32 @@ class Store(object):
 
     for ftype in ftypes:
       self._rebuildtree(ftype)
+
+  def makeP(self, ftype, Xh=0.76, halo=False):
+    """return the hydrogen Pressure * volume """
+    gas = self.F[ftype]
+    gas['P'] = numpy.empty(dtype='f4', shape=gas.numpoints)
+    self.cosmology.ie2P(ie=gas['ie'], ye=gas['ye'], mass=gas['mass'], abundance=1, Xh=Xh, out=gas['P'])
+
+  def makeT(self, ftype, Xh=0.76, halo=False):
+    """T will be in Kelvin"""
+    gas = self.F[ftype]
+    
+    gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
+    with sharedmem.Pool(use_threads=True) as pool:
+      def work(gas):
+        if halo:
+          gas['T'][:] = gas['vel'][:, 0] ** 2
+          gas['T'] += gas['vel'][:, 1] ** 2
+          gas['T'] += gas['vel'][:, 2] ** 2
+          gas['T'] *= 0.5
+          gas['T'] *= self.U.TEMPERATURE
+        else:
+          self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
+          gas['T'] *= self.U.TEMPERATURE
+      pool.starmap(work, pool.zipsplit((gas,)))
+
+
 
   def _getcomponent(self, ftype, *components):
     return getcomponent(self, ftype, *components)

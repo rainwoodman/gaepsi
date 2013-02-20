@@ -623,30 +623,6 @@ class GaplotContext(Store):
 
     return ret
 
-  def makeP(self, ftype, Xh=0.76, halo=False):
-    """return the hydrogen Pressure * volume """
-    gas = self.F[ftype]
-    gas['P'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-    self.cosmology.ie2P(ie=gas['ie'], ye=gas['ye'], mass=gas['mass'], abundance=1, Xh=Xh, out=gas['P'])
-
-  def makeT(self, ftype, Xh=0.76, halo=False):
-    """T will be in Kelvin"""
-    gas = self.F[ftype]
-    
-    gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-    with sharedmem.Pool(use_threads=True) as pool:
-      def work(gas):
-        if halo:
-          gas['T'][:] = gas['vel'][:, 0] ** 2
-          gas['T'] += gas['vel'][:, 1] ** 2
-          gas['T'] += gas['vel'][:, 2] ** 2
-          gas['T'] *= 0.5
-          gas['T'] *= self.U.TEMPERATURE
-        else:
-          self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
-          gas['T'] *= self.U.TEMPERATURE
-      pool.starmap(work, pool.zipsplit((gas,)))
-
 context = GaplotContext()
 from gaepsi.tools import bindmethods as _bindmethods
 
