@@ -21,15 +21,22 @@ cdef inline void init(FlexArray * array, void ** delegate, int itemsize, size_t 
   else:
     array.delegate = delegate
   array.itemsize = itemsize
+  if size == 0:
+    with gil: raise Exception("size can't be zero")
+
   array.size = size
   array.used = 0
   (array.delegate)[0] = malloc(itemsize * (size + 1))
   array.cmpfunc = NULL
 cdef inline intptr_t append(FlexArray * array, size_t additional) nogil:
   cdef void * ptr = array.delegate[0]
+  cdef size_t oldsize = array.size
   while array.used + additional > array.size:
-    array.size = (array.size + 1)* 2 - 1
-  (array.delegate)[0] = realloc(ptr, array.itemsize * (array.size + 1))
+    array.size = array.size * 2
+  if oldsize != array.size:
+    (array.delegate)[0] = realloc(ptr, array.itemsize * array.size)
+  #with gil:
+  #  print 'flexarray', oldsize, array.size, array.used, additional
   cdef intptr_t index = array.used 
   array.used = array.used + additional
   return index

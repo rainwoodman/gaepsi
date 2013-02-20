@@ -446,12 +446,13 @@ cdef class Tree:
           # instead of digging up holes in the end with 'optimize'.
           # however we still need to run 'optimize' in the end
           # because this won't catch all cases.
-          j = self._try_merge_children(j)
+          if j == self._nodes.used - 1:
+            j = self._try_merge_children(j)
           j = self.get_node_parent(j)
           # because we are on a morton key ordered list, no need to deccent into children 
         if j == -1: # par not covered by the tree anywhere, skip it.
           with gil:
-            raise RuntimeError('remature ending at %d / %d' (i, self._zkey_length))
+            raise RuntimeError('remature ending at %d / %d' % (i, self._zkey_length))
         # NOTE: will never go beyond 8 children per node, 
         # for the child_length > 0 branch is called less than 8 times on the parent, 
 
@@ -490,7 +491,8 @@ cdef class Tree:
       # now close the remaining open nodes
       while j != -1:
         self.set_node_npar(j, i - self.get_node_first(j))
-        j = self._try_merge_children(j)
+        if j == self._nodes.used - 1:
+          j = self._try_merge_children(j)
         j = self.get_node_parent(j)
 
   cdef node_t _split_node(self, intptr_t node) nogil except -1:
@@ -560,10 +562,10 @@ cdef class Tree:
       # the following test shall always be fine because we
       # only do try split the last leaf node with add_child
       if index != self._leafnodes.used - 1:
-        #with gil: raise RuntimeError('not called on the last node')
-        pass
+        with gil: raise RuntimeError('not called on the last node')
+      else:
+        flexarray.remove(&self._leafnodes, 1)
       parent = fullparent
-      flexarray.remove(&self._leafnodes, 1)
 
     index = flexarray.append(&self._leafnodes, 1)
     # creates a child of parent from first_par, returns the new child */
@@ -596,6 +598,9 @@ cdef class Tree:
 
     # do not merge if the node is already a leaf node
     if self.leafnode_index(parent) != -1: return parent
+
+    if parent != self._nodes.used - 1:
+      with gil: raise Exception("calling try merge on non-last nodes %d %d" % (parent, self._nodes.used))
 
 #    if self.get_node_nchildren(parent) >= 7:
 #      return parent
@@ -666,8 +671,8 @@ cdef class Tree:
       # parent is always the last item in _nodes,
       # and its children are always the last children in _leafnodes.
 
-      flexarray.remove(&self._leafnodes, nchildren - 1)
       flexarray.remove(&self._nodes, 1)
+      flexarray.remove(&self._leafnodes, nchildren - 1)
     return mark_leaf(index)
 
   cdef intptr_t _optimize(Tree self) nogil except -1:

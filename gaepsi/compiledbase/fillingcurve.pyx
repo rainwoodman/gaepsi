@@ -1,4 +1,5 @@
 # cython:cdivision=True
+#cython: embedsignature=True
 import numpy
 cimport numpy
 from libc.stdint cimport *
@@ -93,6 +94,8 @@ def scale(origin, boxsize):
   scale = numpy.empty(4, 'f8')
   _boxsize = numpy.empty(3, 'f8')
   _boxsize[:] = boxsize
+  if _boxsize.max() == 0.0:
+    _boxsize[:] = 1.0
   scale[:3] = origin
   scale[3] = ((<ipos_t>1 << BITS) - 1) / _boxsize.max()
   return scale
