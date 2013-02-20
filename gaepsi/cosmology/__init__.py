@@ -155,8 +155,20 @@ class Cosmology(object):
       D2 *= DH
       return _cosmology.thirdleg(D1, D2, t, out)
 
+  def D2t(self, z0, d):
+    """returns the light travelling time 
+       from z0 for comoving distance of d 
+       if d > 0, towards higher redshift, result < 0;
+       if d < 0 , towards lower redshift, result > 0""" 
+    self.setup_tables()
+    t0 = self.z2t(z0)
+    t1 = self.z2t(self.D2z(z0, d))
+    return t1 - t0
+
   def D2z(self, z0, d):
-    """returns the z satisfying Dc(z0, z) = d, and z > z0"""
+    """returns the z satisfying Dc(z0, z) = d, 
+       if d > 0, z > z0;
+       if d < 0 , z < z0"""
     self.setup_tables()
     d0 = numpy.interp(z0, self._z_table, self._intEzinv_table)
     z = numpy.interp((d * (1 / self.DH) + d0), self._intEzinv_table, self._z_table)
@@ -187,7 +199,7 @@ class Cosmology(object):
     return out
 
   def DtoZ(self, distance, z0):
-    """ Use D2z. integrate the redshift on a sightline 
+    """ Use D2z instead. integrate the redshift on a sightline 
         based on the distance taking GADGET, comoving. 
         REF transform 3.38) in Barbara Ryden. """
     raise 'This is deprecated'
