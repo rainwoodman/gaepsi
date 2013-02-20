@@ -27,11 +27,16 @@ def _bandconv(band, cosmology=HOPKINS2007, hertz=False):
   return rt[0]
 
 class QLFfunction:
-  def __init__(self, func):
+  def __init__(self, func, magnitude):
     self.func = func
+    self.magnitude = magnitude
   def __call__(self, z, L):
-    """ returns the number density per internal volume per log10(L), z is redshifit, L is log10(L/Lsun)"""
-    return self.func(z, L)
+    """ returns the number density per internal volume per log10(L), z is redshifit, L is log10(L/Lsun), input must be on a grid, and for Magnitude must be decreasing"""
+    if self.magnitude :
+      return self.func(z, (-L))
+    else:
+      return self.func(z, L)
+    raise
   def integral(self, z, L, epsilon=1e-3):
     """ returns integrated QLF.
         z, L can be scalar or a range (min, max).
@@ -41,42 +46,75 @@ class QLFfunction:
         epsilon decides the small range used to determine the 1d integral.
     """
     if numpy.isscalar(z):
+      if self.magnitude:
+        L = (-L[0], -L[1])
       return self.func.integral(z-epsilon, z+epsilon, L[0], L[1]) / epsilon * 0.5
     if numpy.isscalar(L):
+      if self.magnitude:
+        L = -l
       return self.func.integral(z[0], z[1], L-epsilon, L+epsilon) / epsilon * 0.5
+    if self.magnitude:
+      L = (-L[0], -L[1])
     return self.func.integral(z[0], z[1], L[0], L[1])
 
-def qlf(band, cosmology=HOPKINS2007):
+def qlf(band, cosmology=HOPKINS2007, magnitude=False, returnraw=False, zbins=numpy.linspace(0, 6, 200), Lbolbins = numpy.linspace(8, 18, 300)):
   """ returns an scipy interpolated function for the hopkins 2007 QLF, 
       at a given band.
       band can be a frequency, or 'bol', 'blue', 'ir', 'soft', 'hard'.
       HOPKINS2007 cosmology is implied.
       result shall not depend on the input cosmology but the HOPKINS cosmology
       is implied in the fits.
+      if return raw is true, return 
+         zrange, Lbol, Lband, M_AB, S_nu, Phi
   """
   U = cosmology.units
   banddict = {'bol':0, 'blue':-1, 'ir':-2, 'soft':-3, 'hard': -4}
   from scipy.interpolate import RectBivariateSpline
   if band in banddict: band = banddict[band]
   else: band = _bandconv(band, cosmology, hertz=True)
-  if band not in _qlf_interp:
-    Lbol = numpy.linspace(8, 18, 200)
-    zrange = numpy.linspace(0, 6, 300)
-    v = numpy.empty(numpy.broadcast(Lbol[None, :], zrange[:, None]).shape)
-    Lband, M_AB, S_nu, Phi = _qlf(band, 1.0, Lbol)
+  key = band, zbins.tostring(), Lbolbins.tostring()
+
+  if key not in _qlf_interp:
+    v = numpy.empty(numpy.broadcast(Lbolbins[None, :], zbins[:, None]).shape)
+    Lband, M_AB, S_nu, Phi = _qlf(band, 1.0, Lbolbins)
     with sharedmem.Pool(use_threads=True) as pool:
       def work(v, z):
-        Lband_, M_AB, S_nu, Phi = _qlf(band, z, Lbol)
+        Lband_, M_AB_, S_nu, Phi = _qlf(band, z, Lbolbins)
         v[:] = Phi
-      pool.starmap(work, zip(v, zrange))
+      pool.starmap(work, zip(v, zbins))
     v /= (U.MPC ** 3)
     # Notice that hopkins used 3.9e33 ergs/s for Lsun, but we use a different number.
     # but the internal fits of his numbers
     # thus we skip the conversion, in order to match the fits with luminosity in terms of Lsun.
     # Lbol = Lbol - numpy.log10(U.SOLARLUMINOSITY/U.ERG*U.SECOND) + numpy.log10(3.9e33)
-    func = RectBivariateSpline(zrange, Lband, v)
-    _qlf_interp[band] = QLFfunction(func)
-  return _qlf_interp[band]
+    data = numpy.empty(shape=len(Lbolbins),
+        dtype=[
+          ('Lbol', 'f4'),
+          ('Lband', 'f4'),
+          ('M_AB', 'f4'),
+          ('S_nu', 'f4'),
+          ('Phi', ('f4', v.shape[0]))])
+    data['Lbol'] = Lbolbins
+    data['Lband'] = Lband
+    data['M_AB'] = M_AB
+    data['S_nu'] = S_nu
+    data['Phi'] = v.T
+    _qlf_interp[key] = data
+  data = _qlf_interp[key]
+  if returnraw:
+    return data.view(numpy.recarray)
+  if magnitude:
+    func = RectBivariateSpline(zbins, - data['M_AB'], data['Phi'].T)
+    func.x = zbins
+    func.y = -data['M_AB']
+    func.z = data['Phi'].T
+    return func
+  else:
+    func = RectBivariateSpline(zbins, data['Lband'], data['Phi'].T)
+    func.x = zbins
+    func.y = data['Lband']
+    func.z = data['Phi'].T
+    return func
   
 def bhLbol(mdot, cosmology=HOPKINS2007):
   """ converts accretion rate in internal units to bolemetric, in units of Lsun """
