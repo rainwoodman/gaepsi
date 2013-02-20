@@ -414,7 +414,9 @@ class packarray:
       return packarray(self.A, self.start[index], self.end[index])
 
     if numpy.isscalar(index):
-      return self.A[self.start[index]:self.end[index]]
+      start, end = self.start[index], self.end[index]
+      if end > start: return self.A[start:end]
+      else: return numpy.empty(0, dtype=self.A.dtype)
     raise IndexError('unsupported index type %s' % type(index))
 
   def __len__(self):
