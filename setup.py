@@ -35,6 +35,7 @@ setup(name="gaepsi", version="0.2",
 #         ('compiledbase._field', []), orphan, pending removal?
          ('compiledbase.camera', []),
          ('compiledbase.ztree', ['gaepsi/compiledbase/npyiter.pxd',]),
+         ('compiledbase.tree', []),
 #         ('compiledbase.zfof', []),
          ('compiledbase.query', []),
          ('compiledbase.ngbquery', []),
