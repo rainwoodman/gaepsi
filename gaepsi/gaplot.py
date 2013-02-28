@@ -500,7 +500,7 @@ class GaplotContext(Store):
 
     marker_obj = MarkerStyle(marker)
     if not marker_obj.is_filled():
-        edgecolor = 'face'
+        edgecolor = color
 
     for x,y,r in numpy.nditer([X, Y, s], flags=['zerosize_ok']):
       path = marker_obj.get_path().transformed(
