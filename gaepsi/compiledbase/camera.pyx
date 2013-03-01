@@ -724,7 +724,7 @@ cdef class Camera:
     # too far or too near.
 
     brightness *= zfac
-    cdef int ix, iy, imax[2], imin[2], di[2]
+    cdef int ix, iy, imax[2], imin[2], di[2], imaxclip[2], iminclip[2]
 
     for d in range(2):
       imin[d] = <int>(xy[d] - dxy[d] + 0.5)
@@ -732,10 +732,14 @@ cdef class Camera:
       if imax[d] > imin[d] + 1: 
         imax[d] = imax[d] - 1
       di[d] = imax[d] - imin[d] + 1
-      if imin[d] < 0: imin[d] = 0
-      if imin[d] >= self._shape[d]: imin[d] = self._shape[d] - 1
-      if imax[d] < 0: imax[d] = 0
-      if imax[d] >= self._shape[d]: imax[d] = self._shape[d] - 1
+      iminclip[d] = imin[d]
+      imaxclip[d] = imax[d]
+      if iminclip[d] < 0: iminclip[d] = 0
+      if iminclip[d] >= self._shape[d]: 
+        return
+      if imaxclip[d] < 0: 
+        return
+      if imaxclip[d] >= self._shape[d]: imaxclip[d] = self._shape[d] - 1
 
     # normfac is the area of a pixel
     cdef float normfac = 4. / (di[0] * di[1]) #( dxy[0] * dxy[1])
@@ -761,9 +765,9 @@ cdef class Camera:
     cdef float tmp2fac = 2.0 / di[1]
     cdef intptr_t p, q
 
-    p = (imin[0] * self._shape[1] + imin[1]) * 2
 
     if di[0] == 1 and di[1] == 1:
+      p = (iminclip[0] * self._shape[1] + iminclip[1]) * 2
       write_ccd(ccd, p, brightness, color)
       return
 
@@ -800,13 +804,19 @@ cdef class Camera:
       iy = imin[1]
       q = p
       while iy <= imax[1]:
-        if cachept < CACHESIZE:
-          tmp3 = cache[cachept]
-          cachept = cachept + 1
+        if (ix >= iminclip[0] and ix <= imaxclip[0] \
+             and iy >= iminclip[1] and iy <= imaxclip[1]):
+          if cachept < CACHESIZE:
+            tmp3 = cache[cachept]
+            cachept = cachept + 1
+          else:
+            tmp3 = self.kernel_func(tmp1, tmp2)
+          if tmp3 > 0:
+            write_ccd(ccd, q, bit * tmp3, color)
         else:
-          tmp3 = self.kernel_func(tmp1, tmp2)
-        if tmp3 > 0:
-          write_ccd(ccd, q, bit * tmp3, color)
+          if cachept < CACHESIZE:
+            cachept = cachept + 1
+          
         iy = iy + 1
         tmp2 += tmp2fac
         q += 2
