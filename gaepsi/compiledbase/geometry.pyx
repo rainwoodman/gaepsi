@@ -257,8 +257,8 @@ cdef class Cubenoid:
     badness = 0
     for d in range(3):
       x = (pos[d] - origin[d]) / boxsize[d]
-      if x < -1e-5: badness += -x 
-      if x >= 1.0 + 1e-5: badness += (x - 1.0)
+      if x < 0: badness += -x
+      if x >= 1.0: badness += (x - 1.0)
     return badness
 
   cdef int solve_one(self, double *x, double *y, double * z, double (*tries)[3], int ntries, double origin[3], double boxsize[3]) nogil:
