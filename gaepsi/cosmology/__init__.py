@@ -291,6 +291,30 @@ class Cosmology(object):
     """Evaluate dln(a)/dtau for FLRW cosmology. """
     return self._cosmology.eval('dladt', a, out)
 
+  def power(self, OmegaB, sigma8):
+    """ returns matter power spectrum. need pycamb 
+        the power spectrum will be in GADGET normalization,
+        normalized to (2 * numpy.pi) ** -3 * P_phys(k)
+        This takes a long time to calculate; and no caching
+        is implemented.
+        returns a function P_k(k).
+    """
+    import pycamb
+    from scipy.interpolation import interp1d
+    assert self.M + self.L + self.K == 1.0
+    args = dict(H0=self.h * 100, 
+          omegac=self.M - OmegaB, 
+          omegab=OmegaB, 
+          omegav=self.L, 
+          omegak=0,
+          omegan=0)
+    fakesigma8 = pycamb.transfers(scalar_amp=1, **args)[2]
+    scalar_amp = fakesigma8 ** -2 * sigma8 ** 2
+    k, p = pycamb.matter_power(scalar_amp=scalar_amp, maxk=10, **args)
+    k /= self.U.MPC_h
+    p *= (self.U.MPC_h) ** 3 * (2 * numpy.pi) ** -3 # xiao to GADGET
+    return interp1d(k, p, kind='linear', copy=True, 
+              bounds_error=False, fill_value=0)
 
 WMAP7 = Cosmology(K=0.0, M=0.272, L=0.728, h=0.702)
 default = WMAP7

@@ -1,4 +1,40 @@
 from gaepsi.readers import get_reader
+import numpy
+
+class SnapshotList:
+  def __init__(self, all):
+    self.all = all
+    self.C = all[0].C
+
+  def setN(self, N):
+    for i, s in enumerate(self.all):
+      start = i * N // len(self.all)
+      end = (i + 1)* N // len(self.all)
+      s.C['N'][:] = end[:] - start[:]
+      s.C['Ntot'][:] = N
+
+  def setC(self, name, value):
+    for s in self.all:
+      s.C[name] = value
+
+  def __getitem__(self, index):
+    ptype, block = index
+    return numpy.concatenate([s.load(block, ptype) for s in self.all], axis=0)
+
+  def __setitem__(self, index, value):
+    ptype, block = index
+    N = 0
+    for s in self.all:
+      s.P[ptype][block] = value[N:N+s.C['N'][ptype]]
+      N = N + s.C['N'][ptype]
+
+  def __contains__(self, index):
+    ptype, block = index
+    return numpy.any([s.has(block, ptype) for s in self.all])
+
+  def __delitem__(self, index):
+    ptype, block = index
+    return [s.clear(block, ptype) for s in self.all]
 
 class Snapshot:
   def __init__(self, file=None, reader=None, create=False, overwrite=True, **kwargs):

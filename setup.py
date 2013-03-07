@@ -25,7 +25,7 @@ setup(name="gaepsi", version="0.2",
       ext_modules = [
         Extension("gaepsi.%s" % name, 
              [ 'gaepsi/' + name.replace('.', '/') + '.pyx',],
-             extra_compile_args=['-O0', '-g', '-Dintp=npy_intp'],
+             extra_compile_args=['-O3', '-g', '-Dintp=npy_intp'],
              libraries=[],
              include_dirs=[get_include(), 'gaepsi/cosmology', 'gaepsi/compiledbase'],
              depends = extra

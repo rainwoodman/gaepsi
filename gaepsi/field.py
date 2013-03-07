@@ -176,11 +176,11 @@ class Field(object):
       elif index == 'locations':
         return self.dict[self.locations]
       elif index == 'x':
-        return self.dict['locations'][:, 0]
+        return self['locations'][:, 0]
       elif index == 'y':
-        return self.dict['locations'][:, 1]
+        return self['locations'][:, 1]
       elif index == 'z':
-        return self.dict['locations'][:, 2]
+        return self['locations'][:, 2]
       else:
         raise KeyError('index %s not found' % index)
     elif isinstance(index, slice):

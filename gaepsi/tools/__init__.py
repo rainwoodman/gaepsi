@@ -446,6 +446,15 @@ class virtarray(numpy.ndarray):
   def __setitem__(self, index, value):
     self._set(index, value)
     self.A[index] = value
+
+  def __setslice__(self, a, b, value):
+    sl = slice(a, b)
+    for i in range(*sl.indices(len(self))):
+      if numpy.isscalar(value):
+        self[i] = value
+      else:
+        self[i] = value[i-a]
+
   def __getitem__(self, index):
     value = self._get(index)
     self.A[index] = value
