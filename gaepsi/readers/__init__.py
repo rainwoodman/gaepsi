@@ -339,7 +339,7 @@ class ReaderObj(object):
       try:
         snapshot.P[None][name] = file.read_record(dtype, length)
       except IOError as e:
-        raise IOError('failed to read block %s:%s' % (s.name, e))
+        raise IOError('failed to read block %s:%s' % (name, e))
 
       for ptype in ptypes:
         if cls.needmasstab(snapshot, name, ptype):
