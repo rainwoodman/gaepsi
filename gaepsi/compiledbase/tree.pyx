@@ -2,7 +2,7 @@
 #cython: cdivision=True
 
 import numpy
-from cpython.mem cimport PyMem_Malloc, PyMem_Free
+from cpython.mem cimport PyMem_Malloc, PyMem_Free, PyMem_Realloc
 cimport numpy
 from numpy cimport npy_int64, npy_int32
 from libc.string cimport memcpy, memset
@@ -12,7 +12,6 @@ from cython cimport floating
 # and fucks everything up with fused types.
 
 from libc.stdint cimport intptr_t as npy_intp
-from threading import Thread
 
 numpy.import_array()
 
@@ -303,8 +302,8 @@ cdef Node * node_resolution_test_r(Node * node, npy_int64 width, npy_int64 width
     
 cdef Node * node_AABB_test_r(Node * node,
       npy_int64 a[3], npy_int64 b[3], npy_int64 c[3], npy_int64 d[3], 
-      npy_int64 o[3], npy_int64 r, double resolution,
-      Node * head, Node ** next, int * flags) nogil:
+      npy_int64 o[3], npy_int64 r,
+      Node * head, Node ** next) nogil:
 
   if node.size == 0: return head
   cdef int spherevalue = 0 
@@ -330,13 +329,9 @@ cdef Node * node_AABB_test_r(Node * node,
 
   cdef npy_int64 nesta[3]
   cdef npy_int64 nestb[3]
-  if resolution > 0:
-    flags[node.id] = resolution_test(a, b, o, resolution)
-  else:
-    flags[node.id] = 1
   cdef int ax
   if (testvalue == 1 or testvalue == 3 or spherevalue == 1 ) \
-    or (testvalue == 2 and flags[node.id]):
+    or (testvalue == 2):
     # c, d is not fully covered by node,
     # or cd is definitely overlapping the exclusion zone,
     # but not definitely fully inside
@@ -350,61 +345,7 @@ cdef Node * node_AABB_test_r(Node * node,
             nesta[ax] = a[ax]
             nestb[ax] = a[ax] + ((b[ax] - a[ax]) >> 1)
         head = node_AABB_test_r(node.link[prefix],
-               nesta, nestb, c, d, o, r, resolution, head, next, flags)
-      return head
-  # either the entire node is inside (value=2) and unresolved
-  # or the node is external
-  next[node.id] = head
-  return node
-
-cdef Node * node_AABB_test_r2(Node * node,
-      npy_int64 a[3], npy_int64 b[3], npy_int64 c[3], npy_int64 d[3], 
-      npy_int64 o[3], npy_int64 r, npy_int64 widthlimit,
-      Node * head, Node ** next, int * flags) nogil:
-
-  if node.size == 0: return head
-  cdef int spherevalue = 0 
-  # take the possible non-overlap branch if no exclusion zone
-  if r > 0:
-    spherevalue = spheretest(a, b, o, r)
-  if spherevalue == 2: 
-    # definitely inside exclusion zone
-    return head
-
-  cdef int testvalue = AABBtest(a, b, c, d)
-#  if testvalue == 2:
-#    with gil:
-#       print 'AABB r:', node.id, testvalue
-#       print 'AABB a:', a[0], a[1], a[2]
-#       print 'AABB b:', b[0], b[1], b[2]
-#       print 'AABB c:', c[0], c[1], c[2]
-#       print 'AABB d:', d[0], d[1], d[2]
-
-  # definitely outside the includsive zone
-  if testvalue == 0:
-    return head
-
-  cdef npy_int64 nesta[3]
-  cdef npy_int64 nestb[3]
-
-  flags[node.id] = b[0] - a[0] > widthlimit
-  cdef int ax
-  if (testvalue == 1 or testvalue == 3 or spherevalue == 1 ) \
-    or (testvalue == 2 and flags[node.id]):
-    # c, d is not fully covered by node,
-    # or cd is definitely overlapping the exclusion zone,
-    # but not definitely fully inside
-    if node.link[0]:
-      for prefix in range(8):
-        for ax in range(3):
-          if prefix & (1 << ax):
-            nesta[ax] = a[ax] + ((b[ax] - a[ax]) >> 1)
-            nestb[ax] = b[ax]
-          else:
-            nesta[ax] = a[ax]
-            nestb[ax] = a[ax] + ((b[ax] - a[ax]) >> 1)
-        head = node_AABB_test_r2(node.link[prefix],
-               nesta, nestb, c, d, o, r, widthlimit, head, next, flags)
+               nesta, nestb, c, d, o, r, head, next)
       return head
   # either the entire node is inside (value=2) and unresolved
   # or the node is external
@@ -676,98 +617,106 @@ cdef class Tree:
         out[node.id] += weights[self._indices[node.first + i]]
       return out[node.id]
 
-  def query(self, center, halfsize, exclude=0, resolution=None):
-    """ return the index of particles that are almost within the given box
-        this works only on one box. 
-        if exclude > 0, then particles that are within this radius will 
+  def query(self, center, halfsize, exclude=None):
+    """ find the index of particles that are almost within the given boxes
+
+        if exclude is not None, then particles that are within this radius will 
         be very likely excluded. notice that if tree.invptp is
         anisotripic, the behavior of exclude is undefined.
+        
 
-        if resolution is a positive number (with 0 ~ 1, smaller == finer)
-        then returns two arrays, 
-          index of particles possibly in the region
-        and
-          index of nodes possibly in the region, if they are unresolved.
-        when center is None,
-        do not query a region, but find all objects that are resolved by resolution * boxsize.
+        returns ind, length
+            ind: indices of all particles for each box in sequence
+            length: length of particles for each box
     """
-    cdef double res
     cdef Node ** next = <Node**>PyMem_Malloc(sizeof(Node*) * self.nodeptr.shape[0])
+    cdef Node ** buffer = <Node**>PyMem_Malloc(sizeof(Node*) * 128)
+    cdef npy_intp last = 0
+    cdef npy_intp limit = 128
     memset(next, 0, sizeof(Node*) * self.nodeptr.shape[0])
   
-    cdef int * flags = <int*>PyMem_Malloc(sizeof(int) * self.nodeptr.shape[0])
-  
-    if resolution is None:
-      res = 0
-    else:
-      res = resolution
     cdef Node * head
     cdef numpy.ndarray c
     cdef numpy.ndarray d
     cdef numpy.ndarray o
-    cdef npy_int64 r
-    if center is None:
-      with nogil:
-         head = node_resolution_test_r(self._root, self.IPOS_LIMIT, 
-                        <npy_int64>(res * self.IPOS_LIMIT), NULL,
-                        next, flags)
-    else:
-      center = numpy.asarray(center)
-      halfsize = numpy.asarray(halfsize)
-  
-      c = self.array_to_ipos(center - halfsize, 0, numpy.int64)
-      d = self.array_to_ipos(center + halfsize, 0, numpy.int64)
-      o = self.array_to_ipos(center, 1, numpy.int64)
-      if exclude <= 0: 
-        r = -1
-      else:
-        r = <npy_int64>(<double>exclude * self.invptp[0] * self.IPOS_LIMIT)
-  
-      with nogil:
-        head = node_AABB_test_r2(self._root, 
-              self.ZERO, self.LIMIT, <npy_int64*>c.data, <npy_int64*>d.data, 
-                       <npy_int64*>o.data, r, 
-                     <npy_int64>(res * self.IPOS_LIMIT), NULL,
-                     next, flags)
+    cdef numpy.ndarray r
+    cdef numpy.ndarray sizes
 
+    center = numpy.atleast_2d(center)
+    halfsize = numpy.atleast_2d(halfsize)
+  
+    c = self.array_to_ipos(center - halfsize, 0, numpy.int64)
+    d = self.array_to_ipos(center + halfsize, 0, numpy.int64)
+    o = self.array_to_ipos(center, 1, numpy.int64)
+    r = numpy.atleast_1d(numpy.int64(exclude * self.invptp[0] * self.IPOS_LIMIT))
+    cdef npy_intp imax = numpy.max([c.shape[0], d.shape[0], o.shape[0], r.shape[0]])
+    sizes = numpy.zeros(imax, numpy.intp)
+
+    cdef npy_intp i
+    cdef npy_intp j
+    cdef Node * p
+    cdef npy_intp pid
+    cdef npy_intp ic = 0, id = 0, io = 0, ir = 0
+    with nogil:
+      for i in range(0, imax, 1):
+        head = node_AABB_test_r(self._root, 
+              self.ZERO, self.LIMIT, 
+                       (<npy_int64(*)[3]>c.data)[ic], 
+                       (<npy_int64(*)[3]>d.data)[id], 
+                       (<npy_int64(*)[3]>o.data)[io], 
+                       (<npy_int64 *>r.data)[ir], NULL, next)
+        ic = ic + 1
+        if ic == c.shape[0]: ic = 0
+        id = id + 1
+        if id == d.shape[0]: id = 0
+        io = io + 1
+        if io == o.shape[0]: io = 0
+        ir = ir + 1
+        if ir == r.shape[0]: ir = 0
+        p = head
+        while True:
+          buffer[last] = p
+          last = last + 1
+          if last == limit:
+            limit = limit * 2
+            with gil:
+              buffer = <Node**>PyMem_Realloc(buffer, sizeof(Node*) * limit)
+          if p == NULL: break
+          pid = p.id
+          p = next[p.id]
+          next[pid] = NULL
+
+    PyMem_Free(next)
+      
     # first count total 
-    cdef Node * p = head
     cdef npy_intp N = 0
-    cdef npy_intp nodeN = 0
     cdef TreeNode tn = TreeNode(self)
     with nogil:
-      while p:
-        if flags[p.id] != 0:
+      j = 0
+      for i in range(last):
+        p = buffer[i]
+        if p:
           N += p.size
+          (<npy_intp*>sizes.data)[j] += p.size
         else:
-          nodeN += 1
-        p = next[p.id]
+          # end of one test point
+          j = j + 1 
 
-    cdef numpy.ndarray result = numpy.empty(N + nodeN, dtype='intp')
-    cdef npy_intp * _result = <npy_intp*>result.data
-    cdef npy_intp * _resultNode = <npy_intp*>result.data + N
+    cdef numpy.ndarray result = numpy.empty(N, dtype=numpy.intp)
 
     # then copy them over
-    p = head
-    cdef npy_intp i = 0
-    cdef npy_intp j = 0
     with nogil:
-      while p:
-        if flags[p.id] != 0:
-          memcpy(&_result[i], &self._indices[p.first], p.size * sizeof(npy_intp))
-          i = i + p.size
-        else:
-          _resultNode[j] = p.id
-          j = j + 1
-        p = next[p.id]
+      j = 0
+      for i in range(last):
+        p = buffer[i]
+        if p:
+          memcpy(<npy_intp*>result.data + j,
+                 self._indices + p.first,
+                 p.size * sizeof(npy_intp))
+          j = j + p.size
 
-    PyMem_Free(flags)
-    PyMem_Free(next)
-
-    if resolution is not None:
-      return result[:N], result[N:]
-    else:
-      return result
+    PyMem_Free(buffer)
+    return result, sizes
 
   cdef numpy.ndarray array_to_ipos(self, numpy.ndarray array, mode, dtype):
     """ mode == 0, clip
