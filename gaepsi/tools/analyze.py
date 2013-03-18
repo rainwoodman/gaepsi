@@ -107,7 +107,7 @@ class BHDetail:
   def __init__(self, filename, mergerfile=None, numfields=None):
     """ to combine bunch of bhdetails file into one file, run
      cat blackhole_details_* | awk '/^BH=/ {if (NF==14) print substr($0, 4)}' |sort -gk 2 > bhdetail.txt 
-      U is the units.
+     cat blackhole_details_* |grep swallows | awk '{print substr($2, 6, length($2)-6), substr($3,4), $5}' > bhdetail-merger.txt
       everything will be in internal units
     """
     dtlist = [
