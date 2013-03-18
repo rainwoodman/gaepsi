@@ -1,67 +1,18 @@
-from gaepsi.readers import get_reader
+from gaepsi.readers import Reader
 import numpy
 
-class SnapshotList:
-  def __init__(self, all):
-    self.all = all
-    self.C = all[0].C
-
-  def setN(self, N):
-    for i, s in enumerate(self.all):
-      start = i * N // len(self.all)
-      end = (i + 1)* N // len(self.all)
-      s.C['N'][:] = end[:] - start[:]
-      s.C['Ntot'][:] = N
-
-  def setC(self, name, value):
-    for s in self.all:
-      s.C[name] = value
-
-  def __getitem__(self, index):
-    ptype, block = index
-    return numpy.concatenate([s.load(block, ptype) for s in self.all], axis=0)
-
-  def __setitem__(self, index, value):
-    ptype, block = index
-    N = 0
-    for s in self.all:
-      s.P[ptype][block] = value[N:N+s.C['N'][ptype]]
-      N = N + s.C['N'][ptype]
-
-  def __contains__(self, index):
-    ptype, block = index
-    return numpy.any([s.has(block, ptype) for s in self.all])
-
-  def __delitem__(self, index):
-    ptype, block = index
-    return [s.clear(block, ptype) for s in self.all]
-
 class Snapshot:
-  def __init__(self, file=None, reader=None, create=False, overwrite=True, **kwargs):
-    """ creats a snapshot
-      **kwargs are the fields in the header to be filled if create=True.
-      **kwargs are ignored when create=False.
-    """
-    # block offset table
-    self.sizes = {}
-    self.offsets = {}
-
-    reader = get_reader(reader)
-
-    if reader == None: 
-      raise Excpetion('reader %s is not found' % reader)
-
-
+  def __init__(self, file=None, reader=None, 
+               create=False, overwrite=True):
+    reader = Reader(reader)
+    self.reader = reader
     self.file = file
     if create:
       self.save_on_delete = True
-      reader.create(self, overwrite=overwrite)
-      for key in kwargs:
-        self.C[key] = kwargs[key]
-
+      self.create(overwrite=overwrite)
     else:
       self.save_on_delete = False
-      reader.open(self)
+      self.open()
 
     #self.C is set after reader.create / reader.open
     # particle data
@@ -70,71 +21,193 @@ class Snapshot:
       self.P[n] = {}
     self.P[None] = {}
 
-  def __del__(self):
-    if hasattr(self, 'save_on_delete') and self.save_on_delete:
-#      print 'saving snapshot %s at destruction' % self.file
-      self.save_all()
+  def getfile(self, mode):
+    return self.reader.file_class(self.file, endian=self.reader.endian, mode=mode)
+  def open(self):
+    with self.getfile('r') as file:
+      fileheader = file.read_record(self.reader.header, 1).squeeze()
+      self.C = self.reader.constants(fileheader, init=False, extra=self.reader.extra_kwargs)
+      self.schema = Schema(self.reader, self.C)
 
-  def load(self, name, ptype) :
-    """ Load blocks into memory if they are not """
-    if name in self.P[ptype]: return self.P[ptype][name]
-    if not self.has(name, ptype): return None
-    self.reader.load(self, ptype, name)
-    return self.P[ptype][name]
+  def create(self, overwrite):
+    if not overwrite:
+      mode = 'wx+'
+    else:
+      mode = 'w+'
+    with self.getfile(mode) as file:
+      self.C = self.create_header()
+      self.schema = Schema(self.reader, self.C)
 
-  def alloc(self, name, ptype) :
-    """ Load blocks into memory if they are not """
-    if name in self.P[ptype]: return self.P[ptype][name]
-    if not self.has(name, ptype): return None
-    self.reader.alloc(self, ptype, name)
-    #print 'alloced snap', name, ptype, self.P[ptype][name]
-    return self.P[ptype][name]
+  def create_header(self):
+    fileheader = numpy.zeros(dtype=self.reader.header, shape=None)
+    return self.reader.constants(fileheader, init=True, extra=self.reader.extra_kwargs)
 
-  def has(self, name, ptype):
-    return self.reader.has_block(self, name, ptype)
-    
-  def save_header(self):
-    self.reader.write_header(self)
-
-  def create_structure(self):
-    self.reader.create_structure(self)
-
-  def save_all(self):
-    self.save_on_delete = False
-    self.create_structure()
-
-    # now ensure the structure of the file is complete
-    for ptype in range(len(self.C['N'])):
-      for name in self.reader.schema:
-        if name in self.P[ptype]:
-          self.save(name, ptype)
-
-  def save(self, name, ptype, clear=False) :
-    self.save_on_delete = False
-    self.reader.save(self, ptype, name)
-    if clear: 
-      self.clear(name, ptype)
-
-  def check(self):
-    self.reader.check(self)
-
-  def clear(self, name, ptype) :
-    """ relase memory used by the blocks, do not flush to the disk """
-    if name in self.P[ptype]: del self.P[ptype][name]
-
+  def _decodeindex(self, index):
+      if isinstance(index, tuple):
+        ptype, name = index
+      else:
+        ptype = None
+        name = index 
+      return ptype, name
   def __getitem__(self, index):
-    ptype, block = index
-    return self.load(block, ptype)
+    """ if ptype is None, read in all ptypes """
+    with self.getfile('r') as file:
+      ptype, name = self._decodeindex(index)
+      dtype = self.schema[name].dtype
+      ptypes = self.schema[name].ptypes
+      if ptype is None:
+        file.seek(self.offset(name))
+        length = self.size(name) // dtype.itemsize
+        self.P[None][name] = file.read_record(dtype, length)
+        for ptype in ptypes:
+          if self.needmasstab(name, ptype):
+            self.P[ptype][name] = numpy.empty(self.C['N'][ptype], dtype)
+            self.P[ptype][name][:] = self.C['mass'][ptype]
+          else:
+            offset = self.count_particles(name, ptype)
+            self.P[ptype][name] = self.P[None][name]\
+                  [offset:offset + self.C['N'][ptype]]
+      else:
+        if not self.has_block(name, ptype):
+          raise IOError('block %s does not exist in file %s for ptype %d'\
+                     % (name, self.file, ptype))
 
-  def __setitem__(self, index, value):
-    ptype, block = index
-    self.P[ptype][block] = value
+        if self.needmasstab(name, ptype):
+          self.P[ptype][name] = numpy.empty(self.C['N'][ptype], dtype)
+          self.P[ptype][name][:] = self.C['mass'][ptype]
+        else:
+          file.seek(self.offset(name))
+          length = self.size(name) // dtype.itemsize
+          offset = self.count_particles(name, ptype)
+          self.P[ptype][name] = file.read_record(dtype, length, offset, self.C['N'][ptype])
+    return self.P[ptype][name]
 
   def __contains__(self, index):
-    ptype, block = index
-    return self.has(block, ptype)
+    ptype, name = self._decodeindex(index)
+    return self.has_block(name, ptype=ptype)
+  
+  def __del__(self):
+    if self.save_on_delete:
+      self.save(None)
 
   def __delitem__(self, index):
-    ptype, block = index
-    return self.clear(block, ptype)
+    ptype, name = self._decodeindex(index)
+    if name in self.P[ptype]: 
+      del self.P[ptype][name]
+    if ptype is None:
+      ptypes = self.schema[name].ptypes
+      for ptype in ptypes:
+         del self[ptype, name]
+       
+  def save(self, index):
+    if index is None:
+      for ptype in range(len(self.C['N'])):
+        for name in self.schema:
+          if name in self.P[ptype]:
+            if name is not None:
+              self.save((ptype, name))
+    ptype, name = self._decodeindex(index)
+    if not self.has_block(name, ptype):
+      return
+    if self.needmasstab(name, ptype):
+      if (self.P[ptype][name] != self.C['mass'][ptype]).any():
+        warnings.warn('mismatching particle mass detected')
+      return
+    with self.getfile('r+') as file:
+      file.seek(self.offset(name))
+      dtype = self.schema[name].dtype
+      length = self.size(name) // dtype.base.itemsize
+      offset = self.count_particles(name, ptype)
+      offset *= dtype.itemsize // dtype.base.itemsize
+      if len(self.P[ptype][name]) != self.C['N'][ptype]:
+        raise IOError('snap memory image corrupted: %s %d %d %d' \
+              % (name, ptype, len(self.P[ptype][name]), 
+                 self.C['N'][ptype]))
+    file.write_record(self.P[ptype][name], length, offset)
+
+  def check(self):
+    with self.getfile('r+') as file:
+      for s in self.schema:
+        name = s.name
+        file.seek(self.offset(name))
+        length = snapshot.size(name) // s.dtype.itemsize
+        file.skip_record(s.dtype, length)
+     
+  def offset(self, name):
+    offset = self.reader.file_class.get_size(
+              self.reader.header.itemsize);
+    if not self.has_block(name):
+      raise IOError('block %s does not exist in file')
+    for iname in self.schema:
+      if not self.has_block(iname):
+        continue
+      if iname == name: break
+      N = self.count_particles(iname, None)
+      blocksize = N * self.schema[iname].dtype.itemsize
+
+      offset += self.reader.file_class.get_size(blocksize);
+    return offset
+
+  def size(self, name):
+    if not self.has_block(name):
+      raise IOError('block %s does not exist in file')
+    N = self.count_particles(name, None)
+    blocksize = N * self.schema[name].dtype.itemsize
+    return blocksize;
+    
+  def has_block(self, name, ptype=None):
+    if not name in self.schema: return False
+    schema = self.schema[name]
+    for cond in schema.conditions:
+        if self.C[cond] == 0 : return False
+    if ptype is None: return True
+    if ptype in schema.ptypes: return True
+    return False
+
+  def count_particles(self, name, endptype=None):
+    N = 0
+    schema = self.schema[name]
+    if endptype is None:
+      endptype = len(self.C['N'])
+    for ptype in range(endptype):
+      if self.needmasstab(name, ptype):
+        continue
+      if ptype in schema.ptypes:
+        N += int(self.C['N'][ptype])
+    return N
+
+  def needmasstab(self, name, ptype):
+    return name == 'mass' \
+       and self.C['mass'][ptype] != 0.0
+    
+from collections import OrderedDict, namedtuple
+
+SchemaEntry = namedtuple("Entry", 
+    ['name', 'dtype', 
+     'ptypes', 'conditions'])
+
+class Schema(OrderedDict):
+  def __init__(self, reader, header):
+    OrderedDict.__init__(self)
+    allptypes = numpy.arange(len(header['N']))
+    for name in reader.schema.__blocks__:
+      entry = getattr(reader.schema, name)
+      if len(entry) == 1:
+        entry = SchemaEntry(name=name, 
+            dtype=numpy.dtype(entry[0]), 
+            ptypes=allptypes, 
+            conditions=())
+      elif len(entry) == 2:
+        entry = SchemaEntry(name=name, 
+            dtype=numpy.dtype(entry[0]),
+            ptypes=numpy.array(entry[1], dtype='i4'), 
+            conditions=())
+      elif len(entry) == 3:
+        entry = SchemaEntry(name=name, 
+            dtype=numpy.dtype(entry[0]), 
+            ptypes=numpy.array(entry[1], dtype='i4'), 
+            conditions=entry[2])
+      else:
+        raise SyntaxError('schema declaration is wrong')
+      self[name] = entry
 

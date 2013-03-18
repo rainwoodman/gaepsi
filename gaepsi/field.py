@@ -120,7 +120,7 @@ class Field(object):
 
     ptype = None
 
-    nptypes = snapshots[0].reader.schema.nptypes
+    nptypes = len(snapshots[0].C['N'])
     N = numpy.zeros((len(snapshots), nptypes), dtype='i8')
     O = N.copy()
 
@@ -146,7 +146,7 @@ class Field(object):
         snapshot = snapshots[i]
         for ptype in ptypes:
           mask, count = filter(snapshot, ptype, origin, boxsize)
-          for block in snapshot.reader.schema:
+          for block in snapshot.schema:
             if N[i, ptype] == 0: continue
             if (ptype, block) not in snapshot: continue
             if block not in self.names: continue

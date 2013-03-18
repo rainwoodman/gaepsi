@@ -114,11 +114,10 @@ class Store(object):
         if components is None, all blocks defined
         in the reader will be read in.
     """
-    reader = Reader(self._format)
     schemed = {}
       
     if components is None:
-      components = reader.schema
+      components = self._schema
 
     if locations not in components:
       components += [locations]
@@ -126,8 +125,8 @@ class Store(object):
     for comp in components:
       if isinstance(comp, tuple):
         schemed[comp[0]] = comp[1]
-      elif comp in reader:
-        schemed[comp] = reader[comp].dtype
+      elif comp in self._schema:
+        schemed[comp] = self._schema[comp].dtype
 
     self.F[ftype] = Field(components=schemed, locations=locations)
 
@@ -135,11 +134,11 @@ class Store(object):
     if not tree: self.T[ftype] = False
 
   def use(self, snapname, format, periodic=False, origin=[0,0,0.], boxsize=None, mapfile=None, **kwargs):
-    """ kwargs will override values saved in the snapshot file,
+    """ kwargs will be passed to reader,
         only particles within origin and boxsize are loaded.
     """
     self.snapname = snapname
-    self._format = format
+    self._format = Reader(format, **kwargs)
 
     try:
       snapname = self.snapname % 0
@@ -147,10 +146,9 @@ class Store(object):
       snapname = self.snapname
 
     snap = Snapshot(snapname, self._format)
-
+   
     self.C = snap.C
-    for item in kwargs:
-      self.C[item] = kwargs[item]
+    self._schema = snap.schema
 
     self.origin[...] = numpy.ones(3) * origin
 

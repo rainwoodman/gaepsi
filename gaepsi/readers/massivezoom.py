@@ -1,3 +1,4 @@
+raise ImportError('use defualt with floattype=f8, idtype=i8')
 import _gadgetbase
 class constants:
       OmegaB = 0.044
