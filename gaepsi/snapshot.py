@@ -1,10 +1,11 @@
 from gaepsi.readers import Reader
+from gaepsi.io import BlockSizeError
 import numpy
 
 class Snapshot:
   def __init__(self, file=None, reader=None, 
-               create=False, overwrite=True):
-    reader = Reader(reader)
+               create=False, overwrite=True, **kwargs):
+    reader = Reader(reader, **kwargs)
     self.reader = reader
     self.file = file
     if create:
@@ -28,6 +29,7 @@ class Snapshot:
       fileheader = file.read_record(self.reader.header, 1).squeeze()
       self.C = self.reader.constants(fileheader, init=False, extra=self.reader.extra_kwargs)
       self.schema = Schema(self.reader, self.C)
+    self.resolve_schema()
 
   def create(self, overwrite):
     if not overwrite:
@@ -87,8 +89,9 @@ class Snapshot:
     return self.has_block(name, ptype=ptype)
   
   def __del__(self):
-    if self.save_on_delete:
-      self.save(None)
+    if hasattr(self, 'save_on_delete'):
+      if self.save_on_delete:
+        self.save(None)
 
   def __delitem__(self, index):
     ptype, name = self._decodeindex(index)
@@ -125,12 +128,31 @@ class Snapshot:
                  self.C['N'][ptype]))
     file.write_record(self.P[ptype][name], length, offset)
 
+  def resolve_schema(self):
+    bytesize = [0, 4, 8, 16, 32, -1]
+    with self.getfile('r') as file:
+      for name in self.schema:
+        s = self.schema[name]
+        for newbs in bytesize:
+          if newbs == -1:
+            raise Exception("Cannot resolve the schema on this \
+            file, do not understand the block sizes")
+          if newbs != 0:
+            s.modify_dtype(newbs)
+          file.seek(self.offset(name))
+          length = self.size(name) // s.dtype.itemsize
+          try:
+            file.skip_record(s.dtype, length)
+            break
+          except BlockSizeError:
+            pass
+         
   def check(self):
-    with self.getfile('r+') as file:
-      for s in self.schema:
-        name = s.name
+    with self.getfile('r') as file:
+      for name in self.schema:
+        s = self.schema[name]
         file.seek(self.offset(name))
-        length = snapshot.size(name) // s.dtype.itemsize
+        length = self.size(name) // s.dtype.itemsize
         file.skip_record(s.dtype, length)
      
   def offset(self, name):
@@ -178,13 +200,21 @@ class Snapshot:
 
   def needmasstab(self, name, ptype):
     return name == 'mass' \
+       and 'mass' in self.C \
        and self.C['mass'][ptype] != 0.0
     
 from collections import OrderedDict, namedtuple
 
-SchemaEntry = namedtuple("Entry", 
-    ['name', 'dtype', 
-     'ptypes', 'conditions'])
+class SchemaEntry(object):
+    def __init__(self, name, dtype, ptypes, conditions):
+        self.name = name
+        self.dtype = numpy.dtype(dtype)
+        self.ptypes = numpy.atleast_1d(numpy.array(ptypes,
+            dtype='i4'))
+        self.conditions = conditions
+    def modify_dtype(self, newnbytes):
+        self.dtype = numpy.dtype((self.dtype.base.kind +
+                str(newnbytes), self.dtype.shape))
 
 class Schema(OrderedDict):
   def __init__(self, reader, header):
@@ -194,18 +224,18 @@ class Schema(OrderedDict):
       entry = getattr(reader.schema, name)
       if len(entry) == 1:
         entry = SchemaEntry(name=name, 
-            dtype=numpy.dtype(entry[0]), 
+            dtype=entry[0], 
             ptypes=allptypes, 
             conditions=())
       elif len(entry) == 2:
         entry = SchemaEntry(name=name, 
-            dtype=numpy.dtype(entry[0]),
-            ptypes=numpy.array(entry[1], dtype='i4'), 
+            dtype=entry[0],
+            ptypes=entry[1], 
             conditions=())
       elif len(entry) == 3:
         entry = SchemaEntry(name=name, 
-            dtype=numpy.dtype(entry[0]), 
-            ptypes=numpy.array(entry[1], dtype='i4'), 
+            dtype=entry[0], 
+            ptypes=entry[1], 
             conditions=entry[2])
       else:
         raise SyntaxError('schema declaration is wrong')

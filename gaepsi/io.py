@@ -1,4 +1,6 @@
 import numpy
+class BlockSizeError(IOError):
+  pass
 class CFile(file):
   @staticmethod
   def get_size(size):
@@ -26,10 +28,6 @@ class CFile(file):
     self.seek(offset * dtype.itemsize, 1)
     a.tofile(self)
     self.seek((length - a.size - offset) * dtype.itemsize, 1)
-  def rewind_record(self, dtype, length) :
-    dtype = numpy.dtype(dtype)
-    size = length * dtype.itemsize
-    self.seek(-size, 1)
   def create_record(self, dtype, length):
     dtype = numpy.dtype(dtype)
     self.seek(length * dtype.itemsize, 1)
@@ -51,19 +49,28 @@ class F77File(file):
   def read_record(self, dtype, length = None, offset=0, nread=None) :
     dtype = numpy.dtype(dtype)
     if length == 0: return numpy.array([], dtype=dtype)
-    size = numpy.fromfile(self, self.bsdtype, 1)[0]
-    _length = size / dtype.itemsize;
-    if length != None and length != _length:
-      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
-    
-    length = _length
+    expect = length * dtype.itemsize
+    size1 = numpy.fromfile(self, self.bsdtype, 1)[0]
+    if expect != None and expect != size1:
+      raise BlockSizeError(
+      'Expecting a block of %d bytes, \
+       seeing %d instead' % (expect, size1))
+    if size1 % dtype.itemsize != 0:
+      raise BlockSizeError(
+      'Expecting block size to divide item size %d, \
+       seeing %d instead' % (dtype.itemsize, size1))
+    # always use the length in the file
+    length = size1 // dtype.itemsize
     if nread == None: nread = length - offset
     self.seek(offset * dtype.itemsize, 1)
     X = numpy.fromfile(self, dtype, nread)
     self.seek((length - nread - offset) * dtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
-    if size != size2 :
-      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
+    if size1 != size2:
+      raise BlockSizeError(
+      'Expecting end of block reporing size \
+       %d bytes, seeing %d instead' % (
+            size1, size2))
     if self.little_endian != numpy.little_endian: X.byteswap(True)
     return X
 
@@ -83,29 +90,25 @@ class F77File(file):
   def skip_record(self, dtype, length = None) :
     dtype = numpy.dtype(dtype)
     if length == 0: return
-    size = numpy.fromfile(self, self.bsdtype, 1)[0]
-    _length = size / dtype.itemsize;
-    if length != None and length != _length:
-      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
-    self.seek(size, 1)
+    expect = length * dtype.itemsize
+    size1 = numpy.fromfile(self, self.bsdtype, 1)[0]
+    if expect != None and expect != size1:
+      raise BlockSizeError(
+      'Expecting a block of %d bytes, \
+       seeing %d instead' % (expect, size1))
+    if size1 % dtype.itemsize != 0:
+      raise BlockSizeError(
+      'Expecting block size to divide item size %d, \
+       seeing %d instead' % (dtype.itemsize, size1))
+    # always use the length in the file
+    length = size1 // dtype.itemsize
+    self.seek(length * dtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
-    if size != size2 :
-      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
-
-  def rewind_record(self, dtype, length = None) :
-    dtype = numpy.dtype(dtype)
-    if length == 0: return
-    self.seek(-self.bsdtype.itemsize, 1)
-    size = numpy.fromfile(self, self.bsdtype, 1)[0]
-    _length = size / dtype.itemsize;
-    if length != None and length != _length:
-      raise IOError("length doesn't match %d(expect) != %d(real)" % (length, _length))
-    self.seek(-size, 1)
-    self.seek(-self.bsdtype.itemsize, 1)
-    size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
-    self.seek(-self.bsdtype.itemsize, 1)
-    if size != size2 :
-      raise IOError("record size doesn't match %d(expect) != %d(real)" % (size, size2))
+    if size1 != size2:
+      raise BlockSizeError(
+      'Expecting end of block reporing size \
+       %d bytes, seeing %d instead' % (
+            size1, size2))
 
   def create_record(self, dtype, length):
     dtype = numpy.dtype(dtype)

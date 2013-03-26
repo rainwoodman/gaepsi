@@ -64,7 +64,7 @@ def profile(field, component, center, rmin, rmax, weights=None, logscale=True, n
   return centers, profil[1:-1], numpy.diff(bins)[:-1]
   
 class HaloCatalog(Field):
-  def __init__(self, tabfilename, format, count=10):
+  def __init__(self, tabfilename, format, count=10, **kwargs):
     """ 
        tabfilename is like groups_019/group_tab_019.%d.
     """
@@ -73,7 +73,8 @@ class HaloCatalog(Field):
     nread = 0
     tabs = []
     while nread < count:
-      g = Snapshot(tabfilename % i, format + '.GroupTab')
+      g = Snapshot(tabfilename % i, format + '.GroupTab',
+              **kwargs)
       nread += g.C['N'][0] 
       i = i + 1
       tabs.append(g)
@@ -86,10 +87,11 @@ class HaloCatalog(Field):
     nread = 0
     nshallread = self['length'].sum()
     ids = []
-    reader = Reader(format)
+    reader = Reader(format, **kwargs)
     i = 0
     while nread < nshallread:
-      more = numpy.memmap(tabfilename.replace('tab', 'ids') % i, dtype=reader['id'].dtype, mode='r', offset=28)
+      more = numpy.memmap(tabfilename.replace('tab', 'ids')
+              % i, dtype=g.C['idtype'], mode='r', offset=28)
       ids.append(more)
       nread += len(more)
       i = i + 1
