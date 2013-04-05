@@ -1,4 +1,10 @@
-class Snapshot:
+def Snapshot(idtype='i8', floattype='f4', 
+       blocks=['pos', 'vel', 'id', 'mass', 'ie', 'rho', 'ye', 
+            'xHI', 'sml', 'sfr', 'sft', 'met', 
+            'bhmass', 'bhmdot', 'bhnprogs'],
+        **kwargs
+       ):
+  class Reader:
     format = 'F'
     header = [
       ('N', ('u4', 6)),
@@ -59,10 +65,8 @@ class Snapshot:
                     "rho", "ye", "xHI", "sml", "Hmf",  
                     "Hemf", "xHeI", "xHeII", "yGdepHI", "lasthit", 
                     "hits", "sft", "ngammas", "spec" ]
-
+      
     class constants:
-      OmegaB = 0.044
-      PhysDensThresh = 0.000831188
       flag_sfr = 1
       flag_sft = 1
       flag_met = 1
@@ -79,6 +83,7 @@ class Snapshot:
       def _getNtot(self, i):
         return self['Ntot_low'][i] + (int(self['Ntot_high'][i]) << 32)
       def _setNtot(self, i, value):
-        self['Ntot_low'][i] = value
+        self['Ntot_low'][i] = value & ((1 << 32) - 1)
         self['Ntot_high'][i] = (value >> 32)
-      Ntot = (('u8', 6), _getNtot, _setNtot)
+      Ntot = (('i8', 6), _getNtot, _setNtot)
+  return Reader
