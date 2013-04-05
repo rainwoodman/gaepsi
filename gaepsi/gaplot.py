@@ -120,15 +120,17 @@ class GaplotContext(Store):
     canvas = FigureCanvasAgg(self.default_axes.figure)
     canvas.print_png(*args, **kwargs)
 
-  def figure(self, dpi=200., figsize=None, axes=[0, 0, 1, 1.]):
+  def figure(self, dpi=200., figsize=None, axes=[0, 0, 1, 1.], figurefunc=None):
     """ setup a default figure and a default axes """
-    from matplotlib.figure import Figure
+    if figurefunc is None:
+      import matplotlib.figure
+      figurefunc = matplotlib.figure.Figure
     if figsize is None:
       width = self.shape[0] / dpi
       height = self.shape[1] / dpi
     else:
       width, height = figsize
-    figure = Figure((width, height), dpi=dpi)
+    figure = figurefunc(figsize=(width, height), dpi=dpi)
     ax = figure.add_axes(axes)
     self.default_axes = ax
     return figure, ax
@@ -628,13 +630,16 @@ from gaepsi.tools import bindmethods as _bindmethods
 
 def _before(self, args, kwargs):
     import matplotlib.pyplot as pyplot
+    if 'figurefunc' in kwargs and pyplot.isinteractive():
+      kwargs['figurefunc'] = pyplot.figure 
     if 'ax' in kwargs and self.default_axes is None:
       if kwargs['ax'] is None:
         kwargs['ax'] = pyplot.gca()
 
 def _after(self, args, kwargs):
     import matplotlib.pyplot as pyplot
-    if 'ax' in kwargs and self.default_axes is None and pyplot.isinteractive():
+    if pyplot.isinteractive():
+      pyplot.draw()
       pyplot.show()
 
 _bindmethods(context, locals(), _before, _after, excludes=('default_camera',))
