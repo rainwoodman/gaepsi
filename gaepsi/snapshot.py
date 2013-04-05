@@ -132,6 +132,7 @@ class Snapshot:
     bytesize = [0, 4, 8, 16, 32, -1]
     with self.getfile('r') as file:
       for name in self.schema:
+        if not self.has_block(name): continue
         s = self.schema[name]
         for newbs in bytesize:
           if newbs == -1:
@@ -151,6 +152,7 @@ class Snapshot:
     with self.getfile('r') as file:
       for name in self.schema:
         s = self.schema[name]
+        if not self.has_block(name): continue;
         file.seek(self.offset(name))
         length = self.size(name) // s.dtype.itemsize
         file.skip_record(s.dtype, length)
@@ -159,7 +161,7 @@ class Snapshot:
     offset = self.reader.file_class.get_size(
               self.reader.header.itemsize);
     if not self.has_block(name):
-      raise IOError('block %s does not exist in file')
+      raise IOError('block %s does not exist in file' % name)
     for iname in self.schema:
       if not self.has_block(iname):
         continue
@@ -172,7 +174,7 @@ class Snapshot:
 
   def size(self, name):
     if not self.has_block(name):
-      raise IOError('block %s does not exist in file')
+      raise IOError('block %s does not exist in file' % name)
     N = self.count_particles(name, None)
     blocksize = N * self.schema[name].dtype.itemsize
     return blocksize;
