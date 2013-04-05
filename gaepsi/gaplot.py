@@ -638,7 +638,7 @@ def _before(self, args, kwargs):
 
 def _after(self, args, kwargs):
     import matplotlib.pyplot as pyplot
-    if pyplot.isinteractive():
+    if 'ax' in kwargs and pyplot.isinteractive():
       pyplot.draw()
       pyplot.show()
 
