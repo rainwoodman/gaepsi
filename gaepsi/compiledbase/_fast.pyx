@@ -77,9 +77,9 @@ npyufunc.register(locals(), <void*>_wrap[float], <void*>_wrap[double], 2, 'reord
   """
 )
 __namespace = locals()
-def finitemin(arr, axis=None):
+def finitemin(arr, axis=0):
   return __namespace['ffinitemin'].reduce(arr, axis=axis)
-def finitemax(arr, axis=None):
+def finitemax(arr, axis=0):
   return __namespace['ffinitemax'].reduce(arr, axis=axis)
 
 

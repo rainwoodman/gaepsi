@@ -495,13 +495,13 @@ class normalize(numpy.ndarray):
       return out
     
     if vmax is None:
-      vmax = _fast.finitemax(out)
+      vmax = _fast.finitemax(out.flat)
     elif isinstance(vmax, basestring) \
         and '%' == vmax[-1]:
       vmax = numpy.percentile(out, float(vmax[:-1]))
 
     if vmin is None:
-      vmin = _fast.finitemin(out)
+      vmin = _fast.finitemin(out.flat)
     elif isinstance(vmin, basestring):
       if logscale and 'db' in vmin:
         vmin = vmax - float(vmin[:-2]) * 0.1 
