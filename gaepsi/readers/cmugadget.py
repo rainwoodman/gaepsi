@@ -1,4 +1,4 @@
-def Snapshot(idtype='i8', floattype='f4', 
+def Snapshot(idtype='u8', floattype='f4', 
        blocks=['pos', 'vel', 'id', 'mass', 'ie', 'rho', 'ye', 
             'xHI', 'sml', 'sfr', 'sft', 'met', 
             'bhmass', 'bhmdot', 'bhnprogs'],
