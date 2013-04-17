@@ -429,6 +429,12 @@ class GaplotContext(Store):
         always expecting color and luminosity
         normalized to [0, 1].
         
+        Notice that the convention of axes is different from
+        pyplot.imshow. Here the first dimension is the horizontal
+        and the second dimension is the vertical.
+        Notice that the origin is also at the lower(thus a traditional
+        x, y plot), rather than upper as in pyplot.imshow
+
         The default color map is 
           coolwarm if luminosity is given
           gist_heat if luminosity is not given
