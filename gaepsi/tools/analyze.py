@@ -78,7 +78,8 @@ class HaloCatalog(Field):
       nread += g.C['N'][0] 
       i = i + 1
       tabs.append(g)
-    Field.__init__(self, numpoints=count, components={'offset':'i8', 'length':'i8', 'massbytype':('f8', 6), 'mass':'f8'})
+    Field.__init__(self, numpoints=count, components={'offset':'i8',
+        'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3)})
     self.take_snapshots(tabs, ptype=0)
     del tabs
     # fix the offset which may overflow for large halos
@@ -446,16 +447,51 @@ def corrfrompower(K, P, logscale=False, R=None):
     K = K[mask]
     P = P[mask]
     P = P * (2 * numpy.pi) ** 3 # going from GADGET to xiao
+    Pfunc = interp1d(K, P, kind=5)
+    K = numpy.linspace(K.min(), K.max(), 10000000)
+    P = Pfunc(K)
+
     if R is None:
       R = 2 * numpy.pi / K
     if logscale:
-      weight = K * numpy.exp(-K**2)
+      weight = K #* numpy.exp(-K**2)
       diff = numpy.log(K)
     else:
-      weight = numpy.exp(-K**2)
+      weight = 1 # numpy.exp(-K**2)
       diff = K
     XI = [4 * numpy.pi / r * \
         numpy.trapz(P * numpy.sin(K * r) * K * weight, diff) for r in R]
     XI = (2 * numpy.pi) ** -3 * numpy.array(XI)
   
     return R, XI
+
+from scipy.interpolate import InterpolatedUnivariateSpline
+class interp1d(InterpolatedUnivariateSpline):
+  """ this replaces the scipy interp1d which do not always
+      pass through the points
+      note that kind has to be an integer as it is actually
+      a UnivariateSpline.
+  """
+  def __init__(self, x, y, kind, bounds_error=False, fill_value=numpy.nan, copy=True):
+    if copy:
+      self.x = x.copy()
+      self.y = y.copy()
+    else:
+      self.x = x
+      self.y = y
+    InterpolatedUnivariateSpline.__init__(self, self.x, self.y, k=kind)
+    self.xmin = self.x[0]
+    self.xmax = self.x[-1]
+    self.fill_value = fill_value
+    self.bounds_error = bounds_error
+  def __call__(self, x):
+    x = numpy.asarray(x)
+    shape = x.shape
+    x = x.ravel()
+    bad = (x > self.xmax) | (x < self.xmin)
+    if self.bounds_error and numpy.any(bad):
+      raise ValueError("some values are out of bounds")
+    y = InterpolatedUnivariateSpline.__call__(self, x.ravel())
+    y[bad] = self.fill_value
+    return y.reshape(shape)
+
