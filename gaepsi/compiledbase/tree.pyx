@@ -15,16 +15,7 @@ from libc.stdint cimport intptr_t as npy_intp
 
 numpy.import_array()
 
-ctypedef npy_int64 (* ipos64ptr)[3]
-ctypedef npy_int32 (* ipos32ptr)[3]
-ctypedef npy_int64 * npy_int64ptr
-ctypedef npy_int32 * npy_int32ptr
-ctypedef fused ipos_ptr:
-  ipos64ptr
-  ipos32ptr
-ctypedef fused ipos_t:
-  npy_int64ptr
-  npy_int32ptr
+ctypedef npy_int64 ipos_t
 
 cdef packed struct Node:
   Node * up
@@ -66,7 +57,7 @@ cdef class TreeNode:
   property iwidth:
     def __get__(self):
       cdef Node * node = self.node
-      cdef npy_int64 size = self.tree.IPOS_LIMIT << 1
+      cdef ipos_t size = self.tree.IPOS_LIMIT << 1
       while node:
         size >>= 1
         node = node.up
@@ -77,10 +68,10 @@ cdef class TreeNode:
 
   property icorner:
     def __get__(self):
-      cdef npy_int64 iwidth = self.iwidth
+      cdef ipos_t iwidth = self.iwidth
       cdef Node * node = self.node
       cdef numpy.ndarray icorner = numpy.zeros(3, dtype='int64')
-      cdef npy_int64 * _icorner = <npy_int64*> icorner.data
+      cdef ipos_t * _icorner = <ipos_t*> icorner.data
       while node.up:
         for d in range(3):
           if node.prefix & (1 << d):
@@ -105,8 +96,7 @@ cdef class TreeNode:
       return self.tree.ipos_to_string(self.ipos)
 
   def check(self):
-    cdef npy_int64 a[3]
-    cdef npy_int64 b[3]
+    cdef ipos_t a[3], b[3]
     bad = []
     cdef numpy.ndarray ipos = self.ipos
     for i in range(len(ipos)):
@@ -170,13 +160,13 @@ cdef Node * node_alloc():
     node.link[prefix] = NULL
   return node
 
-cdef inline int ipos_get_prefix(ipos_t ipos, int depth) nogil:
+cdef inline int ipos_get_prefix(ipos_t ipos[3], int depth) nogil:
     return \
       (((ipos[0] >> depth) & 1) << 0) | \
       (((ipos[1] >> depth) & 1) << 1) | \
       (((ipos[2] >> depth) & 1) << 2)
 
-cdef inline int ipos_compare(ipos_t a, ipos_t b, int bits) nogil:
+cdef inline int ipos_compare(ipos_t[3] a, ipos_t[3] b, int bits) nogil:
   cdef int depth
   cdef int prefix_a
   cdef int prefix_b
@@ -210,7 +200,7 @@ cdef void node_collect(Node * node, Node ** collect, npy_intp * iter) nogil:
     for prefix in range(8):
       node_collect(node.link[prefix], collect, iter)
     
-cdef int AABBtest(npy_int64 a[3], npy_int64 b[3], npy_int64 c[3], npy_int64 d[3]) nogil:
+cdef int AABBtest(ipos_t a[3], ipos_t b[3], ipos_t c[3], ipos_t d[3]) nogil:
   """ a b are corners of the first box, c, d are coners of the second box
       b > a and d > c
       open on b and d, close on a and c.
@@ -231,7 +221,7 @@ cdef int AABBtest(npy_int64 a[3], npy_int64 b[3], npy_int64 c[3], npy_int64 d[3]
   if good_edge_2 == 3: return 2
   if good_edge_3 == 3: return 3
   return 1
-cdef int spheretest(npy_int64 a[3], npy_int64 b[3], npy_int64 o[3], npy_int64 r) nogil:
+cdef int spheretest(ipos_t a[3], ipos_t b[3], ipos_t o[3], ipos_t r) nogil:
   """ returns 0 if all of the corner of ab is outside of sphere of radius r
       centering at o. [possible non-overlap]
       returns 1 if any of the corner of box is in the sphere [definitely overlap]
@@ -271,48 +261,19 @@ cdef int node_contains_ipos(Node * node, npy_int64 a[3]) nogil:
     node = node.up
   return 1
 
-cdef int resolution_test(npy_int64 a[3], npy_int64 b[3], 
-           npy_int64 o[3], double resolution) nogil:
-  """ returns 1 if the open angle of ab is bigger than resolution
-  """
-  cdef double l = 0.0
-  cdef double r = 0.0
-  cdef npy_int64 c
-  cdef npy_int64 w
-  for d in range(3):
-    w = (b[d] - a[d])
-    c = a[d] - o[d] + (w >> 1) 
-    l = l + 1.0 * w * w
-    r = r + 1.0 * c * c
-  return l >= r * resolution * resolution 
+cdef void node_AABB_test_r(Node * node,
+      ipos_t a[3], ipos_t b[3], ipos_t c[3], ipos_t d[3], 
+      ipos_t o[3], ipos_t r,
+      Node *** buffer, npy_intp * iter, npy_intp * size) nogil:
 
-cdef Node * node_resolution_test_r(Node * node, npy_int64 width, npy_int64 widthlimit, 
-        Node * head, Node ** next, int * flags) nogil:
-  if node.size == 0: return head
-  flags[node.id] = width > widthlimit
-  if node.link[0] and flags[node.id]:
-    width >>= 1
-    for prefix in range(8):
-      head = node_resolution_test_r(node.link[prefix],
-               width, widthlimit, head, next, flags)
-    return head
-  else:
-    next[node.id] = head
-    return node
-    
-cdef Node * node_AABB_test_r(Node * node,
-      npy_int64 a[3], npy_int64 b[3], npy_int64 c[3], npy_int64 d[3], 
-      npy_int64 o[3], npy_int64 r,
-      Node * head, Node ** next) nogil:
-
-  if node.size == 0: return head
+  if node.size == 0: return
   cdef int spherevalue = 0 
   # take the possible non-overlap branch if no exclusion zone
   if r > 0:
     spherevalue = spheretest(a, b, o, r)
   if spherevalue == 2: 
     # definitely inside exclusion zone
-    return head
+    return
 
   cdef int testvalue = AABBtest(a, b, c, d)
 #  if testvalue == 2:
@@ -325,10 +286,9 @@ cdef Node * node_AABB_test_r(Node * node,
 
   # definitely outside the includsive zone
   if testvalue == 0:
-    return head
+    return
 
-  cdef npy_int64 nesta[3]
-  cdef npy_int64 nestb[3]
+  cdef ipos_t nesta[3], nestb[3]
   cdef int ax
   if (testvalue == 1 or testvalue == 3 or spherevalue == 1 ) \
     or (testvalue == 2):
@@ -344,20 +304,25 @@ cdef Node * node_AABB_test_r(Node * node,
           else:
             nesta[ax] = a[ax]
             nestb[ax] = a[ax] + ((b[ax] - a[ax]) >> 1)
-        head = node_AABB_test_r(node.link[prefix],
-               nesta, nestb, c, d, o, r, head, next)
-      return head
+        node_AABB_test_r(node.link[prefix],
+               nesta, nestb, c, d, o, r, buffer, iter, size)
+      return
   # either the entire node is inside (value=2) and unresolved
   # or the node is external
-  next[node.id] = head
-  return node
+  buffer[0][iter[0]] = node
+  iter[0] = iter[0] + 1
+  if size[0] == iter[0]:
+      size[0] = size[0] * 2
+      with gil:
+          buffer[0] = <Node**>PyMem_Realloc(buffer[0], size[0] * sizeof(Node*))
+  return
 
 cdef class Tree:
   cdef readonly numpy.ndarray indices
   cdef readonly numpy.ndarray invptp
   cdef readonly numpy.ndarray min
   cdef readonly int IPOS_NBITS
-  cdef readonly npy_int64 IPOS_LIMIT
+  cdef readonly ipos_t IPOS_LIMIT
   cdef numpy.ndarray nodeptr
   cdef double * _invptp
   cdef double * _min
@@ -365,9 +330,11 @@ cdef class Tree:
   cdef npy_intp * _indices
   cdef Node * _root
   cdef Node ** _nodeptr
-  cdef npy_int64 ZERO[3]
-  cdef npy_int64 LIMIT[3]
+  cdef ipos_t ZERO[3]
+  cdef ipos_t LIMIT[3]
   cdef readonly numpy.ndarray pos # reference to the positions
+  cdef double [:, :] posd
+  cdef float [:, :] posf
   cdef readonly npy_intp num_splits
   cdef readonly npy_intp num_inserts
 
@@ -425,8 +392,12 @@ cdef class Tree:
     self._root.depth = self.IPOS_NBITS - 1
 
   def build(self, pos, argsort=None):
-
     self.pos = pos
+    if self.pos.dtype.char == 'f':
+        self.posf = pos
+    elif self.pos.dtype.char == 'd':
+        self.posd = pos
+
     self.indices = numpy.zeros(len(pos), dtype='intp')
     self._indices = <npy_intp*> self.indices.data
     if argsort is None:
@@ -491,7 +462,7 @@ cdef class Tree:
     cdef positer iter = positer(self.pos, self.indices, self.splitthresh * 4, 'f8')
     i = 0
     node = self._root
-    cdef npy_int64 a[3]
+    cdef ipos_t a[3]
     cdef TreeNode tn
     tn = TreeNode(self)
     tn.node = node
@@ -629,13 +600,10 @@ cdef class Tree:
             ind: indices of all particles for each box in sequence
             length: length of particles for each box
     """
-    cdef Node ** next = <Node**>PyMem_Malloc(sizeof(Node*) * self.nodeptr.shape[0])
     cdef Node ** buffer = <Node**>PyMem_Malloc(sizeof(Node*) * 128)
     cdef npy_intp last = 0
     cdef npy_intp limit = 128
-    memset(next, 0, sizeof(Node*) * self.nodeptr.shape[0])
   
-    cdef Node * head
     cdef numpy.ndarray c
     cdef numpy.ndarray d
     cdef numpy.ndarray o
@@ -659,12 +627,12 @@ cdef class Tree:
     cdef npy_intp ic = 0, id = 0, io = 0, ir = 0
     with nogil:
       for i in range(0, imax, 1):
-        head = node_AABB_test_r(self._root, 
+        node_AABB_test_r(self._root, 
               self.ZERO, self.LIMIT, 
-                       (<npy_int64(*)[3]>c.data)[ic], 
-                       (<npy_int64(*)[3]>d.data)[id], 
-                       (<npy_int64(*)[3]>o.data)[io], 
-                       (<npy_int64 *>r.data)[ir], NULL, next)
+                       (<ipos_t(*)[3]>c.data)[ic], 
+                       (<ipos_t(*)[3]>d.data)[id], 
+                       (<ipos_t(*)[3]>o.data)[io], 
+                       (<ipos_t *>r.data)[ir], &buffer, &last, &limit)
         ic = ic + 1
         if ic == c.shape[0]: ic = 0
         id = id + 1
@@ -673,20 +641,6 @@ cdef class Tree:
         if io == o.shape[0]: io = 0
         ir = ir + 1
         if ir == r.shape[0]: ir = 0
-        p = head
-        while True:
-          buffer[last] = p
-          last = last + 1
-          if last == limit:
-            limit = limit * 2
-            with gil:
-              buffer = <Node**>PyMem_Realloc(buffer, sizeof(Node*) * limit)
-          if p == NULL: break
-          pid = p.id
-          p = next[p.id]
-          next[pid] = NULL
-
-    PyMem_Free(next)
       
     # first count total 
     cdef npy_intp N = 0
@@ -733,7 +687,7 @@ cdef class Tree:
     result.clip(0, self.IPOS_LIMIT - 1, out=result)
     return result
 
-  cdef void floating_to_ipos(self, floating x[3], ipos_t ipos, int mode) nogil:
+  cdef void floating_to_ipos(self, floating x[3], ipos_t ipos[3], int mode) nogil:
     cdef double flt
     for d in range(3):
       flt = (x[d] - self._min[d]) * self._invptp[d]
@@ -743,14 +697,12 @@ cdef class Tree:
       else:
         flt = flt - floor(flt)
        
-      ipos[d] = <npy_int64>(flt * self.IPOS_LIMIT)
+      ipos[d] = <ipos_t>(flt * self.IPOS_LIMIT)
       if ipos[d] == self.IPOS_LIMIT: ipos[d] = self.IPOS_LIMIT - 1
 
-  cdef int floating_compare(self, floating * v, npy_intp * strides, npy_intp ia, npy_intp ib, int mode) nogil:
-    cdef npy_int64 a[3]
-    cdef npy_int64 b[3]
-    cdef floating fa[3]
-    cdef floating fb[3]
+  cdef int floating_compare(self, floating * v, npy_intp * strides, npy_intp ia, npy_intp ib) nogil:
+    cdef ipos_t a[3], b[3]
+    cdef floating fa[3], fb[3]
     cdef int d
     for d in range(3):
       fa[d] = (<floating*>(<char*> v + strides[0] * ia + strides[1] * d))[0]
@@ -765,11 +717,11 @@ cdef class Tree:
     j = 0
     k = 0
     while i < Anum or j < Bnum:
-      while i < Anum and (j == Bnum or self.floating_compare(vl, strides, A[i], B[j] + Anum, 1) <= 0):
+      while i < Anum and (j == Bnum or self.floating_compare(vl, strides, A[i], B[j] + Anum) <= 0):
         C[k] = A[i]
         k = k + 1
         i = i + 1
-      while j < Bnum and (i == Anum or self.floating_compare(vl, strides, A[i], B[j] + Anum, 1) >= 0):
+      while j < Bnum and (i == Anum or self.floating_compare(vl, strides, A[i], B[j] + Anum) >= 0):
         C[k] = B[j] + Anum
         k = k + 1
         j = j + 1
@@ -795,18 +747,18 @@ cdef class Tree:
         while pr - pl > 17:
             #/* quicksort partition */
             pm = pl + ((pr - pl) >> 1);
-            if self.floating_compare(vl, strides, pm[0], pl[0], 1) < 0: tmp = pm[0]; pm[0] = pl[0]; pl[0] = tmp
-            if self.floating_compare(vl, strides, pr[0], pm[0], 1) < 0: tmp = pr[0]; pr[0] = pm[0]; pm[0] = tmp
-            if self.floating_compare(vl, strides, pm[0], pl[0], 1) < 0: tmp = pm[0]; pm[0] = pl[0]; pl[0] = tmp
+            if self.floating_compare(vl, strides, pm[0], pl[0]) < 0: tmp = pm[0]; pm[0] = pl[0]; pl[0] = tmp
+            if self.floating_compare(vl, strides, pr[0], pm[0]) < 0: tmp = pr[0]; pr[0] = pm[0]; pm[0] = tmp
+            if self.floating_compare(vl, strides, pm[0], pl[0]) < 0: tmp = pm[0]; pm[0] = pl[0]; pl[0] = tmp
             pmsave = pm[0]
             pi = pl
             pj = pr - 1
             tmp = pm[0]; pm[0] = pj[0]; pj[0] = tmp
             while True:
                 pi = pi + 1
-                while self.floating_compare(vl, strides, pi[0], pmsave, 1) < 0: pi = pi + 1
+                while self.floating_compare(vl, strides, pi[0], pmsave) < 0: pi = pi + 1
                 pj = pj - 1
-                while self.floating_compare(vl, strides, pmsave, pj[0], 1) < 0: pj = pj - 1
+                while self.floating_compare(vl, strides, pmsave, pj[0]) < 0: pj = pj - 1
                 if pi >= pj: break
                 tmp = pi[0]; pi[0] = pj[0]; pj[0] = tmp
             pk = pr - 1
@@ -830,7 +782,7 @@ cdef class Tree:
             pmsave = vi
             pj = pi
             pk = pi - 1
-            while pj > pl and self.floating_compare(vl, strides, pmsave, pk[0], 1) < 0:
+            while pj > pl and self.floating_compare(vl, strides, pmsave, pk[0]) < 0:
                 pj[0] = pk[0]
                 pj = pj - 1
                 pk = pk - 1
@@ -849,7 +801,7 @@ cdef class Tree:
     return self.ipos_to_string(self.array_to_ipos(pos, 1, numpy.int64))
 
   def ipos_to_string(self, ipos):
-    cdef npy_int64 a[3]
+    cdef ipos_t a[3]
     cdef int j
     cdef numpy.ndarray s = numpy.empty(self.IPOS_NBITS, dtype='c')
     if len(ipos) == 0: return []
@@ -865,8 +817,8 @@ cdef class Tree:
 
 #  cdef int cmp_pos(self, floating x[3], floating y[3]) nogil:
     # this is unused !
-#    cdef npy_int64 a[3]
-#    cdef npy_int64 b[3]
+#    cdef ipos_t a[3]
+#    cdef ipos_t b[3]
 #    self.floating_to_ipos(x, a, 1)
 #    self.floating_to_ipos(y, b, 1)
 #    return ipos_compare(a, b, self.IPOS_NBITS)

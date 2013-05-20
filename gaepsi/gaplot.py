@@ -89,10 +89,17 @@ def addspikes(image, x, y, s, color):
     work(image, (X, Y), S, 1)
 
 class GaplotContext(Store):
-  def __init__(self, shape = (600,600), thresh=(32, 64)):
-    """ thresh is the fineness of the tree """
+  def __init__(self, snapname=None,
+          format=None, periodic=None, origin=[0, 0, 0.], boxsize=None, 
+          mapfile=None,
+          shape = (600,600), thresh=(32, 64), 
+          **kwargs):
+    """ thresh is the fineness of the tree 
+        if snapname is given, call use immediately
+    """
 
-    Store.__init__(self, thresh)
+    Store.__init__(self, snapname, format, periodic, origin, boxsize, mapfile,
+            shape, thresh, **kwargs)
     self.default_axes = None
 
     self._shape = shape

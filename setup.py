@@ -17,7 +17,7 @@ setup(name="gaepsi", version="0.2",
       ],
       scripts = [  
                   'scripts/gadget-dump-header.py',
-                  'scripts/gadget-make-meshindex.py',
+                  'scripts/gadget-make-mesh.py',
                   'scripts/gadget-extract-ptype.py',
                   'scripts/gadget-gen-snapshot.py',
                   'scripts/gadget-check-file.py',

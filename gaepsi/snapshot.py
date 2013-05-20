@@ -4,16 +4,19 @@ import numpy
 
 class Snapshot:
   def __init__(self, file=None, reader=None, 
-               create=False, overwrite=True, **kwargs):
+               create=False, overwrite=True, template=None, **kwargs):
+    """ create a snapshot object whose schema is like
+        snapshot template.
+    """
     reader = Reader(reader, **kwargs)
     self.reader = reader
     self.file = file
     if create:
       self.save_on_delete = True
-      self.create(overwrite=overwrite)
+      self.create(overwrite=overwrite, template=template)
     else:
       self.save_on_delete = False
-      self.open()
+      self.open(template=template)
 
     #self.C is set after reader.create / reader.open
     # particle data
@@ -24,24 +27,33 @@ class Snapshot:
 
   def getfile(self, mode):
     return self.reader.file_class(self.file, endian=self.reader.endian, mode=mode)
-  def open(self):
+  def open(self, template=None):
     with self.getfile('r') as file:
       fileheader = file.read_record(self.reader.header, 1).squeeze()
-      self.C = self.reader.constants(fileheader, init=False, extra=self.reader.extra_kwargs)
-      self.schema = Schema(self.reader, self.C)
-    self.resolve_schema()
+    self.C = self.reader.constants(fileheader, init=False, extra=self.reader.extra_kwargs)
+    if template is not None:
+      self.schema = Schema(self.reader, len(self.C['N']), template.schema)
+    else:
+      self.schema = Schema(self.reader, len(self.C['N']), None)
+      self.resolve_schema()
 
-  def create(self, overwrite):
+  def create(self, overwrite, template=None):
     if not overwrite:
       mode = 'wx+'
     else:
       mode = 'w+'
     with self.getfile(mode) as file:
-      self.C = self.create_header()
-      self.schema = Schema(self.reader, self.C)
+      self.C = self.create_header(template)
+    if template is not None:
+      self.schema = Schema(self.reader, len(self.C['N']), template.schema)
+    else:
+      self.schema = Schema(self.reader, len(self.C['N']), None)
 
-  def create_header(self):
-    fileheader = numpy.zeros(dtype=self.reader.header, shape=None)
+  def create_header(self, template=None):
+    if template is None:
+      fileheader = numpy.zeros(dtype=self.reader.header, shape=None)
+    else:
+      fileheader = template.C._header.copy()
     return self.reader.constants(fileheader, init=True, extra=self.reader.extra_kwargs)
 
   def _decodeindex(self, index):
@@ -53,15 +65,25 @@ class Snapshot:
       return ptype, name
   def __getitem__(self, index):
     """ if ptype is None, read in all ptypes """
+    ptype, name = self._decodeindex(index)
+
+    if ptype in self.P and name in self.P[ptype]:
+      return self.P[ptype][name]
+
     with self.getfile('r') as file:
-      ptype, name = self._decodeindex(index)
       dtype = self.schema[name].dtype
       ptypes = self.schema[name].ptypes
       if ptype is None:
-        file.seek(self.offset(name))
+        offset = self.offset(name)
         length = self.size(name) // dtype.itemsize
-        self.P[None][name] = file.read_record(dtype, length)
+        if not self.save_on_delete:
+          file.seek(offset)
+          self.P[None][name] = file.read_record(dtype, length)
+        else:
+          self.P[None][name] = numpy.empty(length, dtype)
         for ptype in ptypes:
+          if ptype in self.P and name in self.P[ptype]:
+            continue
           if self.needmasstab(name, ptype):
             self.P[ptype][name] = numpy.empty(self.C['N'][ptype], dtype)
             self.P[ptype][name][:] = self.C['mass'][ptype]
@@ -78,10 +100,15 @@ class Snapshot:
           self.P[ptype][name] = numpy.empty(self.C['N'][ptype], dtype)
           self.P[ptype][name][:] = self.C['mass'][ptype]
         else:
-          file.seek(self.offset(name))
-          length = self.size(name) // dtype.itemsize
-          offset = self.count_particles(name, ptype)
-          self.P[ptype][name] = file.read_record(dtype, length, offset, self.C['N'][ptype])
+          if not self.save_on_delete:
+            file.seek(self.offset(name))
+            length = self.size(name) // dtype.itemsize
+            offset = self.count_particles(name, ptype)
+            self.P[ptype][name] = file.read_record(dtype, length, offset, self.C['N'][ptype])
+          else:
+            self.P[ptype][name] = numpy.empty(self.C['N'][ptype], dtype)
+
+    ptype, name = self._decodeindex(index)
     return self.P[ptype][name]
 
   def __contains__(self, index):
@@ -102,13 +129,19 @@ class Snapshot:
       for ptype in ptypes:
          del self[ptype, name]
        
-  def save(self, index):
+  def save(self, index=None):
     if index is None:
+      self.save('header')
       for ptype in range(len(self.C['N'])):
         for name in self.schema:
           if name in self.P[ptype]:
             if name is not None:
               self.save((ptype, name))
+
+    if index == 'header':
+      with self.getfile('r+') as file:
+        file.write_record(self.C._header)
+      
     ptype, name = self._decodeindex(index)
     if not self.has_block(name, ptype):
       return
@@ -126,7 +159,7 @@ class Snapshot:
         raise IOError('snap memory image corrupted: %s %d %d %d' \
               % (name, ptype, len(self.P[ptype][name]), 
                  self.C['N'][ptype]))
-    file.write_record(self.P[ptype][name], length, offset)
+      file.write_record(self.P[ptype][name], length, offset)
 
   def resolve_schema(self):
     bytesize = [0, 4, 8, 16, 32, -1]
@@ -219,9 +252,15 @@ class SchemaEntry(object):
                 str(newnbytes), self.dtype.shape))
 
 class Schema(OrderedDict):
-  def __init__(self, reader, header):
+  def __init__(self, reader, nptypes, template):
     OrderedDict.__init__(self)
-    allptypes = numpy.arange(len(header['N']))
+
+    if template is not None:
+      for name in template:
+        self[name] = template[name]
+      return
+
+    allptypes = numpy.arange(nptypes)
     for name in reader.schema.__blocks__:
       entry = getattr(reader.schema, name)
       if len(entry) == 1:

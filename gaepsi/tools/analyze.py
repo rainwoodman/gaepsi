@@ -68,6 +68,10 @@ class HaloCatalog(Field):
     """ 
        tabfilename is like groups_019/group_tab_019.%d.
     """
+    g = Snapshot(tabfilename % 0, format + '.GroupTab',
+              **kwargs)
+    if count < 0 or count > g.C['Ntot'][0]:
+        count = g.C['Ntot'][0]
     i = 0
     # decide number of files to open
     nread = 0
@@ -78,6 +82,7 @@ class HaloCatalog(Field):
       nread += g.C['N'][0] 
       i = i + 1
       tabs.append(g)
+    print 'will read', len(tabs), 'files'
     Field.__init__(self, numpoints=count, components={'offset':'i8',
         'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3)})
     self.take_snapshots(tabs, ptype=0)
@@ -87,20 +92,31 @@ class HaloCatalog(Field):
 
     nread = 0
     nshallread = self['length'].sum()
-    ids = []
-    reader = Reader(format, **kwargs)
     i = 0
+    idslen = numpy.zeros(g.C['Nfiles'], dtype='i8')
     while nread < nshallread:
-      more = numpy.memmap(tabfilename.replace('tab', 'ids')
-              % i, dtype=g.C['idtype'], mode='r', offset=28)
-      ids.append(more)
-      nread += len(more)
+      idslen[i] = numpy.fromfile(tabfilename.replace('_tab_', '_ids_')
+              % i, dtype='i4', count=3)[2]
+      nread += idslen[i]
       i = i + 1
-    self.ids = packarray(numpy.concatenate(ids), self['length'])
+    idsoffset = numpy.concatenate(([0], idslen.cumsum()))
+
+    ids = sharedmem.empty(idslen.sum(), dtype=g.C['idtype'])
+
+    print 'reading', i, 'id files'
+
+    with sharedmem.Pool(use_threads=False) as pool:
+      def work(i):
+        more = numpy.memmap(tabfilename.replace('_tab_', '_ids_')
+              % i, dtype=g.C['idtype'], mode='r', offset=28)
+        ids[idsoffset[i]:idsoffset[i] + idslen[i]] = more
+      pool.map(work, range(i))
+    self.ids = packarray(ids, self['length'])
+    for i in range(self.numpoints):
+      self.ids[i].sort()
 
   def mask(self, parids, groupid):
     ids = self.ids[groupid]
-    ids.sort()
     return parids == ids[ids.searchsorted(parids).clip(0, len(ids) - 1)]
 
   def select(self, field, groupid):
@@ -204,7 +220,6 @@ class BHDetail:
       return [self[i] for i in index]
     else:
       return self.data[self.data['id'] == id]
-
 
   def plot(self, id, property, xdata=None, *args, **kwargs):
     """plot a series of blackholes, deprecated. use matplotlib
@@ -495,3 +510,48 @@ class interp1d(InterpolatedUnivariateSpline):
     y[bad] = self.fill_value
     return y.reshape(shape)
 
+def regulate(x, y, N):
+    bins = numpy.linspace(x.min(), x.max(), N + 1, endpoint=True)
+    yw = splat(x, y, bins)
+    w = splat(x, 1, bins)
+    return .5 * (bins[1:] + bins[:-1]), yw[1:-1] / w[1:-1]
+
+def splat(t, value, bins):
+    """put value into bins according to t
+       the points are assumed to be describing a continuum field,
+       if two points have the same position, they are merged into one point
+
+       for points crossing the edge part is added to the left bin
+       and part is added to the right bin.
+       the sum is conserved.
+    """
+    if len(t) == 0:
+        return numpy.zeros(len(bins) + 1)
+    t = numpy.float64(t)
+    t, label = numpy.unique(t, return_inverse=True)
+    if numpy.isscalar(value):
+        value = numpy.bincount(label) * value
+    else:
+        value = numpy.bincount(label, weights=value)
+    edge = numpy.concatenate(([t[0]], (t[1:] + t[:-1]) * 0.5, [t[-1]]))
+    dig = numpy.digitize(edge, bins)
+    #use the right edge as the reference
+    ref = bins[dig[1:] - 1]
+    norm = (edge[1:] - edge[:-1])
+    assert ((edge[1:] - edge[:-1]) > 0).all()
+    norm = 1 / norm
+    weightleft = -(edge[:-1] - ref) * norm
+    weightright = (edge[1:] - ref) * norm
+    # when dig < 1 or dig >= len(bins), t are out of bounds and does not
+    # contribute.
+    l = numpy.bincount(dig[:-1], value * weightleft, minlength=len(bins)+1)
+    r = numpy.bincount(dig[1:], value * weightright, minlength=len(bins)+1)
+    return l + r
+
+def simplesmooth(mass, meandensity):
+    """simply assign smoothing length for mass,
+       acoording to the overdensity.
+
+       Hsml = (3 / (4 pi) (32 * mass / density)) ** (1/3)
+    """
+    return 3.0 / (4.0 * 3.14) * (32 * mass / meandensity) ** 0.333

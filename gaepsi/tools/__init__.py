@@ -410,7 +410,14 @@ class packarray:
     if isinstance(index, basestring):
       return packarray(self.A[index], self.end - self.start)
 
-    if isinstance(index, (slice, list, numpy.ndarray)):
+    if isinstance(index, slice) :
+      start, end, step = index.indices(len(self))
+      if step == 1:
+        return packarray(self.A[self.start[start]:self.end[end]],
+            self.start[start:end] - self.start[start],
+            self.end[start:end] - self.start[start])
+
+    if isinstance(index, (list, numpy.ndarray)):
       return packarray(self.A, self.start[index], self.end[index])
 
     if numpy.isscalar(index):

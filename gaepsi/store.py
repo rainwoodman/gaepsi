@@ -24,20 +24,13 @@ def create_cosmology(C):
       return WMAP7
     else:
       return Cosmology(K=0, M=C['OmegaM'], L=C['OmegaL'], h=C['h'])
-"""   
-  def save(self, C):
-    if not 'OmegaM' in C \
-    or not 'OmegaL' in C \
-    or not 'h' in C:
-      warnings.warn("OmegaM, OmegaL, h not supported in snapshot, cosmology not saved!")
-      return
-    C['OmegaM'] = self.cosmology.M
-    C['OmegaL'] = self.cosmology.L
-    C['h'] = self.cosmology.h
-"""
 
 class Store(object):
-  def __init__(self, thresh=(32, 64)):
+  def __init__(self, snapname=None,
+          format=None, periodic=None, origin=[0, 0, 0.], boxsize=None, 
+          mapfile=None,
+          shape = (600,600), thresh=(32, 64), 
+          **kwargs):
     self._format = None
     self._thresh = thresh
     # fields
@@ -56,6 +49,9 @@ class Store(object):
 
     from gaepsi.cosmology import default
     self.cosmology = default
+
+    if snapname is not None:
+      self.use(snapname, format, periodic, origin, boxsize, mapfile, **kwargs)
 
   def __getattr__(self, attr):
     
@@ -148,6 +144,7 @@ class Store(object):
     snap = Snapshot(snapname, self._format)
    
     self.C = snap.C
+    self._template = snap
     self._schema = snap.schema
 
     self.origin[...] = numpy.ones(3) * origin
@@ -191,6 +188,7 @@ class Store(object):
     if self.need_cut:
       if fids is None and self.map is not None:
         fids = self.map.cut(self.origin, self.boxsize)
+        print fids
 
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
@@ -201,7 +199,7 @@ class Store(object):
 
     def getsnap(snapname):
       try:
-        return Snapshot(snapname, self._format)
+        return Snapshot(snapname, self._format, template=self._template)
       except IOError as e:
         warnings.warn('file %s skipped for %s' %(snapname, str(e)))
       return None

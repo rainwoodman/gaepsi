@@ -81,6 +81,24 @@ def GroupTab(idtype, floattype, **kwargs):
       class constants: 
         pass
   return MyGroupTab
+
+def GroupIDs(idtype, floattype, **kwargs):
+  class MyGroupIDs:
+      format = 'C'
+      usemasstab = False
+      header = [('Nhalo', 'i4'),
+                ('Nhalotot', 'i4'),
+                ('N',  ('i4', (1, ))),
+                ('Ntot', ('i8', (1, ))),
+                ('Nfiles', 'i4'),
+                ('junk', 'i4'),
+                ]
+      class schema:
+        id = idtype, 0
+        __blocks__ = ['id']
+      class constants: 
+        pass
+  return MyGroupIDs
     
 def SubHaloTab(idtype, floattype, **kwargs):
   class MySubHaloTab:
