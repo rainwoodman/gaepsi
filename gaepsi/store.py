@@ -253,8 +253,8 @@ class Store(object):
           rt = cub.apply(x, y, z)
           return (rt < 0).sum()
         badness = numpy.sum(pool.starmap(work, pool.zipsplit((x, y, z))))
-      print badness
-
+      if badness > 0:
+        warnings.warn("some %d points are outside the box" % badness)
     for ftype in ftypes:
       self._rebuildtree(ftype)
 
