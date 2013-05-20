@@ -252,7 +252,7 @@ class Store(object):
         def work(x, y, z):
           rt = cub.apply(x, y, z)
           return (rt < 0).sum()
-        badness = pool.starmap(work, pool.zipsplit((x, y, z))).sum()
+        badness = numpy.sum(pool.starmap(work, pool.zipsplit((x, y, z))))
       print badness
 
     for ftype in ftypes:
