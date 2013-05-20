@@ -10,9 +10,12 @@ from gaepsi.tools import loadconfig
 from gaepsi.compiledbase.camera import Camera
 from gaepsi.compiledbase.ztree import TreeProperty
 
-from gaepsi.tools.analyze import HaloCatalog
-from gaepsi.tools.analyze import BHDetail
-from gaepsi.tools.analyze import profile
+try:
+  from gaepsi.tools.analyze import HaloCatalog
+  from gaepsi.tools.analyze import BHDetail
+  from gaepsi.tools.analyze import profile
+except:
+  pass
 
 DEG = numpy.pi / 180.
 
