@@ -112,37 +112,42 @@ def SubHaloTab(idtype, floattype, **kwargs):
                 ('Nsubgroups', ('i4', (1,))),
                 ('NtotSubgroups', ('i4', (1,))),]
       class schema:
-        length = 'i4',  0
-        offset = 'i4',  0
-        mass = floattype,    0
-        pos = (floattype, 3), 0
-        mmean200 = floattype, 0
-        rmean200 = floattype, 0
-        mcrit200 = floattype, 0
-        rcrit200 = floattype, 0
-        mtoph200 = floattype, 0
-        rtoph200 = floattype, 0
-        veldispmean200 = floattype, 0
+        length = 'i4',  0     # number of partiles in group
+        offset = 'i4',  0     # do not use. offset of first particle in
+                              # concatenated ids file(overflown)
+        mass = floattype,    0 # mass of group
+        pos = (floattype, 3), 0  # center mass postion of group
+        mmean200 = floattype, 0  # mass up to 200 mean density?
+        rmean200 = floattype, 0  # radius up to 200 mean density?
+        mcrit200 = floattype, 0  #                 critical?
+        rcrit200 = floattype, 0  #                 critical?
+        mtoph200 = floattype, 0  #                 tophat
+        rtoph200 = floattype, 0  #                 tophat
+        veldispmean200 = floattype, 0 # velocity dispersion, for each
+                                      #  overdensity 200
         veldispcrit200 = floattype, 0
         veldisptoph200 = floattype, 0
-        lencontam = 'i4', 0
-        masscontam = floattype, 0
-        nhalo = 'i4', 0
-        firsthalo = 'i4', 0
-        halolen = 'i4', 1
-        halooffset = 'i4', 1
-        haloparent = 'i4', 1
-        halomass = floattype, 1
-        halopos = (floattype, 3), 1
-        halovel = (floattype, 3), 1
-        halocm = (floattype, 3), 1
-        halospin = (floattype, 3), 1
-        haloveldisp = floattype, 1
-        halovmax = floattype, 1
-        halovmaxrad = floattype, 1
-        halohalfmassradius = floattype, 1
-        haloid = idtype, 1
-        halogroup = 'u4', 1
+        lencontam = 'i4', 0       # number of particles (contamination) not in
+                                  # any subhalos.
+        masscontam = floattype, 0 # mass of particles not in any subhalos
+        nhalo = 'i4', 0           # number of subhalos
+        firsthalo = 'i4', 0       # offset of first halo if you concatenate all
+                                  # subhalos in all tab files.
+        halolen = 'i4', 1         # number of particles in this subhalo
+        halooffset = 'i4', 1      # do not use. offset of first particle in
+                                  # concatenated ids file(overflown)
+        haloparent = 'i4', 1      # index of parent (don't know what it is)
+        halomass = floattype, 1   # total mass of subhalo
+        halopos = (floattype, 3), 1  # potential center position
+        halovel = (floattype, 3), 1  # velocity (center mass?)
+        halocm = (floattype, 3), 1   # center of mass position
+        halospin = (floattype, 3), 1  # spin
+        haloveldisp = floattype, 1  # velocity dispersion
+        halovmax = floattype, 1    # max circular velocity
+        halovmaxrad = floattype, 1  # radius of max circular velocity
+        halohalfmassradius = floattype, 1 # radius of half the mass
+        haloid = idtype, 1         # id of most bound particle
+        halogroup = 'u4', 1        # index of group containing this subhalo
     
         __blocks__ = [
         'length', 'offset', 'mass', 'pos', 
