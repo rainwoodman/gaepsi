@@ -415,8 +415,8 @@ cdef class Camera:
             pass
           elif nchildren == 0 or npar < 8192:
             # fully in
-          #  with gil:
-          #    print 'painting', node, npar, self.l, self.b
+            #with gil:
+            #  print 'painting', node, npar, self.l, self.b
             self.paint_range(&citer, first, npar, ccd, write_ccd)
             node = treeiter.get_next_sibling()
           else:
@@ -700,10 +700,10 @@ cdef class Camera:
       if uvt[2] - whl[2] < -1:
         zfac = 1 / whl[2]  # 2 / (whl[2] + whl[2]) is inside
       else:
-        zfac = (1 - uvt[2] + whl[2]) / (whl[2] + whl[2])
+        zfac = (1 - (uvt[2] - whl[2])) / (whl[2] + whl[2])
     else:
       if uvt[2] - whl[2] < -1:
-        zfac = (uvt[2] + whl[2] - (-1 )) / (whl[2]+whl[2])
+        zfac = (uvt[2] + whl[2] + 1) / (whl[2]+whl[2])
       else:
         zfac = 1
 
