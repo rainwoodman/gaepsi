@@ -130,20 +130,22 @@ class GaplotContext(Store):
     canvas = FigureCanvasAgg(self.default_axes.figure)
     canvas.print_png(*args, **kwargs)
 
-  def figure(self, dpi=200., figsize=None, axes=[0, 0, 1, 1.], figurefunc=None):
-    """ setup a default figure and a default axes """
-    if figurefunc is None:
-      import matplotlib.figure
-      figurefunc = matplotlib.figure.Figure
-    if figsize is None:
-      width = self.shape[0] / dpi
-      height = self.shape[1] / dpi
-    else:
-      width, height = figsize
-    figure = figurefunc(figsize=(width, height), dpi=dpi)
+  def print_svg(self, *args, **kwargs):
+    """ save the default figure to a svg file """
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    canvas = FigureCanvasAgg(self.default_axes.figure)
+    canvas.print_svg(*args, **kwargs)
+
+  def newaxes(self, figure, axes=[0, 0, 1, 1.]):
+    """ setup a default axes """
+    dpi = figure.dpi
+    width = self.shape[0] / dpi
+    height = self.shape[1] / dpi
+    figure.set_figheight(height)
+    figure.set_figwidth(width)
     ax = figure.add_axes(axes)
     self.default_axes = ax
-    return figure, ax
+    return ax
 
   @property
   def extent(self):
@@ -256,9 +258,9 @@ class GaplotContext(Store):
 
     x, y, z = locations.T
     for cam in self._mkcameras(camera):
-      with sharedmem.Pool(use_threads=True) as pool:
+      with sharedmem.TPool() as pool:
         cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
-#        cams = cam.divide(2, 1)
+        cams = cam.divide(1, 1)
         def work(cam, offx, offy):
           smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
           cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
@@ -297,7 +299,7 @@ class GaplotContext(Store):
     luminosityp = TreeProperty(tree, luminosity)
 
     for cam in self._mkcameras(camera):
-      with sharedmem.Pool(use_threads=True) as pool:
+      with sharedmem.TPool() as pool:
         cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
         def work(cam, offx, offy):
           mask = cam.prunetree(tree)
@@ -320,10 +322,12 @@ class GaplotContext(Store):
     x, y, z = locations.T
     mask = numpy.zeros(len(x), dtype='?')
     for cam in self._mkcameras(camera):
-      with sharedmem.Pool(use_threads=True) as pool:
-        def work(mask, x, y, z, sml):
-          mask[:] |= (cam.mask(x, y, z, sml) != 0)
-        pool.starmap(work, pool.zipsplit((mask, x, y, z, sml)))
+      with sharedmem.TPool() as pool:
+        chunksize = 1024 * 1024
+        def work(i):
+          sl = slice(i, i + chunksize)
+          mask[sl] |= (cam.mask(x[sl], y[sl], z[sl], sml[sl]) != 0)
+        pool.map(work, range(0, len(mask), chunksize))
     return mask
 
   def transform(self, ftype, luminosity=None, radius=0, camera=None):
@@ -577,7 +581,10 @@ class GaplotContext(Store):
     ax.set_yticks(numpy.linspace(b, t, 5, endpoint=True))
 
     if hasattr(ax, 'scale') and ax.scale is not None:
-      ax.scale.remove()
+      try:
+        ax.scale.remove()
+      except:
+        pass
       ax.scale = None
 
     if scale != False:

@@ -79,17 +79,17 @@ class MeshIndex:
         return numpy.unique(numpy.concatenate(self.data[ind]))
         
     def compile(self, d):
-        """ takes a dict of (label, cellids) as input
+        """ takes a dict of (fid, cellids) as input
             the list can be build concatenating
             the output of add(label, pos)
         """
-        labels = numpy.array(list(d.keys()), dtype='int32')
-        labels.sort()
-        join = numpy.concatenate([d[label] for label in labels])
-        sizes = numpy.bincount(join, minlength=numpy.prod(self.N))
+        fids = numpy.array(list(d.keys()), dtype='int32')
+        fids.sort()
+        cellids = numpy.concatenate([d[fid] for fid in fids])
+        sizes = numpy.bincount(cellids, minlength=numpy.prod(self.N))
 
-        data = numpy.repeat(labels, 
-                [d[label].size for label in labels])
-        arg = join.argsort()
+        data = numpy.repeat(fids, 
+                [d[fid].size for fid in fids])
+        arg = cellids.argsort()
         self.data = packarray(data[arg], sizes)
 

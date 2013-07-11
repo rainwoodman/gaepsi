@@ -1,6 +1,24 @@
 import numpy
-class BlockSizeError(IOError):
+class F77IOError(IOError):
   pass
+class UnexpectedBegin(F77IOError):
+  def __init__(self, file, expect, real):
+      F77IOError.__init__(self,
+          "%s: Unexpected Block End. Expect=%d; File=%d"\
+              % (file.name, expect, real))
+
+class UnexpectedBlockSize(F77IOError):
+  def __init(self, file, itemsize, size):
+      F77IOError.__init__(self,
+          "%s: Non-integral block size. Item=%d; Block=%d"\
+              % (file.name, itemsize, size))
+
+class UnexpectedEnd(F77IOError):
+  def __init__(self, file, expect, real):
+      F77IOError.__init__(self,
+          "%s: Unexpected Block End. Expect=%d; File=%d"\
+              % (file.name, expect, real))
+
 class CFile(file):
   @staticmethod
   def get_size(size):
@@ -52,13 +70,9 @@ class F77File(file):
     expect = length * dtype.itemsize
     size1 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if expect != None and expect != size1:
-      raise BlockSizeError(
-      'Expecting a block of %d bytes, \
-       seeing %d instead' % (expect, size1))
+      raise UnexpectedBegin(self, expect, size1)
     if size1 % dtype.itemsize != 0:
-      raise BlockSizeError(
-      'Expecting block size to divide item size %d, \
-       seeing %d instead' % (dtype.itemsize, size1))
+      raise UnexpectedBlockSize(self, dtype.itemsize, size1)
     # always use the length in the file
     length = size1 // dtype.itemsize
     if nread == None: nread = length - offset
@@ -67,10 +81,7 @@ class F77File(file):
     self.seek((length - nread - offset) * dtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size1 != size2:
-      raise BlockSizeError(
-      'Expecting end of block reporing size \
-       %d bytes, seeing %d instead' % (
-            size1, size2))
+      raise UnexpectedEnd(self, size1, size2)
     if self.little_endian != numpy.little_endian: X.byteswap(True)
     return X
 
@@ -93,22 +104,15 @@ class F77File(file):
     expect = length * dtype.itemsize
     size1 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if expect != None and expect != size1:
-      raise BlockSizeError(
-      'Expecting a block of %d bytes, \
-       seeing %d instead' % (expect, size1))
+      raise UnexpectedBegin(self, expect, size1)
     if size1 % dtype.itemsize != 0:
-      raise BlockSizeError(
-      'Expecting block size to divide item size %d, \
-       seeing %d instead' % (dtype.itemsize, size1))
+      raise UnexpectedBlockSize(self, dtype.itemsize, size1)
     # always use the length in the file
     length = size1 // dtype.itemsize
     self.seek(length * dtype.itemsize, 1)
     size2 = numpy.fromfile(self, self.bsdtype, 1)[0]
     if size1 != size2:
-      raise BlockSizeError(
-      'Expecting end of block reporing size \
-       %d bytes, seeing %d instead' % (
-            size1, size2))
+      raise UnexpectedEnd(self, size1, size2)
 
   def create_record(self, dtype, length):
     dtype = numpy.dtype(dtype)

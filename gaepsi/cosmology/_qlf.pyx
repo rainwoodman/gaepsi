@@ -46,6 +46,7 @@ def qlf(double nu, double z, numpy.ndarray [double, ndim=1] Lbol, int fit_key=0)
         nu = -3: soft X-ray(.5-2kev)
         nu = -4: hard X-ray(2-10kev)
         otherwise nu in Hz.
+        rest frame
    fit_key -- optional flag which sets the fitted form of the bolometric QLF to 
         adopt in calculating the observed QLF at nu. The fit parameters and 
         descriptions are given in HRH06, 

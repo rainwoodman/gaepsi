@@ -105,7 +105,7 @@ class Field(object):
           snapshot.clear(comp, ptype)
       #skip if the reader doesn't save the block
 
-    with sharedmem.Pool(use_threads=True, np=np) as pool:
+    with sharedmem.TPool(np=np) as pool:
       pool.map(work, list(range(Nfile)))
 
     if skipped_comps:
@@ -124,24 +124,24 @@ class Field(object):
     N = numpy.zeros((len(snapshots), nptypes), dtype='i8')
     O = N.copy()
 
-    with sharedmem.Pool(use_threads=True) as pool:
+    with sharedmem.TPool(np=np) as pool:
       def work(i):
         snapshot = snapshots[i]
         for ptype in ptypes:
           mask, count = filter(snapshot, ptype, origin, boxsize)
           N[i, ptype] = count
+        snapshot.clear()
       pool.map(work, range(len(snapshots)))
 
     O.flat[1:] = N.cumsum()[:-1]
     O = O.reshape(*N.shape)
     self.numpoints = N.sum()
-
     for comp in self.names:
       shape = list(self[comp].shape)
       shape[0] = self.numpoints
       self[comp] = numpy.zeros(shape, self[comp].dtype)
 
-    with sharedmem.Pool(use_threads=True, np=np) as pool:
+    with sharedmem.TPool(np=np) as pool:
       def work(i):
         snapshot = snapshots[i]
         for ptype in ptypes:
@@ -152,6 +152,7 @@ class Field(object):
             if block not in self.names: continue
             data = select(snapshot, ptype, block, mask)
             self[block][O[i, ptype]:O[i, ptype]+N[i, ptype]] = data
+        snapshot.clear()
   
       pool.map(work, range(len(snapshots)))
 
@@ -322,11 +323,12 @@ class Field(object):
       scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
     zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)
 
-    with sharedmem.Pool(use_threads=True) as pool:
-      def work(zkey, locations):
-        X, Y, Z = locations.T
-        fc.encode(X, Y, Z, scale=scale, out=zkey)
-      pool.starmap(work, pool.zipsplit((zkey, self['locations'])))
+    with sharedmem.TPool() as pool:
+      chunksize = 1024 * 1024
+      def work(i):
+        X, Y, Z = self['locations'][i:i+chunksize].T
+        fc.encode(X, Y, Z, scale=scale, out=zkey[i:i+chunksize])
+      pool.map(work, range(0, len(zkey), chunksize))
 
     # if already sorted, return directly without copying.
     if (zkey[1:] > zkey[:-1]).all(): return zkey, scale

@@ -184,11 +184,25 @@ class Store(object):
     for ftype in _ensurelist(ftypes):
       self.F[ftype].dump_snapshots(snapshots, ptype=self.P[ftype][0], np=np, save_and_clear=True, C=self.C)
 
+  def fids(self):
+    fids = range(self.C['Nfiles'])
+    if self.need_cut:
+      if self.map is not None:
+        fids = self.map.cut(self.origin, self.boxsize)
+    return fids
+
   def read(self, ftypes, fids=None, np=None):
+    """ read the field from given list of fids, 
+        using at most np threads to read.
+        if fids is None, the cut defined in 'use' will be used.
+
+        returns the field of this ftype.
+
+        build the tree if the schema says so.
+    """
     if self.need_cut:
       if fids is None and self.map is not None:
         fids = self.map.cut(self.origin, self.boxsize)
-        print fids
 
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
@@ -204,7 +218,7 @@ class Store(object):
         warnings.warn('file %s skipped for %s' %(snapname, str(e)))
       return None
 
-    with sharedmem.Pool(use_threads=True) as pool:
+    with sharedmem.TPool() as pool:
       snapshots = filter(lambda x: x is not None, pool.map(getsnap, snapnames))
     
     rt = []
@@ -248,11 +262,13 @@ class Store(object):
     for ftype in ftypes:
       locations, = self._getcomponent(ftype, 'locations')
       x, y, z = locations.T
-      with sharedmem.Pool(use_threads=True) as pool:
-        def work(x, y, z):
-          rt = cub.apply(x, y, z)
+      with sharedmem.TPool() as pool:
+        chunksize = 1024 * 1024
+        def work(i):
+          sl = slice(i, i + chunksize)
+          rt = cub.apply(x[sl], y[sl], z[sl])
           return (rt < 0).sum()
-        badness = numpy.sum(pool.starmap(work, pool.zipsplit((x, y, z))))
+        badness = numpy.sum(pool.map(work, range(0, len(x), chunksize)))
       if badness > 0:
         warnings.warn("some %d points are outside the box" % badness)
     for ftype in ftypes:
@@ -269,18 +285,21 @@ class Store(object):
     gas = self.F[ftype]
     
     gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-    with sharedmem.Pool(use_threads=True) as pool:
-      def work(gas):
+    with sharedmem.TPool() as pool:
+      chunksize = 1024 * 1024
+      def work(i):
+        sl = slice(i, i + chunksize)
         if halo:
-          gas['T'][:] = gas['vel'][:, 0] ** 2
-          gas['T'] += gas['vel'][:, 1] ** 2
-          gas['T'] += gas['vel'][:, 2] ** 2
-          gas['T'] *= 0.5
-          gas['T'] *= self.U.TEMPERATURE
+          gas['T'][sl] = gas['vel'][sl, 0] ** 2
+          gas['T'][sl] += gas['vel'][sl, 1] ** 2
+          gas['T'][sl] += gas['vel'][sl, 2] ** 2
+          gas['T'][sl] *= 0.5
+          gas['T'][sl] *= self.U.TEMPERATURE
         else:
-          self.cosmology.ie2T(ie=gas['ie'], ye=gas['ye'], Xh=Xh, out=gas['T'])
-          gas['T'] *= self.U.TEMPERATURE
-      pool.starmap(work, pool.zipsplit((gas,)))
+          self.cosmology.ie2T(ie=gas['ie'][sl], ye=gas['ye'][sl], Xh=Xh,
+                  out=gas['T'][sl])
+          gas['T'][sl] *= self.U.TEMPERATURE
+      pool.map(work, range(0, len(gas['T']), chunksize))
 
 
 

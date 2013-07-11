@@ -1,12 +1,14 @@
 from gaepsi.readers import Reader
-from gaepsi.io import BlockSizeError
+from gaepsi.io import F77IOError
 import numpy
 
 class Snapshot:
   def __init__(self, file=None, reader=None, 
-               create=False, overwrite=True, template=None, **kwargs):
+               readonly=True, create=False, overwrite=True, template=None, **kwargs):
     """ create a snapshot object whose schema is like
         snapshot template.
+
+        if it is readonly, then modification won't be saved to disk.
     """
     reader = Reader(reader, **kwargs)
     self.reader = reader
@@ -17,6 +19,9 @@ class Snapshot:
     else:
       self.save_on_delete = False
       self.open(template=template)
+
+    if not readonly:
+      self.save_on_delete = True
 
     #self.C is set after reader.create / reader.open
     # particle data
@@ -129,6 +134,10 @@ class Snapshot:
       for ptype in ptypes:
          del self[ptype, name]
        
+  def clear(self):
+    for ptype in range(len(self.C['N'])):
+      self.P[ptype] = {}
+
   def save(self, index=None):
     if index is None:
       self.save('header')
@@ -162,15 +171,17 @@ class Snapshot:
       file.write_record(self.P[ptype][name], length, offset)
 
   def resolve_schema(self):
-    bytesize = [0, 4, 8, 16, 32, -1]
+    bytesize = [0, 4, 8, 16, 32]
     with self.getfile('r') as file:
       for name in self.schema:
-        if not self.has_block(name): continue
         s = self.schema[name]
+        if 'flag_double' in self.C and s.dtype.base.kind == 'f':
+          if self.C['flag_double'] == 1:
+            s.modify_dtype(8)
+          else:
+            s.modify_dtype(4)
+        if not self.has_block(name): continue
         for newbs in bytesize:
-          if newbs == -1:
-            raise Exception("Cannot resolve the schema on this \
-            file, do not understand the block sizes")
           if newbs != 0:
             s.modify_dtype(newbs)
           file.seek(self.offset(name))
@@ -178,7 +189,7 @@ class Snapshot:
           try:
             file.skip_record(s.dtype, length)
             break
-          except BlockSizeError:
+          except F77IOError:
             pass
          
   def check(self):

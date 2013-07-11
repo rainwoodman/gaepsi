@@ -1,4 +1,6 @@
+# deprecated
 #! /usr/bin/env python
+raise Depcerated
 import sharedmem
 from sys import argv
 import argparse

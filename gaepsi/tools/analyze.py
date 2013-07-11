@@ -29,25 +29,26 @@ def profile(field, component, center, rmin, rmax, weights=None, logscale=True, n
   weight = numpy.zeros(nbins + 2, dtype='f8') # for the profile
 
    
-  with sharedmem.Pool(use_threads=True) as pool:
-    def work(locations, component, weights):
-      r = ((locations - center) ** 2).sum(axis=-1) ** 0.5
+  with sharedmem.TPool() as pool:
+    chunksize = 1024 * 1024
+    def work(i):
+      sl = slice(i, i + chunksize)
+      r = ((locations[sl] - center) ** 2).sum(axis=-1) ** 0.5
       dig = numpy.digitize(r, bins)
       if weights is not None:
-        p = numpy.bincount(dig, weights=component * weights, minlength=nbins+2)
-        w = numpy.bincount(dig, weights=weights, minlength=nbins+2)
+        p = numpy.bincount(dig, weights=component[sl] * weights[sl], minlength=nbins+2)
+        w = numpy.bincount(dig, weights=weights[sl], minlength=nbins+2)
         return p, w
       else:
-        p = numpy.bincount(dig, weights=component, minlength=nbins+2)
-        return p
-    def reduce(res):
+        p = numpy.bincount(dig, weights=component[sl], minlength=nbins+2)
+        return p, None
+    def reduce(p, w):
       if weights is not None:
-        p, w = res
         profil[:] += p
         weight[:] += w
       else:
-        profil[:] += res
-    pool.starmap(work, pool.zipsplit((locations, component, weights)), callback=reduce)
+        profil[:] += p
+    pool.map(work, range(0, len(locations), chunksize), reduce=reduce)
   if integrated:
     profil = profil.cumsum()
     weight = weight.cumsum()
@@ -82,7 +83,7 @@ class HaloCatalog(Field):
       nread += g.C['N'][0] 
       i = i + 1
       tabs.append(g)
-    print 'will read', len(tabs), 'files'
+    #print 'will read', len(tabs), 'files'
     Field.__init__(self, numpoints=count, components={'offset':'i8',
         'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3)})
     self.take_snapshots(tabs, ptype=0)
@@ -103,9 +104,9 @@ class HaloCatalog(Field):
 
     ids = sharedmem.empty(idslen.sum(), dtype=g.C['idtype'])
 
-    print 'reading', i, 'id files'
+    #print 'reading', i, 'id files'
 
-    with sharedmem.Pool(use_threads=False) as pool:
+    with sharedmem.Pool() as pool:
       def work(i):
         more = numpy.memmap(tabfilename.replace('_tab_', '_ids_')
               % i, dtype=g.C['idtype'], mode='r', offset=28)
@@ -264,7 +265,7 @@ def cic(pos, Nmesh, boxsize, weights=1.0, dtype='f8'):
           wchunk = weights
         else:
           wchunk = weights[chunk]
-        gridpos = pos[chunk] * (Nmesh / BoxSize)
+        gridpos = numpy.remainder(pos[chunk], BoxSize) * (Nmesh / BoxSize)
         intpos = numpy.intp(gridpos)
         for i, neighbour in enumerate(neighbours):
             neighbour = neighbour[None, :]
