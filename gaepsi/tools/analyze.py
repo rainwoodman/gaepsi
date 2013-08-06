@@ -5,6 +5,17 @@ from gaepsi.tools import packarray
 from gaepsi.store import getcomponent
 import sharedmem
 import numpy
+try:
+    import pyfftw
+    irfftn = pyfftw.interfaces.numpy_fft.irfftn
+    rfftn = pyfftw.interfaces.numpy_fft.rfftn
+    fftshift = pyfftw.interfaces.numpy_fft.fftshift
+    fftfreq = pyfftw.interfaces.numpy_fft.fftfreq
+except ImportError:
+    irfftn = numpy.fft.irfftn
+    rfftn = numpy.fft.rfftn
+    fftshift = numpy.fft.fftshift
+    fftfreq = numpy.fft.fftfreq
 
 def profile(field, component, center, rmin, rmax, weights=None, logscale=True, nbins=100, density=True, integrated=True):
   """ returns centers, profile, and with of the bins, 
@@ -170,8 +181,32 @@ class BHDetail:
     if mergerfile is not None:
       merger = numpy.loadtxt(mergerfile, dtype=[('time_q', 'f8'), 
            ('after', 'u8'), ('swallowed', 'u8')], ndmin=1)
+      self.fixparentmass(merger)
       while self.fixmainid(merger) > 0:
         pass
+  def fixparentmass(self, merger):
+    arg = sharedmem.argsort(self.data['id'])
+    self.data[...] = self.data[arg]
+    left = self.data['id'].searchsorted(merger['swallowed'], side='left')
+    right = self.data['id'].searchsorted(merger['swallowed'], side='right')
+    mask = self.data['id'][left] == merger['swallowed']
+    left = left[mask]
+    right = right[mask]
+    print 'fix mass', mask.sum()
+    for i, row in enumerate(merger[mask]):
+      time, after, swallowed = row
+      l = left[i]
+      r = right[i]
+      last = numpy.abs(self.data['time'][l:r] - time).argsort()[:1]
+      #assert (self.data['time'][l:r] == time).any()
+      #assert (self[after]['time'] == time).any()
+      aftermask = self['id'] == after
+      match = numpy.abs(self.data[aftermask]['time'] - time).argsort()[:1]
+
+      m = numpy.max([self.data['mass'][l:r][last].max(), self.data[aftermask]['mass'][match].max()])
+      self.data['mass'][l:r][last] = m # numpy.nan
+      self.data['mass'][aftermask.nonzero()[0][match]] = m #numpy.nan
+#      assert numpy.isnan(self.data['mass'][aftermask.nonzero()[0][match]]).all() # numpy.nan
 
   def fixmainid(self, merger):
     arg = sharedmem.argsort(self.data['mainid'])
@@ -187,7 +222,10 @@ class BHDetail:
       time, after, swallowed = row
       l = left[i]
       r = right[i]
-      self.data['mainid'][l:r+1] = after
+      self.data['mainid'][l:r] = after
+      #assert (self.data['time'][l:r] == time).any()
+      #assert (self[after]['time'] == time).any()
+
     return mask.sum()
 
   def save(self, filename):
@@ -195,9 +233,20 @@ class BHDetail:
   def mainid(self, id):
     return self['mainid'][self['id'] == id][0]
 
+  def unique(self):
+    return numpy.unique(self['mainid'])
+
+  def finalmass(self, id):
+      if numpy.isscalar(id):
+          return numpy.nanmax(self.data['mass'][self.data['mainid'] ==
+              self.mainid(id)])
+      else:
+          return [self.finalmass(i) for i in id]
+
   def mostmassive(self, id):
     """ construct a data series for the most massive bh of id at any time"""
     mask = self.data['mainid'] == self.mainid(id)
+    mask &= ~numpy.isnan(self.data['mass'])
     data = self.data[mask]
     data.sort(order='time')
     while True:
@@ -220,7 +269,7 @@ class BHDetail:
     if hasattr(index, '__iter__'):
       return [self[i] for i in index]
     else:
-      return self.data[self.data['id'] == id]
+      return self.data[self.data['id'] == index]
 
   def plot(self, id, property, xdata=None, *args, **kwargs):
     """plot a series of blackholes, deprecated. use matplotlib
@@ -278,7 +327,7 @@ def cic(pos, Nmesh, boxsize, weights=1.0, dtype='f8'):
             flat[u] += numpy.bincount(label, add)
     return mesh
 
-def collapse(field, ticks, axis, logscale=False):
+def collapse(field, ticks=None, axis=[], logscale=False):
     """ collapse axis of a field,
         tics are the coordinates of the axes.
         tics is of length field.shape
@@ -294,10 +343,15 @@ def collapse(field, ticks, axis, logscale=False):
         where tics are the coordinates of the new field.
     """
     Ndim = len(field.shape)
+    if ticks is None:
+        ticks = [1.0 * numpy.arange(i) for i in field.shape]
     for i in range(Ndim):
       assert len(ticks[i]) == field.shape[i]
 
-    if axis is None or len(axis) == 0:
+    if axis is None:
+        axis = list(range(Ndim))
+
+    if len(axis) == 0:
         return ticks, field
 
     axis = list(axis)
@@ -305,21 +359,24 @@ def collapse(field, ticks, axis, logscale=False):
     preserve = []
     newticks = []
     dist = None
+    binsize = 0
     for i in range(Ndim):
         if i in axis:
             if dist is None:
                 dist = ticks[i] ** 2
+                binsize = ticks[i].ptp() / field.shape[i]
             else:
                 dist = dist[:, None] + ticks[i][None, :] ** 2
+                binsize = max(binsize, ticks[i].ptp() / field.shape[i])
             dist.shape = -1
         else:
             preserve.append(i)
             newticks.append(ticks[i])
-    dist **= 0.5
-    dmin = dist[dist > 0].min()     
-    dmax = dist.max()
 
-    Nbins = numpy.max(numpy.array(field.shape)) + 1
+    dist **= 0.5
+    dmin = 0
+    dmax = dist.max()
+    Nbins = dmax / binsize
     if not logscale:
         bins = numpy.linspace(dmin, dmax, Nbins, endpoint=True)
         center = 0.5 * (bins[1:] + bins[:-1])
@@ -333,12 +390,11 @@ def collapse(field, ticks, axis, logscale=False):
     slabs = field.transpose(preserve + axis).reshape(-1, len(dist))
 
     dig = numpy.digitize(dist, bins)
-    suminv = 1.0 / numpy.bincount(dig, weights=dist, minlength=bins.size+1)[1:-1]
-
+#    suminv = 1.0 / numpy.bincount(dig, weights=dist, minlength=bins.size+1)[1:-1]
+    suminv = 1.0 / numpy.bincount(dig, minlength=bins.size+1)[1:-1]
     newfield = numpy.empty((slabs.shape[0], len(center)))
-
     for i, slab in enumerate(slabs):
-        kpk = dist * slab
+        kpk = slab #* dist
         kpksum = numpy.bincount(dig, weights=kpk, minlength=bins.size+1)[1:-1]
         newfield[i] = kpksum * suminv
 
@@ -346,15 +402,49 @@ def collapse(field, ticks, axis, logscale=False):
 
     return newticks, newfield
 
-def powerfromdelta(delta, boxsize, logscale=False, collapse=None):
+
+def corrfromdelta(delta, boxsize, collapse_axes=None):
+    K, P = powerfromdelta(delta, boxsize, collapse_axes=[])
+    return corrfrompower(P, boxsize, collapse_axes)
+
+def corrfrompower(P, boxsize, collapse_axes=None):
+
+    if collapse_axes is None:
+        collapse_axes = numpy.arange(len(P.shape))
+
+    XI = irfftn(P)
+    N = numpy.prod(XI.shape, dtype='f8')
+    Ndim = len(XI.shape)
+    BoxSize = numpy.empty(Ndim, dtype='f8')
+    BoxSize[:] = boxsize
+
+    if len(collapse_axes) != 0:
+        XI = fftshift(XI)
+    del P
+    # in numpy, irfft * fft == 1, thus irfftn is actually DFT / N
+    # the factor 2pi cancels with the convention in powerfromdelta
+    # the remaining BoxSize is from Dk
+    XI *= (N / numpy.product(BoxSize))
+    X = []
+    for i in range(len(XI.shape)):
+        x = fftfreq(XI.shape[i])
+        if len(collapse_axes) != 0:
+            x = fftshift(x)
+        x *= BoxSize[i]
+        X.append(x)
+
+    return collapse(XI, X, collapse_axes, logscale=False)
+
+def powerfromdelta(delta, boxsize, logscale=False, collapse_axes=None,
+        cheat=None):
     """ delta is over density.
         this obviously does not correct for redshift evolution.
         returns a collapsed powerspectrum, 
 
-        if collapse is None, collapse all dimensions.
-        if collapse is not None, just collapse the selecte dimensions.
-        if collapse is False, do not collapse and return the full n-dim
-        Pk.
+        if collapse_axes is None, collapse all dimensions.
+        if collapse_axes is not None, just collapse the selecte dimensions.
+        if collapse_axes is [], do not collapse and return the full n-dim
+        Pk. [in fft freq orderings, 0 freq is at 0, not at center ]
 
         returns k, P
 
@@ -376,72 +466,46 @@ def powerfromdelta(delta, boxsize, logscale=False, collapse=None):
     BoxSize[:] = boxsize
   
     # each dim has a different K0
+    # (Dx)^3 = N / prod(BoxSize)
+    # extra 2 * pi is from K0!
     K0 = 2 * numpy.pi / BoxSize
   
-    delta_k = numpy.fft.rfftn(delta) / N
-    intK = numpy.ogrid[[slice(0, n) for n in delta_k.shape]]
+    if cheat is None:
+        delta_k = rfftn(delta) / N
+    else:
+        delta_k = cheat
+
+    if collapse_axes is None:
+        collapse_axes = numpy.arange(len(delta_k.shape))
   
+    full = numpy.array(delta_k.shape)
     half = numpy.array(delta_k.shape) // 2
     # last dim is already halved
-    half[-1] = delta_k.shape[-1]
-  
-    if collapse is None:
-        collapse = range(Ndim)
-    if collapse == False:
-        collapse = []
-    collapse = list(collapse)
-    original = []
-    Kclps = 0
+    half[-1] = delta_k.shape[-1] - 1
+    full[-1] = half[-1] * 2
     Kret = []
+
     for i in range(Ndim):
-        kx = (half[i] - numpy.abs(half[i] - intK[i])) * K0[i]
-        if i in collapse:
-            Kclps = Kclps + kx ** 2
+        kx = fftfreq(full[i]) * full[i]
+        if i != Ndim - 1:
+            if len(collapse_axes) != 0:
+                kx = fftshift(kx)
         else:
-            Kret.append(kx.ravel().copy())
-            original.append(i)
+            kx = kx[:delta_k.shape[i]]
+        kx *= BoxSize[i] * numpy.pi * 2
+        Kret.append(kx * K0[i])
 
-    if len(collapse) == 0:
-        return Kret, numpy.abs(delta_k) ** 2 * K0.prod() ** -1 * Dplus ** 2
+    if len(collapse_axes) != 0:
+        delta_k = fftshift(delta_k, axes=numpy.arange(len(delta.shape) - 1))
 
-    #this shall be calling collapse instead!
-    # now we bin Kclps
-    Kclps = Kclps ** 0.5
-    kmax = Kclps.max() 
-    kmin = Kclps[Kclps > 0].min()
-    if not logscale:
-        kbins = numpy.linspace(kmin, kmax, numpy.max(half), endpoint=True)
-        kcenter = 0.5 * (kbins[1:] + kbins[:-1])
+    P = numpy.abs(delta_k) ** 2 * K0.prod() ** -1 * Dplus ** 2
+    if len(collapse_axes) == 0:
+        return Kret, P
     else:
-        lkmin, lkmax = numpy.log10([kmin, kmax])
-        kbins = numpy.logspace(lkmin, lkmax, numpy.max(half), endpoint=True)
-        kcenter = (kbins[1:] * kbins[:-1]) ** 0.5
+        return collapse(P, Kret, collapse_axes, logscale)
 
-    Kret.append(kcenter)
 
-    slabs = delta_k.transpose(original + collapse).reshape([-1] + 
-            [delta_k.shape[i] for i in collapse])
-    Kclps = Kclps.transpose(original + collapse).reshape(
-            [Kclps.shape[i] for i in collapse])
-
-    dig = numpy.digitize(Kclps.ravel(), kbins)
-    ksuminv = 1.0 / numpy.bincount(dig, weights=Kclps.ravel(), minlength=kbins.size+1)[1:-1]
-
-    pk = numpy.empty((slabs.shape[0], len(kcenter)))
-
-    for i, slab in enumerate(slabs):
-        kpk = Kclps * (numpy.abs(slab) ** 2) # * K0 ** -3 * Dplus ** 2
-        kpksum = numpy.bincount(dig, weights=kpk.ravel(), minlength=kbins.size+1)[1:-1]
-        pk[i] = kpksum * ksuminv
-
-    pk = pk.reshape([delta_k.shape[i] for i in original] + [pk.shape[-1]])
-
-    if len(Kret) == 1: 
-        Kret = Kret[0]
-
-    return Kret, pk * K0.prod() ** -1 * Dplus ** 2
-
-def corrfrompower(K, P, logscale=False, R=None):
+def corrfrompower_old(K, P, logscale=False, R=None):
     """calculate correlation function from power spectrum,
        P is 1d powerspectrum. if R is not None, estimate at
        those points .

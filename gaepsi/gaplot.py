@@ -3,6 +3,7 @@ import numpy
 import sharedmem
 import matplotlib
 from matplotlib import cm
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 from gaepsi.tools import nl_, n_, normalize
 from gaepsi.store import *
@@ -124,23 +125,15 @@ class GaplotContext(Store):
     # a convenient wrapper
     return _image(color, luminosity=luminosity, cmap=cmap, composite=composite)
 
-  def print_png(self, *args, **kwargs):
-    """ save the default figure to a png file """
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
+  def savefig(self, *args, **kwargs):
     canvas = FigureCanvasAgg(self.default_axes.figure)
-    canvas.print_png(*args, **kwargs)
-
-  def print_svg(self, *args, **kwargs):
-    """ save the default figure to a svg file """
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    canvas = FigureCanvasAgg(self.default_axes.figure)
-    canvas.print_svg(*args, **kwargs)
+    self.default_axes.figure.savefig(*args, **kwargs)
 
   def newaxes(self, figure, axes=[0, 0, 1, 1.]):
     """ setup a default axes """
     dpi = figure.dpi
-    width = self.shape[0] / dpi
-    height = self.shape[1] / dpi
+    width = 1.0 * self.shape[0] / dpi
+    height = 1.0 * self.shape[1] / dpi
     figure.set_figheight(height)
     figure.set_figwidth(width)
     ax = figure.add_axes(axes)
@@ -229,7 +222,8 @@ class GaplotContext(Store):
       else:
         continue
 
-  def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None, dtype='f8'):
+  def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None,
+          dtype='f8', np=None):
     """ paint field to CCD, returns
         C, L where
           C is the color of the pixel
@@ -258,9 +252,8 @@ class GaplotContext(Store):
 
     x, y, z = locations.T
     for cam in self._mkcameras(camera):
-      with sharedmem.TPool() as pool:
-        cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
-        cams = cam.divide(1, 1)
+      with sharedmem.TPool(np=self.np) as pool:
+        cams = cam.divide(int(pool.np ** 0.5 * 2 + 1), int(pool.np ** 0.5 * 2 + 1))
         def work(cam, offx, offy):
           smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
           cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
@@ -299,7 +292,7 @@ class GaplotContext(Store):
     luminosityp = TreeProperty(tree, luminosity)
 
     for cam in self._mkcameras(camera):
-      with sharedmem.TPool() as pool:
+      with sharedmem.TPool(np=self.np) as pool:
         cams = cam.divide(int(pool.np ** 0.5 * 2), int(pool.np ** 0.5 * 2))
         def work(cam, offx, offy):
           mask = cam.prunetree(tree)
@@ -322,7 +315,7 @@ class GaplotContext(Store):
     x, y, z = locations.T
     mask = numpy.zeros(len(x), dtype='?')
     for cam in self._mkcameras(camera):
-      with sharedmem.TPool() as pool:
+      with sharedmem.TPool(np=self.np) as pool:
         chunksize = 1024 * 1024
         def work(i):
           sl = slice(i, i + chunksize)
@@ -606,6 +599,7 @@ class GaplotContext(Store):
     from matplotlib.patches import Rectangle
     from matplotlib.text import Text
     from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
+    h = self.C['h']
     if scale is None:
       l = (self.extent[1] - self.extent[0]) * 0.2
     else:
@@ -613,11 +607,16 @@ class GaplotContext(Store):
       # always first put comoving distance to l
       if not comoving:
         l *= (1. + self.C['redshift'])
+        l /= h
 
     if not comoving:
       # prefer integral distance numbers
       # for the type of distance of choice(comoving or proper)
       l /= (1. + self.C['redshift'])
+      l *= h
+      unit = ''
+    else:
+      unit = '/h'
 
     n, e = _fr10(l)
     l = numpy.floor(n) * 10 ** e
@@ -625,14 +624,15 @@ class GaplotContext(Store):
     if l > 500 :
       l/=1000.0
       l = int(l+0.5)
-      text = r"%g Mpc/h" % l
+      text = r"%g Mpc%s" % (l, unit)
       l *= 1000.0
     else:
-      text = r"%g Kpc/h" %l
+      text = r"%g Kpc%s" % (l, unit)
  
     if not comoving:
       # but the bar is always drawn in comoving
       l *= (1. + self.C['redshift'])
+      l /= h
 
     ret = AnchoredSizeBar(ax.transData, l, text, loc=loc,
       pad=pad, borderpad=borderpad, sep=sep, frameon=False)

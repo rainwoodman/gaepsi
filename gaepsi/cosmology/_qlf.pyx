@@ -1,3 +1,5 @@
+#cython: embedsignature=True
+#cython: cdivision=True
 cimport numpy
 import numpy
 cimport npyiter
@@ -16,15 +18,26 @@ methods = {
   'dispersion': <intptr_t> l_band_dispersion,
   'l': <intptr_t> l_band,
 }
+def Lband(Lbol, nu, out=None):
+    """return the intrinsic band luminosity for some bolometric luminosity and frequency; 
+   nu = 0 (l_bol), -1 (B-band), -2 (15 microns), -3 (0.5-2 keV), -4 (2-10 keV), 
+   otherwise nu is the observed frequency and the return is nu*L_nu
+   Lbol in Msun.
+   returns in Msun
+    """
+    out = eval('l', numpy.log10(Lbol), nu, out=out)
+    return out
+
 def eval(method, Lbol, double nu, out=None):
   if out is None:
     out = numpy.empty_like(Lbol, dtype='f8')
 
+  print method
   iter = numpy.nditer([Lbol, out],
        op_dtypes = ['f8', 'f8'],
        op_flags = [['readonly'], ['writeonly']],
        flags = ['external_loop', 'zerosize_ok', 'buffered'],
-       casting = ['unsafe'])
+       casting = 'unsafe')
   cdef npyiter.CIter citer
   cdef size_t size = npyiter.init(&citer, iter)
   cdef method_t func = <method_t> <intptr_t> methods[method]

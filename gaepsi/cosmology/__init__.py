@@ -215,7 +215,7 @@ class Cosmology(object):
         taking GADGET, return GADGET, comoving.
        REF Rennna Barkana astro-ph/0010468v3 eq (24) [proper in eq 24]"""
     M,L,K = self.M, self.L, self.K
-    OmegaMz = M * (1 + z)**3 / self.Ez(z)
+    OmegaMz = M * (1 + z)**3 / self.Ez(z) ** 2
     return 0.784 * (m * 100)**(0.33333) * (M / OmegaMz * Deltac / (18 * numpy.pi * numpy.pi))**-0.3333333 * 10
 
   def Vvir(self, m, z, Deltac=200):

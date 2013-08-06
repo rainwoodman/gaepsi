@@ -29,10 +29,13 @@ class Store(object):
   def __init__(self, snapname=None,
           format=None, periodic=None, origin=[0, 0, 0.], boxsize=None, 
           mapfile=None,
-          shape = (600,600), thresh=(32, 64), 
+          shape=(600,600), thresh=(32, 64), 
+          np=None,
           **kwargs):
-    self._format = None
+    """ for serial operation, set np to = """
+    self.format = None
     self._thresh = thresh
+    self.np = np
     # fields
     self.F = {}
     # ptypes
@@ -95,7 +98,7 @@ class Store(object):
       scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
       scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
-    zkey, scale = self.F[ftype].zorder(scale)
+    zkey, scale = self.F[ftype].zorder(scale, np=self.np)
     self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
     # optimize is useless I believe
     # self.T[ftype].optimize()
@@ -134,14 +137,14 @@ class Store(object):
         only particles within origin and boxsize are loaded.
     """
     self.snapname = snapname
-    self._format = Reader(format, **kwargs)
+    self.format = Reader(format, **kwargs)
 
     try:
       snapname = self.snapname % 0
     except TypeError:
       snapname = self.snapname
 
-    snap = Snapshot(snapname, self._format)
+    snap = Snapshot(snapname, self.format)
    
     self.C = snap.C
     self._template = snap
@@ -193,16 +196,21 @@ class Store(object):
 
   def read(self, ftypes, fids=None, np=None):
     """ read the field from given list of fids, 
-        using at most np threads to read.
+        using at most np threads to read. (default is self.np)
+        0 is serial.
         if fids is None, the cut defined in 'use' will be used.
 
         returns the field of this ftype.
 
         build the tree if the schema says so.
+
     """
     if self.need_cut:
       if fids is None and self.map is not None:
         fids = self.map.cut(self.origin, self.boxsize)
+
+    if np is None:
+        np = self.np
 
     if fids is not None:
       snapnames = [self.snapname % i for i in fids]
@@ -213,18 +221,19 @@ class Store(object):
 
     def getsnap(snapname):
       try:
-        return Snapshot(snapname, self._format, template=self._template)
+        return Snapshot(snapname, self.format, template=self._template)
       except IOError as e:
         warnings.warn('file %s skipped for %s' %(snapname, str(e)))
       return None
 
-    with sharedmem.TPool() as pool:
+    with sharedmem.TPool(np=np) as pool:
       snapshots = filter(lambda x: x is not None, pool.map(getsnap, snapnames))
     
     rt = []
     for ftype in _ensurelist(ftypes):
       if self.need_cut:
-        self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], boxsize=self.boxsize, origin=self.origin, np=np)
+        self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype],
+                boxsize=self.boxsize, origin=self.origin, np=np)
       else:
         self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np)
       self._rebuildtree(ftype)
@@ -262,7 +271,7 @@ class Store(object):
     for ftype in ftypes:
       locations, = self._getcomponent(ftype, 'locations')
       x, y, z = locations.T
-      with sharedmem.TPool() as pool:
+      with sharedmem.TPool(np=self.np) as pool:
         chunksize = 1024 * 1024
         def work(i):
           sl = slice(i, i + chunksize)
@@ -285,7 +294,7 @@ class Store(object):
     gas = self.F[ftype]
     
     gas['T'] = numpy.empty(dtype='f4', shape=gas.numpoints)
-    with sharedmem.TPool() as pool:
+    with sharedmem.TPool(np=self.np) as pool:
       chunksize = 1024 * 1024
       def work(i):
         sl = slice(i, i + chunksize)

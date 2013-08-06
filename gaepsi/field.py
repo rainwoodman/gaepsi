@@ -3,6 +3,8 @@ from numpy import sin, cos
 from numpy import newaxis
 import sharedmem
 from warnings import warn
+from compiledbase import fillingcurve as fc
+from compiledbase import ztree as zt
 
 def is_string_like(v):
   try: v + ''
@@ -307,10 +309,9 @@ class Field(object):
           self[comp] = numpy.inner(self[comp], M)
 
   def ztree(self, zkey, scale, minthresh, maxthresh):
-    from compiledbase import ztree as zt
     return zt.Tree(zkey=zkey, scale=scale, minthresh=minthresh, maxthresh=maxthresh)
     
-  def zorder(self, scale=None):
+  def zorder(self, scale=None, np=None):
     """ calculate zkey (morton key) and return it.
         if sort is true, the field is sorted by zkey
         if ztree is false, return zkey, scale, where scale is
@@ -318,12 +319,11 @@ class Field(object):
 
         Note all previous reference to the field's components are invalid.
     """
-    from compiledbase import fillingcurve as fc
     if scale is None:
       scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
     zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)
 
-    with sharedmem.TPool() as pool:
+    with sharedmem.TPool(np=np) as pool:
       chunksize = 1024 * 1024
       def work(i):
         X, Y, Z = self['locations'][i:i+chunksize].T
@@ -334,10 +334,9 @@ class Field(object):
     if (zkey[1:] > zkey[:-1]).all(): return zkey, scale
 
     # use sharemem.argsort, because it is faster
-    arg = sharedmem.argsort(zkey)
+    arg = sharedmem.argsort(zkey, np=np)
     for comp in self.dict:
-      # use sharemem.take, because it is faster
-      self.dict[comp] = sharedmem.take(self.dict[comp], arg, axis=0)
+      self.dict[comp] = numpy.take(self.dict[comp], arg, axis=0)
 
     zkey = zkey[arg]
     return zkey, scale

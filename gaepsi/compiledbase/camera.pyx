@@ -449,15 +449,17 @@ cdef class Camera:
             R[1] = sml
             R[2] = sml
 
-            c3inv = self.transform_one(pos, uvt)
-            self.transform_size_one(R,
-                c3inv, 
-                whl)
-            self.paint_object_one(pos,
-                uvt, whl,
-                (<float*>citer.data[4])[0],
-                (<float*>citer.data[5])[0],
-                ccd, write_ccd)
+            flag = self.mask_object_one(pos, R)
+            if flag != 0:
+              c3inv = self.transform_one(pos, uvt)
+              self.transform_size_one(R,
+                  c3inv, 
+                  whl)
+              self.paint_object_one(pos,
+                  uvt, whl,
+                  (<float*>citer.data[4])[0],
+                  (<float*>citer.data[5])[0],
+                  ccd, write_ccd)
           npyiter.advance(citer)
           size = size - 1
         size = npyiter.next(citer)
@@ -679,14 +681,17 @@ cdef class Camera:
     
   cdef void paint_object_one(self, double pos[3], float uvt[3], float whl[3], float color, float luminosity, void * ccd, write_ccd_func write_ccd) nogil:
 
-    if whl[0] > 2 or whl[1] > 2:
-      # over resolved
-      return
+# this overresolve hack mess up things as we divide camera
+# into sub cameras
+#    if whl[0] > 2 or whl[1] > 2:
+#      # over resolved
+#      return
     cdef int d
-
-    for d in range(3):
-      if uvt[d] - whl[d] > 1.0: return
-      if uvt[d] + whl[d] < -1.0: return
+#  this check is useless as we use mask_object_one before
+#  paint_object_one
+#    for d in range(2):
+#      if uvt[d] - whl[d] > 1.0: return
+#      if uvt[d] + whl[d] < -1.0: return
 
     cdef float zfac 
     cdef float xy[2]
@@ -696,6 +701,9 @@ cdef class Camera:
       xy[d] = (uvt[d] + 1.0) * self._hshape[d]
       dxy[d] = whl[d] * self._hshape[d]
 
+    # zfac should have been evaluated from mask_object_one with
+    # physical cooridnates, not here,
+    # disable it for now
     if uvt[2] + whl[2] > 1:
       if uvt[2] - whl[2] < -1:
         zfac = 1 / whl[2]  # 2 / (whl[2] + whl[2]) is inside
@@ -706,6 +714,8 @@ cdef class Camera:
         zfac = (uvt[2] + whl[2] + 1) / (whl[2]+whl[2])
       else:
         zfac = 1
+
+    zfac = 1.0
 
     cdef float D = 0.
     cdef float DD
@@ -758,7 +768,8 @@ cdef class Camera:
     # cross kernel gives vertical and horizontal
     # lines.
 
-    cdef float bit = brightness * normfac * self.kernel_factor
+    cdef float bit = brightness
+    cdef float bit2 = normfac * self.kernel_factor
     cdef float tmp1, tmp2 # always in -1 and 1, distance to center
     cdef float tmp3  # pixel value
     cdef float tmp1fac = 2.0 / di[0]
@@ -784,7 +795,7 @@ cdef class Camera:
       tmp2 = (imin[1] - xy[1]) * tmp2fac
       iy = imin[1]
       while iy <= imax[1]:
-        tmp3 = self.kernel_func(tmp1, tmp2)
+        tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
         if cachept < CACHESIZE:
           cache[cachept] = tmp3
           cachept = cachept + 1
@@ -810,9 +821,9 @@ cdef class Camera:
             tmp3 = cache[cachept]
             cachept = cachept + 1
           else:
-            tmp3 = self.kernel_func(tmp1, tmp2)
+            tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
           if tmp3 > 0:
-            write_ccd(ccd, q, bit * tmp3, color)
+            write_ccd(ccd, q, bit * tmp3 / sum, color)
         else:
           if cachept < CACHESIZE:
             cachept = cachept + 1

@@ -1,6 +1,7 @@
 import numpy
 import sharedmem
-from _qlf import qlf as _qlf
+import _qlf
+
 from gaepsi.cosmology import Cosmology
 
 HOPKINS2007 = Cosmology(M=0.3, L=0.7, h=0.7)
@@ -28,8 +29,10 @@ def _bandconv(U, band, hertz=False):
 bands = lambda x:0
 bands.u = ('A', 3541)
 bands.g = ('A', 4653)
+bands.b = ('A', 4450)
 bands.r = ('A', 6147)
 bands.i = ('A', 7461)
+bands.i2 = ('A', 2500) # z=2 iband used in SDSS
 bands.z = ('A', 8904)
 
 class QLFfunction:
@@ -78,7 +81,7 @@ def qlf_observed(cosmology, band=bands.i, faint=21.8, bright=17.8):
     Lbolbins=numpy.linspace(11, 16, 100) # hope this will cover everything.
 
     def work(z):
-        Lband, M_AB, S_nu, Phi = _qlf(band, z, Lbolbins)
+        Lband, M_AB, S_nu, Phi = _qlf.qlf(band, z, Lbolbins)
         Phi /= (U.MPC ** 3)
         Dc = cosmology.Dc(z)
         DL = Dc * (1 + z)
@@ -118,10 +121,10 @@ def qlf(cosmology, band, magnitude=False, returnraw=False):
 
   if key not in _qlf_interp:
     v = numpy.empty(numpy.broadcast(Lbolbins[None, :], zbins[:, None]).shape)
-    Lband, M_AB, S_nu, Phi = _qlf(band, 1.0, Lbolbins)
+    Lband, M_AB, S_nu, Phi = _qlf.qlf(band, 1.0, Lbolbins)
     with sharedmem.TPool() as pool:
       def work(v, z):
-        Lband_, M_AB_, S_nu, Phi = _qlf(band, z, Lbolbins)
+        Lband_, M_AB_, S_nu, Phi = _qlf.qlf(band, z, Lbolbins)
         v[:] = Phi
       pool.starmap(work, zip(v, zbins))
     v /= (U.MPC ** 3)
@@ -158,10 +161,55 @@ def qlf(cosmology, band, magnitude=False, returnraw=False):
     func.z = data['Phi'].T
     return func
   
-def bhLbol(U, mdot):
-  """ converts accretion rate in internal units to bolemetric, in units of Lsun """
-  L = mdot * U.C ** 2 * 0.1
-  return L / U.SOLARLUMINOSITY
+def Miz2(U, Lbol):
+    """Shen etal 2009 """
+    return 90.0 - 2.5 * numpy.log10(numpy.float64(Lbol) * 3.9e33)
+
+def M(U, Lbol, band=bands.i, z=2.0):
+    """ Richards etal 2006  arxiv 0601434v2 22 Feb 2006, EQ (4)
+        i2 is the restframe of i band at reshift 2, or 2500 A rest frame.
+        bhLbol gives the band luminosity at i2. We use cgs solar luminosity.
+
+        Notice that Hopkins SED for 3C 273 gives M_i(z=2) of -28.6,
+        assuming mdot = 4.0 (Lbol = 2.2e47 erg/s) different
+        from number (-27.2) quoted from Richards. 
+
+        Reducing mdot to 1.1 gives -27.2, meaning Lbol ~ 6.4e46; or Hopkins SED
+        doesn't fit 3C273 well?
+    """
+    raise Exception("This is wrong do not use this, use Miz2 for sdss z=2 iband mag")
+    A = _bandconv(U, band)
+    A /= (1 + z)
+    A /= U.METER
+    L = Lband(U, Lbol, ('A', A * 1e10))
+    freq = 3e8 / A
+    return numpy.log10(L * 3.9e33 / freq\
+            / (4 * 3.14 * 3.08e19**2)) / -0.4 - 48.6 - 2.5 * numpy.log10(1+z)
+
+def Lband(U, Lbol, band=None):
+  if band is None:
+      return Lbol 
+  if isinstance(band, basestring):
+    params = {
+      'bol': 0,
+      'blue': -1,
+      'ir':   -2, 
+      'soft': -3,
+      'hard': -4
+    }
+    nu = params[band]
+  else:
+    A = _bandconv(U, band)
+    nu = U.C / A / U.HERTZ
+  return  _qlf.Lband(Lbol, nu)
+
+def bhLbol(U, mdot, band=None):
+  """ converts accretion rate in internal units to bolemetric, 
+  in units of Lsun,
+      
+  """
+  Lbol = mdot * U.C ** 2 * 0.1 / U.SOLARLUMINOSITY
+  return Lband(U, Lbol, band)
 
 def bolemetric(U, Lbol, band, photon=False):
     """ 
@@ -200,7 +248,12 @@ def bolemetric(U, Lbol, band, photon=False):
     if band not in params:
       c1,k1,c2,k2 = params['blue']
       # extrapolate from lue band luminosity
-      Amin, Amax = _bandconv(U, band)
+      Arange = _bandconv(U, band)
+      if numpy.isscalar(Arange):
+        Amin = _bandconv(U, band)
+        Amax = Amin
+      else:
+        Amin, Amax = _bandconv(U, band)
 
       if Amin < 49e-10 * U.METER \
       or Amax > 1e-6 * U.METER:
@@ -231,6 +284,9 @@ def bolemetric(U, Lbol, band, photon=False):
         if (Amin > Ahigh) or (Amax < Alow): return 0
         Amin_, Amax_ = numpy.clip([Amin, Amax], Alow, Ahigh)
         lmax = lref * (Aref / Amax_) ** alpha
+        if Amin == Amax:
+            # return specific luminosity * mu
+            return lmax / Amax * U.C
         if not photon:
           return lmax / Amax_ * U.C / (alpha + 1) * \
                 ((Amax_ / Amin_) ** (alpha + 1) - 1)
@@ -248,7 +304,7 @@ def bolemetric(U, Lbol, band, photon=False):
             # Optical piece
              piece(A1200, A4450 * 10, -0.44, l4450, A4450)]
 
-      print Amin, Amax, res
+      #print Amin, Amax, res
       return numpy.where(Lbol == 0, 0, reduce(numpy.add,res))
     else:
       Lband = Lbol / ratio
