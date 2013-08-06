@@ -359,17 +359,18 @@ def savetxt(fname, X, fmt='%.18e', delimiter=' ', newline='\n', preamble=None, c
 import numpy
 from itertools import izip
 
-class packarray:
+class packarray(numpy.ndarray):
   """ A packarray packs/copies several arrays into the same memory chunk.
 
       It feels like a list of arrays, but because the memory chunk is continuous,
       
       arithmatic operations are easier to use(via packarray.A)
   """
-  def __init__(self, array, start=None, end=None):
+  def __new__(cls, array, start=None, end=None):
     """ if end is none, start contains the sizes. 
         if start is also none, array is a list of arrays to concatenate
     """
+    self = array.view(type=cls)
     if end is None and start is None:
       start = numpy.array([len(arr) for arr in array], dtype='intp')
       array = numpy.concatenate(array)
@@ -383,7 +384,7 @@ class packarray:
       self.start = start
       self.end = end
     self.A = array
-
+    return self
   @classmethod
   def adapt(cls, source, template):
     """ adapt source to a packarray according to the layout of template """
@@ -435,6 +436,10 @@ class packarray:
 
   def __reduce__(self):
     return packarray, (self.A, self.end - self.start)
+
+  def __array_wrap__(self, outarr, context=None):
+    return packarray.adapt(outarr.view(numpy.ndarray), self)
+#    return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
     
 class virtarray(numpy.ndarray):
   """ A virtual array that saves and gets from given functions
@@ -503,9 +508,14 @@ class normalize(numpy.ndarray):
     
     if vmax is None:
       vmax = _fast.finitemax(out.flat)
-    elif isinstance(vmax, basestring) \
-        and '%' == vmax[-1]:
-      vmax = numpy.percentile(out, float(vmax[:-1]))
+    elif isinstance(vmax, basestring):
+      if '%' == vmax[-1]:
+        vmax = numpy.percentile(out, float(vmax[:-1]))
+      if logscale and 'db' in vmax:
+        tmp = _fast.finitemax(out.flat)
+        vmax = tmp - float(vmax[:-2]) * 0.1
+      else:
+        raise ValueError('vmax format is "?? db"')
 
     if vmin is None:
       vmin = _fast.finitemin(out.flat)
