@@ -52,6 +52,7 @@ image = _image
 def addspikes(image, x, y, s, color):
   """deprecated method to directly add spikes to a raw image. 
      use context.scatter(fancy=True) instead
+     s is pixels
   """
   from matplotlib.colors import colorConverter
   color = numpy.array(colorConverter.to_rgba(color))
@@ -83,12 +84,13 @@ def addspikes(image, x, y, s, color):
 
       bg = sl / 256.
 
-      bga = bg[..., 3]
-      bg = bg[..., 0:3] * bga[..., None]
+      #bga = bg[..., 3]
+      bga = 1.0
+      #bg = bg[..., 0:3] * bga[..., None]
       c = bg * (1-fga[:, None]) + fg
       ca = (bga * (1-fga) + fga)
       sl[..., 0:3] = c * 256
-      sl[..., 3] = ca * 256
+      #sl[..., 3] = ca * 256
     work(image, (X, Y), S, 0)
     work(image, (X, Y), S, 1)
 
@@ -106,8 +108,8 @@ class GaplotContext(Store):
             shape, thresh, **kwargs)
     self.default_axes = None
 
-    self._shape = shape
-    self.camera = Camera(width=self.shape[0], height=self.shape[1])
+    self.camera = Camera(width=shape[0], height=shape[1])
+    self.reshape(shape)
     self.view(center=[0, 0, 0], size=[1, 1, 1], up=[0, 1, 0], dir=[0, 0, -1], fade=False, method='ortho')
     
     # used to save the last state of plotting routines
@@ -117,9 +119,20 @@ class GaplotContext(Store):
   def shape(self):
     return self._shape
     
+  @property
+  def CCD(self):
+    return self._CCD
+
+  def attach(self, CCD):
+    newshape = CCD.shape
+    self._shape = (newshape[0], newshape[1])
+    self.camera.shape = self._shape
+    self._CCD = CCD
+
   def reshape(self, newshape):
     self._shape = (newshape[0], newshape[1])
     self.camera.shape = self._shape
+    self._CCD = numpy.zeros(self.shape, dtype=('f4',2))
 
   def image(self, color, luminosity=None, cmap=None, composite=False):
     # a convenient wrapper
@@ -223,7 +236,7 @@ class GaplotContext(Store):
         continue
 
   def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None,
-          dtype='f8', np=None):
+          preserve=False, np=None):
     """ paint field to CCD, returns
         C, L where
           C is the color of the pixel
@@ -233,8 +246,10 @@ class GaplotContext(Store):
           L will still be the exposure.
         the return values can be normalized by
         nl_ or n_, then feed to imshow
+        if preserve is True, do not clean the CCD and return None
     """
-    CCD = numpy.zeros(self.shape, dtype=(dtype,2))
+    CCD = self.CCD
+    if not preserve: CCD[...] = 0
 
     if isinstance(ftype, Field):
       self['__temp__'] = ftype
@@ -255,14 +270,18 @@ class GaplotContext(Store):
       with sharedmem.TPool(np=self.np) as pool:
         cams = cam.divide(int(pool.np ** 0.5 * 2 + 1), int(pool.np ** 0.5 * 2 + 1))
         def work(cam, offx, offy):
-          smallCCD = numpy.zeros(cam.shape, dtype=(dtype, 2))
+          smallCCD = numpy.zeros(cam.shape, dtype=('f8', 2))
           cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
+          # no race condition here. cameras are independent.
           CCD[offx:offx + cam.shape[0], offy:offy+cam.shape[1], :] += smallCCD
         pool.starmap(work, cams.reshape(-1, 3))
 
-    C, L = CCD[...,0], CCD[...,1]
-    C[...] /= L
-    return C, L
+    if not preserve:
+        C, L = CCD[...,0], CCD[...,1]
+        C = C / L
+        return C, L
+    else:
+        return None
     
   def paint2(self, ftype, color, luminosity, camera=None, kernel=None, dtype='f8'):
     """ paint field to CCD, (this paints the tree nodes)
@@ -276,6 +295,7 @@ class GaplotContext(Store):
         the return values can be normalized by
         nl_ or n_, then feed to imshow
     """
+    raise "Fix this."
     CCD = numpy.zeros(self.shape, dtype=(dtype,2))
 
     tree = self.T[ftype]
@@ -335,8 +355,8 @@ class GaplotContext(Store):
     """
     X, Y, D, L, I = [], [], [], [], []
     locations, luminosity = self._getcomponent(ftype, 'locations', luminosity)
-    x, y, z = locations.T
     for cam in self._mkcameras(camera):
+      x, y, z = locations.T
       uvt = cam.transform(x, y, z)
       x = (uvt[:, 0] + 1.0) * 0.5 * self.shape[0]
       y = (uvt[:, 1] + 1.0) * 0.5 * self.shape[1]

@@ -78,17 +78,6 @@ class Store(object):
     self.F[ftype] = value
     self._rebuildtree(ftype)
 
-  @property 
-  def periodic(self):
-    return self._periodic
-
-  @periodic.setter
-  def periodic(self, value):
-    if value:
-      self._periodic = True
-    else:
-      self._periodic = False
-
   def _rebuildtree(self, ftype, thresh=None):
     if ftype in self.T and self.T[ftype] == False:
       return
