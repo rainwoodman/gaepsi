@@ -254,7 +254,7 @@ class GaplotContext(Store):
     if isinstance(ftype, Field):
       self['__temp__'] = ftype
       ftype = '__temp__'
-
+      self.buildtree('__temp__')
     tree = self.T[ftype]
     if kernel is None: kernel='spline'
     locations, color, luminosity, sml = self._getcomponent(ftype,

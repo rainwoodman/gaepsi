@@ -73,12 +73,13 @@ class Store(object):
     return self.F[ftype]
 
   def __setitem__(self, ftype, value):
+    """ do not build tree, as it changes the ordering of points. """
     if not isinstance(value, Field):
       raise TypeError('need a Field')
     self.F[ftype] = value
-    self._rebuildtree(ftype)
+#    self._rebuildtree(ftype)
 
-  def _rebuildtree(self, ftype, thresh=None):
+  def buildtree(self, ftype, thresh=None):
     if ftype in self.T and self.T[ftype] == False:
       return
     if thresh is None: thresh = self._thresh
@@ -225,7 +226,7 @@ class Store(object):
                 boxsize=self.boxsize, origin=self.origin, np=np)
       else:
         self.F[ftype].take_snapshots(snapshots, ptype=self.P[ftype], np=np)
-      self._rebuildtree(ftype)
+      self.buildtree(ftype)
       rt += [self[ftype]]
 
     if numpy.isscalar(ftypes):
@@ -270,7 +271,8 @@ class Store(object):
       if badness > 0:
         warnings.warn("some %d points are outside the box" % badness)
     for ftype in ftypes:
-      self._rebuildtree(ftype)
+        if ftype in self.T and self.T[ftype] != False:
+          self.buildtree(ftype)
 
   def makeP(self, ftype, Xh=0.76, halo=False):
     """return the hydrogen Pressure * volume """
