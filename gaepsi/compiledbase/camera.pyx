@@ -38,7 +38,7 @@ cdef extern from "math.h":
 
 ctypedef float (*kernelfunc)(float x, float y) nogil
 
-DEF SPLINEFACTOR = 1.0 # 1.0603145160926968 # magic
+DEF SPLINEFACTOR = 1.00 # 1.0603145160926968 # magic
 cdef float splinekern(float x, float y) nogil:
   cdef double h2 = x * x + y * y
   cdef double h4 = h2 * h2
@@ -59,39 +59,24 @@ cdef float splinekern(float x, float y) nogil:
        + 3.84471383628584
   else:
     return 0.0
-# NOTE: factor functions are not used.
-
-cdef float splinefactor(float x, float y) nogil:
-  return 1.0603145160926968
 
 DEF CUBEFACTOR = 1.0 / (4.0)
 cdef float cubekern(float x, float y) nogil:
   return 1.0
-cdef float cubefactor(float x, float y) nogil:
-  return (x + 1) * (y + 1) / 4.0
 
 DEF SPHEREFACTOR = 1.0 / (3.1416 / 2)
 cdef float spherekern(float x, float y) nogil:
   return 1 - (x * x + y * y)
-cdef float spherefactor(float x, float y) nogil:
-  # fixme
-  return 1.0 / (3.1416/2)
 
 DEF DIAMONDFACTOR = 1.0 / 2
 cdef float diamondkern(float x, float y) nogil:
   x = fabs(x)
   y = fabs(y)
   return 1 - 0.5 * (x + y)
-cdef float diamondfactor(float x, float y) nogil:
-  # fixme
-  return 1.0 / 2
 
 DEF CROSSFACTOR = 1.0 / 3
 cdef float crosskern(float x, float y) nogil:
   return 1 - fabs(x * y)
-cdef float crossfactor(float x, float y) nogil:
-  # fixme
-  return 1.0 / 3
 
 cdef dict KERNELS = {
 'spline': (<intptr_t> splinekern, SPLINEFACTOR),
@@ -402,7 +387,7 @@ cdef class Camera:
             # this will also take care of particle sml. no particle gonna be
             # bleeding over the bounding node except those at the corner.
             #
-            size[d] *= 1.733 # sml = 2 * size * 1.733
+            size[d] *= 2 * 1.733 # sml = 2 * size * 1.733
 
           children = treetree.get_node_children(node, &nchildren)
           # in FOV?
@@ -413,7 +398,7 @@ cdef class Camera:
             #not
             node = treeiter.get_next_sibling()
             pass
-          elif nchildren == 0 or npar < 8192:
+          elif nchildren == 0 or npar < 128:
             # fully in
             #with gil:
             #  print 'painting', node, npar, self.l, self.b
@@ -432,7 +417,6 @@ cdef class Camera:
     cdef char * error
     cdef intptr_t size = npyiter.select(citer, first, first + npar, &error)
     cdef double sml
-
     if size == -1:
       with gil:
         raise RuntimeError(error)
@@ -463,7 +447,6 @@ cdef class Camera:
           npyiter.advance(citer)
           size = size - 1
         size = npyiter.next(citer)
-    
   def prunetree(self, Tree tree, bint return_nodes=True):
     """ scan the tree and find the nodes that are inside FOV,
         returns a mask, 0 if node is out, 0 if node is over resolved,
@@ -704,18 +687,19 @@ cdef class Camera:
     # zfac should have been evaluated from mask_object_one with
     # physical cooridnates, not here,
     # disable it for now
-    if uvt[2] + whl[2] > 1:
-      if uvt[2] - whl[2] < -1:
-        zfac = 1 / whl[2]  # 2 / (whl[2] + whl[2]) is inside
-      else:
-        zfac = (1 - (uvt[2] - whl[2])) / (whl[2] + whl[2])
-    else:
-      if uvt[2] - whl[2] < -1:
-        zfac = (uvt[2] + whl[2] + 1) / (whl[2]+whl[2])
-      else:
-        zfac = 1
-
     zfac = 1.0
+    if False:
+      if uvt[2] + whl[2] > 1:
+        if uvt[2] - whl[2] < -1:
+          zfac = 1 / whl[2]  # 2 / (whl[2] + whl[2]) is inside
+        else:
+          zfac = (1 - (uvt[2] - whl[2])) / (whl[2] + whl[2])
+      else:
+        if uvt[2] - whl[2] < -1:
+          zfac = (uvt[2] + whl[2] + 1) / (whl[2]+whl[2])
+        else:
+          zfac = 1
+
 
     cdef float D = 0.
     cdef float DD
@@ -737,8 +721,8 @@ cdef class Camera:
     cdef int ix, iy, imax[2], imin[2], di[2], imaxclip[2], iminclip[2]
 
     for d in range(2):
-      imin[d] = <int>(xy[d] - dxy[d] + 0.5)
-      imax[d] = <int>(xy[d] + dxy[d] + 0.5)
+      imin[d] = <int>(xy[d] - dxy[d] - 0.5)
+      imax[d] = <int>(xy[d] + dxy[d] + 1.5)
       if imax[d] > imin[d] + 1: 
         imax[d] = imax[d] - 1
       di[d] = imax[d] - imin[d] + 1
@@ -749,7 +733,8 @@ cdef class Camera:
         return
       if imaxclip[d] < 0: 
         return
-      if imaxclip[d] >= self._shape[d]: imaxclip[d] = self._shape[d] - 1
+      if imaxclip[d] >= self._shape[d]: 
+          imaxclip[d] = self._shape[d] - 1
 
     # normfac is the area of a pixel
     cdef float normfac = 4. / (di[0] * di[1]) #( dxy[0] * dxy[1])
@@ -782,51 +767,54 @@ cdef class Camera:
       write_ccd(ccd, p, brightness, color)
       return
 
-    cdef int cachept
     DEF CACHESIZE = 1024
     cdef float cache[CACHESIZE]
+    cdef int cachei
+    cdef int cachej
     cdef double sum = 0.0
 
-    cachept = 0
-    tmp1 = (imin[0] - xy[0]) * tmp1fac
+    cachei = 0
+    tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
     ix = imin[0]
 
-    while ix <= imax[0]:
-      tmp2 = (imin[1] - xy[1]) * tmp2fac
-      iy = imin[1]
-      while iy <= imax[1]:
-        tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
-        if cachept < CACHESIZE:
-          cache[cachept] = tmp3
-          cachept = cachept + 1
-        sum += tmp3
-        iy = iy + 1
-        tmp2 += tmp2fac
-      tmp1 += tmp1fac
-      ix = ix + 1
-
-    cachept = 0
+    if di[0] > 10 and di[1] > 10:
+        # large pixel
+      sum = 1.0
+    else:
+      while ix <= imax[0]:
+        tmp2 = (imin[1] - xy[1] + 0.5) * tmp2fac
+        iy = imin[1]
+        while iy <= imax[1]:
+          tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
+          if (ix >= iminclip[0] and ix <= imaxclip[0] \
+               and iy >= iminclip[1] and iy <= imaxclip[1]):
+            if cachei < CACHESIZE:
+              cache[cachei] = tmp3
+              cachei = cachei + 1
+          sum += tmp3
+          iy = iy + 1
+          tmp2 += tmp2fac
+        tmp1 += tmp1fac
+        ix = ix + 1
+    cachej = 0
     p = (imin[0] * self._shape[1] + imin[1]) * 2
-    tmp1 = (imin[0] - xy[0]) * tmp1fac
+    tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
     ix = imin[0]
 
     while ix <= imax[0]:
-      tmp2 = (imin[1] - xy[1]) * tmp2fac
+      tmp2 = (imin[1] - xy[1] + 0.5) * tmp2fac
       iy = imin[1]
       q = p
       while iy <= imax[1]:
         if (ix >= iminclip[0] and ix <= imaxclip[0] \
              and iy >= iminclip[1] and iy <= imaxclip[1]):
-          if cachept < CACHESIZE:
-            tmp3 = cache[cachept]
-            cachept = cachept + 1
+          if cachej < cachei:
+            tmp3 = cache[cachej]
+            cachej = cachej + 1
           else:
             tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
           if tmp3 > 0:
             write_ccd(ccd, q, bit * tmp3 / sum, color)
-        else:
-          if cachept < CACHESIZE:
-            cachept = cachept + 1
           
         iy = iy + 1
         tmp2 += tmp2fac
