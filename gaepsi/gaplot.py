@@ -230,7 +230,7 @@ class GaplotContext(Store):
                target=target_residual+self.boxsize * celloffset)
       if c.dir.dot(camera.dir) < 0:
         continue
-      if c.mask(x, y, z, (x,y,z)):
+      if c.mask(x, y, z, (x,y,z)) != 0:
         yield c
       else:
         continue
@@ -248,14 +248,14 @@ class GaplotContext(Store):
         nl_ or n_, then feed to imshow
         if preserve is True, do not clean the CCD and return None
     """
+    if np is None: np = self.np
     CCD = self.CCD
     if not preserve: CCD[...] = 0
 
     if isinstance(ftype, Field):
-      self['__temp__'] = ftype
-      ftype = '__temp__'
-      self.buildtree('__temp__')
-    tree = self.T[ftype]
+      tree = None
+    else:
+      tree = self.T[ftype]
     if kernel is None: kernel='spline'
     locations, color, luminosity, sml = self._getcomponent(ftype,
       'locations', color, luminosity, sml)
@@ -265,16 +265,28 @@ class GaplotContext(Store):
       self[ftype].smooth(tree)
       sml = self[ftype]['sml']
 
+    if 'densitykerneltype' in self.C:
+      support = [2. , 3., 2.5]
+      sml = sml * (2 / support[self.C['densitykerneltype']])
+
     x, y, z = locations.T
-    for cam in self._mkcameras(camera):
-      with sharedmem.TPool(np=self.np) as pool:
+    with sharedmem.MapReduce(np=np) as pool:
+      for cam in self._mkcameras(camera):
         cams = cam.divide(int(pool.np ** 0.5 * 2 + 1), int(pool.np ** 0.5 * 2 + 1))
-        def work(cam, offx, offy):
+        cams = cams.reshape(-1, 3)
+        def work(i):
+          cam, offx, offy = cams[i]
           smallCCD = numpy.zeros(cam.shape, dtype=('f8', 2))
-          cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD, tree=self.T[ftype])
+          cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD,
+                  tree=tree)
           # no race condition here. cameras are independent.
+          #smallCCD[0, :, :]= -1
+          #smallCCD[:, 0, :]= -1
+          return i, smallCCD
+        def reduce(i, smallCCD):
+          cam, offx, offy = cams[i]
           CCD[offx:offx + cam.shape[0], offy:offy+cam.shape[1], :] += smallCCD
-        pool.starmap(work, cams.reshape(-1, 3))
+        pool.map(work, range(len(cams)), reduce=reduce)
 
     if not preserve:
         C, L = CCD[...,0], CCD[...,1]

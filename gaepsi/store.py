@@ -168,7 +168,7 @@ class Store(object):
     except:
       self.redshift = 0.0
 
-    self.schema('gas', 0, ['sml', 'mass', 'id', 'ye', 'ie'])
+    self.schema('gas', 0, ['sml', 'mass', 'id', 'ye', 'ie', 'entropy'])
     self.schema('bh', 5, ['bhmass', 'bhmdot', 'id'])
     self.schema('dark', 1, ['mass', 'id'])
     self.schema('star', 4, ['mass', 'sft', 'id'])

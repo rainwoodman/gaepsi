@@ -721,8 +721,8 @@ cdef class Camera:
     cdef int ix, iy, imax[2], imin[2], di[2], imaxclip[2], iminclip[2]
 
     for d in range(2):
-      imin[d] = <int>(xy[d] - dxy[d] - 0.5)
-      imax[d] = <int>(xy[d] + dxy[d] + 1.5)
+      imin[d] = <int>(xy[d] - dxy[d] + 0.5)
+      imax[d] = <int>(xy[d] + dxy[d] + 0.5)
       if imax[d] > imin[d] + 1: 
         imax[d] = imax[d] - 1
       di[d] = imax[d] - imin[d] + 1
@@ -736,8 +736,10 @@ cdef class Camera:
       if imaxclip[d] >= self._shape[d]: 
           imaxclip[d] = self._shape[d] - 1
 
+#    with gil:
+#        print iminclip[0], imaxclip[0], iminclip[1], imaxclip[1]
     # normfac is the area of a pixel
-    cdef float normfac = 4. / (di[0] * di[1]) #( dxy[0] * dxy[1])
+    cdef float normfac = 4. / (di[0] * di[1])
 
     # bit is the base light on a pixel. adjusted by
     # the kernel intergration factor
@@ -757,8 +759,8 @@ cdef class Camera:
     cdef float bit2 = normfac * self.kernel_factor
     cdef float tmp1, tmp2 # always in -1 and 1, distance to center
     cdef float tmp3  # pixel value
-    cdef float tmp1fac = 2.0 / di[0]
-    cdef float tmp2fac = 2.0 / di[1]
+    cdef float tmp1fac = 1.0 / dxy[0]
+    cdef float tmp2fac = 1.0 / dxy[1]
     cdef intptr_t p, q
 
 
@@ -767,7 +769,7 @@ cdef class Camera:
       write_ccd(ccd, p, brightness, color)
       return
 
-    DEF CACHESIZE = 1024
+    DEF CACHESIZE = 0
     cdef float cache[CACHESIZE]
     cdef int cachei
     cdef int cachej

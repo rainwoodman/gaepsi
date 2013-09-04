@@ -36,11 +36,18 @@ cdef inline int DieseFunktion(double frustum[6][4], double AABB[8][3]) nogil:
         if AABB[j][0] * frustum[i][0] \
          + AABB[j][1] * frustum[i][1] \
          + AABB[j][2] * frustum[i][2] \
-         + frustum[i][3] > 0: 
+         + frustum[i][3] >= 0: 
           vor = vor + 1
 
       # alle ecken hinter der ebene, ist nicht sichtbar!
-      if vor == 0: return 0 
+      if vor == 0: 
+      #    with gil:
+      #        print 'excluded by ', i, frustum[i][0], \
+      #                frustum[i][1], frustum[i][2], frustum[i][3], \
+      #                (AABB[0][0] + AABB[3][0]) * 0.5 , \
+      #                (AABB[0][1] + AABB[2][1]) * 0.5 , \
+      #                (AABB[0][2] + AABB[1][2]) * 0.5
+          return 0 
       # alle vor der ebene, merken und weitermachen    
       if vor == 8: cnt = cnt + 1 
 

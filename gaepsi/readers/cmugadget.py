@@ -1,5 +1,5 @@
 def Snapshot(idtype='u8', floattype='f4', 
-       blocks=['pos', 'vel', 'id', 'mass', 'ie', 'rho', 'ye', 
+       blocks=['pos', 'vel', 'id', 'mass', 'ie', 'entropy', 'rho', 'rhoegy', 'ye', 
             'xHI', 'sml', 'sfr', 'sft', 'met', 
             'bhmass', 'bhmdot', 'bhnprogs'],
         **kwargs
@@ -27,7 +27,10 @@ def Snapshot(idtype='u8', floattype='f4',
       ('flag_double', 'i4'),
       ('flag_ic_info', 'i4'),
       ('flag_lpt_scalingfactor', 'i4'),
-      ('unused', ('u4', 12)),
+      ('flag_pressure_entropy', 'i1'),
+      ('Ndims', 'i1'),
+      ('densitykerneltype', 'i1'),
+      ('unused', ('u1', 45)),
     ]
     class schema:
       pos = (floattype, 3), [0, 1, 2, 3, 4, 5]
@@ -35,7 +38,9 @@ def Snapshot(idtype='u8', floattype='f4',
       id = idtype, [0, 1, 2, 3, 4, 5]
       mass = floattype, [0, 1, 2, 3, 4, 5]
       ie = floattype, [0]
+      entropy = floattype, [0], ['flag_pressure_entropy']
       rho = floattype, [0]
+      rhoegy = floattype, [0], ['flag_pressure_entropy']
       ye = floattype, [0], ['flag_cool']
       xHI = floattype, [0], ['flag_cool']
       sml = floattype, [0]
