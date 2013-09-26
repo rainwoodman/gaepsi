@@ -97,35 +97,37 @@ class HaloCatalog(Field):
     #print 'will read', len(tabs), 'files'
     Field.__init__(self, numpoints=count, components={'offset':'i8',
         'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3)})
-    self.take_snapshots(tabs, ptype=0)
-    del tabs
-    # fix the offset which may overflow for large halos
-    self['offset'][1:] = self['length'].cumsum()[:-1]
+    if len(tabs) > 0:
+        self.take_snapshots(tabs, ptype=0)
+        del tabs
 
-    nread = 0
-    nshallread = self['length'].sum()
-    i = 0
-    idslen = numpy.zeros(g.C['Nfiles'], dtype='i8')
-    while nread < nshallread:
-      idslen[i] = numpy.fromfile(tabfilename.replace('_tab_', '_ids_')
-              % i, dtype='i4', count=3)[2]
-      nread += idslen[i]
-      i = i + 1
-    idsoffset = numpy.concatenate(([0], idslen.cumsum()))
+        # fix the offset which may overflow for large halos
+        self['offset'][1:] = self['length'].cumsum()[:-1]
 
-    ids = sharedmem.empty(idslen.sum(), dtype=g.C['idtype'])
+        nread = 0
+        nshallread = self['length'].sum()
+        i = 0
+        idslen = numpy.zeros(g.C['Nfiles'], dtype='i8')
+        while nread < nshallread:
+          idslen[i] = numpy.fromfile(tabfilename.replace('_tab_', '_ids_')
+                  % i, dtype='i4', count=3)[2]
+          nread += idslen[i]
+          i = i + 1
+        idsoffset = numpy.concatenate(([0], idslen.cumsum()))
 
-    #print 'reading', i, 'id files'
+        ids = sharedmem.empty(idslen.sum(), dtype=g.C['idtype'])
 
-    with sharedmem.Pool() as pool:
-      def work(i):
-        more = numpy.memmap(tabfilename.replace('_tab_', '_ids_')
-              % i, dtype=g.C['idtype'], mode='r', offset=28)
-        ids[idsoffset[i]:idsoffset[i] + idslen[i]] = more
-      pool.map(work, range(i))
-    self.ids = packarray(ids, self['length'])
-    for i in range(self.numpoints):
-      self.ids[i].sort()
+        #print 'reading', i, 'id files'
+
+        with sharedmem.Pool() as pool:
+          def work(i):
+            more = numpy.memmap(tabfilename.replace('_tab_', '_ids_')
+                  % i, dtype=g.C['idtype'], mode='r', offset=28)
+            ids[idsoffset[i]:idsoffset[i] + idslen[i]] = more
+          pool.map(work, range(i))
+        self.ids = packarray(ids, self['length'])
+        for i in range(self.numpoints):
+          self.ids[i].sort()
 
   def mask(self, parids, groupid):
     ids = self.ids[groupid]
@@ -159,6 +161,7 @@ class BHDetail:
      ('surrounding', 'f8'),
      ('dt', 'f8'),
      ('mainid', 'u8'),
+     ('parentid', 'u8'),
      ('z', 'f8'),
     ]
 
@@ -249,12 +252,15 @@ class BHDetail:
     mask &= ~numpy.isnan(self.data['mass'])
     data = self.data[mask]
     data.sort(order='time')
+    output = []
     while True:
-      mass = data['mass']
-      mask = mass[1:] > mass[:-1]
-      if mask.all(): break
-      data = data[1:][mask]
-    return data
+        id = data['id'][data['mass'].argmax()]
+        sel = data[data['id'] == id]
+        if len(sel) == 0: break
+        output.append(sel)
+        data = data[data['time'] < sel['time'].min()]
+        if len(data) == 0: break
+    return numpy.concatenate(output)
 
   def prog(self, id):
     """ returns a list of all progenitors """
@@ -575,8 +581,17 @@ class interp1d(InterpolatedUnivariateSpline):
     y[bad] = self.fill_value
     return y.reshape(shape)
 
-def regulate(x, y, N):
-    bins = numpy.linspace(x.min(), x.max(), N + 1, endpoint=True)
+def regulate(x, y, N, min=None, max=None):
+    """
+        regulate data into N bins along x direction.
+        the mean is saved.
+        returns newx, meany
+    """
+    if min is None:
+        min = x.min()
+    if max is None:
+        max = x.max()
+    bins = numpy.linspace(min, max, N + 1, endpoint=True)
     yw = splat(x, y, bins)
     w = splat(x, 1, bins)
     return .5 * (bins[1:] + bins[:-1]), yw[1:-1] / w[1:-1]

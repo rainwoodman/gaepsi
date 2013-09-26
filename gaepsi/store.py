@@ -84,7 +84,8 @@ class Store(object):
       return
     if thresh is None: thresh = self._thresh
     if (self.boxsize[...] == 0.0).all():
-      self.boxsize[...] = self.F[ftype]['locations'].max(axis=0)
+      self.boxsize[...] = self.F[ftype]['locations'].ptp(axis=0)
+      self.origin[...] = self.F[ftype]['locations'].min(axis=0)
       scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
       scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
