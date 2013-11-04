@@ -1,7 +1,12 @@
 import numpy
 from gaepsi.tools import packarray
+import os.path
+import glob
+import sharedmem
 
 def uniqueclustered(data):
+    """ find unique elements from clustered data.
+      clustered data has identical elements arranged next to each other."""
     diff = (data[1:] != data[:-1]).nonzero()[0]
     start, end = numpy.empty((2, len(diff) + 1), numpy.intp)
     start[0] = 0
@@ -11,83 +16,211 @@ def uniqueclustered(data):
     unique = data[start]
     return unique, start, end
 
+def bhfilenameiter(filenames):
+    i = 0
+    while True:
+        fn = filenames % i
+        if not os.path.exists(fn): 
+            if i == 0:
+                raise IOError("file %s not found" % fn)
+            break
+        yield fn 
+        i = i + 1
+
 class BHDetail2:
-    def __init__(self, filename, mergerfile=None, numfields=None):
-        """ to combine bunch of bhdetails file into one file, run
-         cat blackhole_details_* | awk '/^BH=/ {if (NF==14) print substr($0, 4)}' |sort -gk 2 > bhdetail.txt 
-         cat blackhole_details_* |grep swallows | awk '{print substr($2, 6, length($2)-6), substr($3,4), $5}' > bhdetail-merger.txt
-          everything will be in internal units
+    def __init__(self, path=None, every=1, raw=False):
+        """ 
+            path is the dirname of the path to the blackhole_details_?.txt files
+            everything will be in internal units
+
+            .trees is sorted by final blackhole mass [0] the most massive
+            .trees.byid is a dictionary accessing the trees by id.
+            .blackholes is sorted by final bh mass [0] the most massive
+            .blackholes.byid is a dictionary accessing the blackholes by id.
         """
-        dtlist = [
-         ('id', 'u8'), ('time', 'f8'), ('mass', 'f8'), ('mdot', 'f8'),
-         ('rho', 'f8'), ('cs', 'f8'), ('vel', 'f8'), ('posx', 'f8'),
-         ('posy', 'f8'), ('posz', 'f8'), ('vx', 'f8'), ('vy', 'f8'),
-         ('vz', 'f8'), ('sml', 'f8'), ('surrounding', 'f8'), ('dt', 'f8'),
-         ('mainid', 'u8'), ('parentid', 'u8'), ('z', 'f8'), ]
-    
-        if filename[-4:] == '.npy':
-            self.data, self.merger = numpy.load(filename)
-    
+        if not raw and os.path.exist(os.path.join(path, "blackhole_details_%d.txt" % 0)):
+            data, merger = self._readtxt(path)
         else:
-            if numfields is None:
-              numfields = len(file(filename).readline().split())
-            if numfields != 0: 
-                rawdt = numpy.dtype(dtlist[:numfields])
-            else:
-                rawdt = numpy.dtype(dtlist)
-            raw = numpy.loadtxt(filename, dtype=rawdt)
-            data = numpy.empty(len(raw), dtlist)
-            data[...] = raw
-            del raw
-            data['z'] = 1 / data['time'] - 1
-    
-            self.data = data
-            if mergerfile is not None:
-                raw = numpy.loadtxt(mergerfile, dtype=[('time', 'f8'), 
-                   ('after', 'u8'), ('swallowed', 'u8')], ndmin=1)
-                merger = numpy.empty(len(raw), dtype=
-                        [('time', 'f8'), ('after', 'u8'), ('swallowed', 'u8'),
-                            ('mafter', 'f8'), ('mswallowed', 'f8')])
-                merger[:] = raw
-                merger.sort(order=['swallowed', 'time'])
-                self.merger = merger
-            self._fillmain()
-            self._fillparent()
-            self.data.sort(order=['mainid', 'id', 'time']) 
+            data, merger = self._readraw(path)
+        self.data = data
+        self.merger = merger
+        self._fillmain()
+        self._fillparent()
+        self.data.sort(order=['mainid', 'id', 'time']) 
 
         # data is already clustered by mainid and id
         treeids, start, end = uniqueclustered(self.data['mainid'])
         trees = packarray(self.data, start=start, end=end)
-        self.trees = dict(zip(treeids, trees))
+        arg = numpy.argsort([tree['mass'].max() for tree in trees])[::-1]
+        self.trees = packarray(self.data, start=start[arg], end=end[arg])
+        self.trees.byid = dict(zip(treeids, trees))
         bhids, start, end = uniqueclustered(self.data['id'])
         blackholes = packarray(self.data, start=start, end=end) 
-        self.blackholes = dict(zip(bhids, blackholes))
-        self._fillmergermass()
+        arg = numpy.argsort([blackhole['mass'].max() for blackhole in
+            blackholes])[::-1]
+        self.blackholes = packarray(self.data, start=start[arg], end=end[arg])
+        self.blackholes.byid = dict(zip(bhids, blackholes))
+    #        self._fillmergermass()
         self.merger2 = self.merger.copy()
         self.merger2.sort(order=['after', 'time'])
+        t = merger['time']
+        t.sort()
+        ind = t.searchsorted(self.data['time'])
+        bad = (t.take(ind, mode='clip') == self.data['time'])
+        self.data['mass'][bad] = numpy.nan
 
+    def _readraw(self, path):
+        dtype = numpy.dtype([
+            ('type', 'i4'),
+            ('', 'i4'),
+            ('time', 'f8'),
+            ('ID', 'u8'),
+            ('pos', ('f8', 3)),
+            ('mass', 'f4'),
+            ('mdot', 'f4'),
+            ('rho', 'f4'),
+            ('cs', 'f4'),
+            ('bhvel', 'f4'),
+            ('gasvel', ('f4', 3)),
+            ('hsml', 'f4'),
+            ('', 'f4')
+            ])
+        dtype1 = numpy.dtype([
+            ('type', 'i4'),
+            ('', 'i4'),
+            ('time', 'f8'),
+            ('id', 'u8'),
+            ('posx', 'f4'),
+            ('posy', 'f4'),
+            ('posz', 'f4'),
+            ('mass', 'f4'),
+            ('mdot', 'f4'),
+            ('rho', 'f4'),
+            ('cs', 'f4'),
+            ('bhvel', 'f4'),
+            ('velx', 'f4'),
+            ('vely', 'f4'),
+            ('velz', 'f4'),
+            ('hsml', 'f4'),
+            ('z', 'f4'),
+            ('mainid', 'u8'),
+            ('parentid', 'u8')
+            ])
+        dtype2 = numpy.dtype([
+            ('type', 'i4'),
+            ('', 'i4'),
+            ('time', 'f8'),
+            ('after', 'u8'),
+            ('swallowed', 'u8'),
+            ('mbefore', 'f4'),
+            ('mswalow', 'f4'),
+            ('bhvel', 'f4'),
+            ('cs', 'f4'),
+            ('padding', ('u1',  dtype.itemsize - 48))
+            ])
+        assert dtype2.itemsize == dtype.itemsize
+        def work(filename):
+            raw = numpy.fromfile(filename, dtype=dtype)
+            print raw['type']
+            data = numpy.empty((raw['type'] == 0).sum(), dtype=dtype1)
+            data[:] = raw[raw['type'] == 0]
+            data['z'] = 1 / data['time'] - 1
+            return data, raw[raw['time'] == 2].view(dtype=dtype2)
+
+        data0 = [numpy.array([], dtype=dtype1)]
+        merger0 = [numpy.array([], dtype=dtype2)]
+
+        def reduce(raw, mergerlist):
+            data0[0] = numpy.append(data0[0], raw)
+            merger0[0] = numpy.append(merger0[0], mergerlist)
+
+        filenames = list(bhfilenameiter(os.path.join(path, "blackhole_details_%d.raw")))
+        with sharedmem.MapReduce() as pool:
+            pool.map(work, filenames, reduce=reduce)
+
+        data = data0[0]
+        data['z'] = 1 / data['time'] - 1
+
+        merger = merger0[0]
+        merger.sort(order=['swallowed', 'time'])
+        return data, merger
+        
+    def _readtxt(self, path):
+        dtype = numpy.dtype([
+         ('id', 'u8'), ('time', 'f8'), ('mass', 'f4'), ('mdot', 'f4'),
+         ('rho', 'f4'), ('cs', 'f4'), ('bhvel', 'f4'), ('posx', 'f4'),
+         ('posy', 'f4'), ('posz', 'f4'), ('vx', 'f4'), ('vy', 'f4'),
+         ('vz', 'f4'), ('hsml', 'f4'), ('surrounding', 'f4'), ('dt', 'f4'),
+         ('mainid', 'u8'), ('parentid', 'u8'), ('z', 'f4'), ])
+
+        def work(filename):
+            mergerlist = []
+            with file(filename, 'r') as f:
+                def iter():
+                    i = 0
+                    for line in f:
+                        if line.startswith('BH='): 
+                            i = i + 1
+                            if i != every: continue
+                            else: i = 0
+                            yield line[3:]
+                        elif line.startswith('ThisTask='): 
+                            words = line.split()
+                            if words[3].startswith('swallows'): 
+                                mergerlist.append('%s %s %s %s %s' % \
+                                    (words[1][5:-1], words[2][3:], words[4], words[5][1:],
+                                        words[6][:-1]))
+                raw = sharedmem.loadtxt2(iter(), dtype=dtype)
+                return raw, mergerlist    
+
+        data0 = [numpy.array([], dtype=dtype)]
+        mergerlistfull = []
+
+        def reduce(raw, mergerlist):
+            data0[0] = numpy.append(data0[0], raw)
+            mergerlistfull.extend(mergerlist)
+
+        filenames = list(bhfilenameiter(os.path.join(path, "blackhole_details_%d.txt")))
+        with sharedmem.MapReduce() as pool:
+            pool.map(work, filenames, reduce=reduce)
+
+        data = data0[0]
+        data['z'] = 1 / data['time'] - 1
+
+
+        raw = numpy.loadtxt(mergerlistfull, dtype=[('time', 'f8'), 
+           ('after', 'u8'), ('swallowed', 'u8'), 
+           ('mbefore', 'f8'), 
+           ('mswallowed', 'f8')], ndmin=1)
+        merger = numpy.empty(len(raw), dtype=
+                [('time', 'f8'), ('after', 'u8'), ('swallowed', 'u8'),
+                    ('mbefore', 'f8'), ('mswallowed', 'f8')])
+        merger[:] = raw
+        merger.sort(order=['swallowed', 'time'])
+        return data, merger
 
     def _fillmergermass(self):
         for entry in self.merger:
             bh = self.blackholes[entry['after']]
             arg = bh['time'].searchsorted(entry['time'])
             if entry['time'] == bh['time'][arg]: arg = arg - 1
-            entry['mafter'] = bh['mass'][arg]
+            entry['mbefore'] = bh['mass'][arg]
 
             bh = self.blackholes[entry['swallowed']]
             entry['mswallowed'] = bh['mass'][-1]
 
     def getmostmassive(self, tree):
         out = []
+        tree = tree[~numpy.isnan(tree['mass'])]
         arg = tree['mass'].argmax()
         finalid = tree['id'][arg]
         starttime = tree['time'][arg]
         while True:
-            bh = self.blackholes[finalid]
+            bh = self.blackholes.byid[finalid]
             left = self.merger2['after'].searchsorted(finalid, side='left')
             right = self.merger2['after'].searchsorted(finalid, side='right')
             merger2 = self.merger2[left:right][::-1]
-            keep = merger2['mafter'] >= merger2['mswallowed']
+            keep = merger2['mbefore'] >= merger2['mswallowed']
 
             if keep.all():
                 out.append(bh[(bh['time'] <= starttime)])
@@ -97,13 +230,24 @@ class BHDetail2:
                 stoptime = merger2['time'][stopind]
                 out.append(bh[(bh['time'] <= starttime) & (bh['time'] > stoptime)])
                 finalid = merger2['swallowed'][stopind]
-            starttime = stoptime
+                starttime = stoptime
 
         out = numpy.concatenate(out)
         out.sort(order='time')
         assert (out['time'][1:] >= out['time'][:-1]).all()
         return out
 
+    def gettotal(self, tree):
+        starttime = tree['time'].min()
+        endtime = tree['time'].max()
+        grid = numpy.linspace(starttime, endtime, 128)
+        out = numpy.empty(len(grid), dtype=self.data.dtype)
+
+        sumfields = ['mass', 'mdot']
+        meanfields = ['rho', 'cs', 'vel', 'posx', 'posy', 'posz', 'vx', 'vy',
+        'vz', 'sml']
+
+        raise "Not implemented"
     def _fillmain(self):
         data = self.data
         data['mainid'] = data['id']
@@ -124,6 +268,9 @@ class BHDetail2:
         found = self.merger['swallowed'][ind] == data['parentid']
         data['parentid'][found] = self.merger['after'][ind[found]]
   
+    @classmethod
+    def load(kls, filename):
+        pass
     def save(self, filename):
         numpy.save(filename, [self.data, self.merger])
 
