@@ -74,7 +74,7 @@ class BHDetail2:
             ('type', 'i4'),
             ('', 'i4'),
             ('time', 'f8'),
-            ('ID', 'u8'),
+            ('id', 'u8'),
             ('pos', ('f8', 3)),
             ('mass', 'f4'),
             ('mdot', 'f4'),
@@ -90,17 +90,13 @@ class BHDetail2:
             ('', 'i4'),
             ('time', 'f8'),
             ('id', 'u8'),
-            ('posx', 'f4'),
-            ('posy', 'f4'),
-            ('posz', 'f4'),
+            ('pos', ('f8', 3)),
             ('mass', 'f4'),
             ('mdot', 'f4'),
             ('rho', 'f4'),
             ('cs', 'f4'),
             ('bhvel', 'f4'),
-            ('velx', 'f4'),
-            ('vely', 'f4'),
-            ('velz', 'f4'),
+            ('velx', ('f4', 3)),
             ('hsml', 'f4'),
             ('z', 'f4'),
             ('mainid', 'u8'),
@@ -121,9 +117,9 @@ class BHDetail2:
         assert dtype2.itemsize == dtype.itemsize
         def work(filename):
             raw = numpy.fromfile(filename, dtype=dtype)
-            print raw['type']
             data = numpy.empty((raw['type'] == 0).sum(), dtype=dtype1)
             data[:] = raw[raw['type'] == 0]
+
             data['z'] = 1 / data['time'] - 1
             return data, raw[raw['time'] == 2].view(dtype=dtype2)
 
@@ -148,9 +144,8 @@ class BHDetail2:
     def _readtxt(self, path):
         dtype = numpy.dtype([
          ('id', 'u8'), ('time', 'f8'), ('mass', 'f4'), ('mdot', 'f4'),
-         ('rho', 'f4'), ('cs', 'f4'), ('bhvel', 'f4'), ('posx', 'f4'),
-         ('posy', 'f4'), ('posz', 'f4'), ('vx', 'f4'), ('vy', 'f4'),
-         ('vz', 'f4'), ('hsml', 'f4'), ('surrounding', 'f4'), ('dt', 'f4'),
+         ('rho', 'f4'), ('cs', 'f4'), ('bhvel', 'f4'), ('pos', ('f8', 3)),
+         ('vel', ('f4', 3)), ('hsml', 'f4'), ('surrounding', 'f4'), ('dt', 'f4'),
          ('mainid', 'u8'), ('parentid', 'u8'), ('z', 'f4'), ])
 
         def work(filename):
