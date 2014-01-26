@@ -6,7 +6,7 @@ cimport npyiter
 cimport npyarray
 cimport npyufunc
 from libc.stdint cimport *
-from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint, ceil, floor
+from libc.math cimport M_1_PI, cos, sin, sqrt, fabs, acos, nearbyint, ceil, floor, exp, fmin
 from warnings import warn
 cimport fillingcurve
 from fillingcurve cimport fckey_t
@@ -230,6 +230,7 @@ cdef class Camera:
     a.fov = self.fov
     a.aspect = self.aspect
     a.fade = self.fade
+    a.type = self.type
     a.set_proj(self.proj)
     return a
 
@@ -250,13 +251,15 @@ cdef class Camera:
     def __get__(self):
       return (self.l, self.r, self.b, self.t)
       
-  def persp(self, near, far, fov, aspect=1.0):
+  def persp(self, near, far, fov, aspect=None):
     """ 
       fov is in radian, or (l, r, b, t) FOV size at the target plane
     """
     self.near = near
     self.far = far
     self.type = 1
+    if aspect is None:
+      aspect = 1.0 * self.shape[0] / self.shape[1]
     if numpy.isscalar(fov):
       self.fov = fov
       self.aspect = aspect
@@ -281,6 +284,7 @@ cdef class Camera:
     persp[3, 2] = -1
     persp[3, 3] = 0
     self.set_proj(persp)
+    return self
 
   def ortho(self, near, far, extent):
     """ set up the zoom by extent=(left, right, top, bottom """
@@ -304,6 +308,7 @@ cdef class Camera:
     ortho[1, 3] = - (1. * t + b) / (t - b)
     ortho[2, 3] = - (1. * far + near) / (far - near)
     self.set_proj(ortho)
+    return self
 
   def set_proj(self, matrix):
     self.proj[...] = matrix[...]
@@ -313,6 +318,7 @@ cdef class Camera:
     self._scale[3] = fabs(self.proj[2, 3] * self.proj[3, 2])
     self.matrix[...] = numpy.dot(self.proj, self.model)
     DieseFunktionFrustum(self.frustum, self.matrix)
+    return self
   
   cdef int mask_object_one(self, double center[3], double r[3]) nogil:
     cdef int j
@@ -326,13 +332,19 @@ cdef class Camera:
   def __call__(self, x, y, z, out=None):
     return self.transform(x, y, z, out)
 
-  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline', mask=True, tree=None):
+  def paint(self, x, y, z, r, color, luminosity, numpy.ndarray out=None, kernel='spline', tree=None):
     """ paint objects at x, y, z, with size(radius) of r, color, lumionosity.
-        where mask is True if a tree is given, it must be the tree for x, y, z"""
+        If a tree is given, it must be the tree for x, y, z"""
     if out is None:
       out = numpy.zeros(self.shape, dtype=('f8', 2))
+
+    assert (<object>out).shape[0] == self.shape[0]
+    assert (<object>out).shape[1] == self.shape[1]
+    assert (<object>out).shape[2] == 2
+
     self.kernel_func = <kernelfunc> <intptr_t>KERNELS[kernel][0]
     self.kernel_factor = <double> KERNELS[kernel][1]
+
     cdef write_ccd_func write_ccd
     if out.dtype == numpy.dtype('f8'):
       write_ccd = <write_ccd_func>write_ccd_double
@@ -341,23 +353,21 @@ cdef class Camera:
     else:
       raise TypeError('out has to be single or double float')
 
-    assert (<object>out).shape[0] == self.shape[0]
-    assert (<object>out).shape[1] == self.shape[1]
-    assert (<object>out).shape[2] == 2
+    if color is None: color = numpy.ones(1)
+    color = numpy.atleast_1d(color)
+    if luminosity is None: luminosity = numpy.ones(1)
+    luminosity = numpy.atleast_1d(luminosity)
+    if r is None: r = numpy.zeros(1) # 
+    r = numpy.atleast_1d(r)
+    cdef npyarray.CArray xa, ya, za, ca, la, ra
 
-    if color is None: color = 1
-    if luminosity is None: luminosity = 1
-    if r is None: r = -1 # -1 will use tree node size.
+    npyarray.init(&xa, x)
+    npyarray.init(&ya, y)
+    npyarray.init(&za, z)
+    npyarray.init(&ca, color)
+    npyarray.init(&la, luminosity)
+    npyarray.init(&ra, r)
 
-    iter = numpy.nditer(
-          [x, y, z, r, color, luminosity, mask], 
-      op_flags=[['readonly'], ['readonly'], ['readonly'], 
-                ['readonly'], ['readonly'], ['readonly'], ['readonly']], 
-     op_dtypes=['f8', 'f8', 'f8', 'f8', 'f4', 'f4', '?'],
-         flags=['buffered', 'zerosize_ok', 'external_loop', 'ranged'], 
-       casting='unsafe')
-    cdef npyiter.CIter citer
-    npyiter.init(&citer, iter)
     cdef void * ccd = <void*> out.data
     cdef intptr_t first, npar
     cdef TreeIter treeiter
@@ -365,15 +375,17 @@ cdef class Camera:
     cdef int nchildren
     if tree is not None:
       treeiter = TreeIter(tree)
+      first = 0
+      npar = len(x)
     else:
       first = 0
-      npar = npyiter.itersize(&citer)
+      npar = len(x)
 
     cdef Tree treetree = tree
     with nogil:
       if tree is None:
         ## treetree is not used !
-        self.paint_range(&citer, first, npar, ccd, write_ccd)
+        self.paint_range(&xa, &ya, &za, &ra, &ca, &la, <intptr_t * > 0, first, npar, ccd, write_ccd)
       else:
         node = treeiter.get_next_child()
 
@@ -387,7 +399,7 @@ cdef class Camera:
             # this will also take care of particle sml. no particle gonna be
             # bleeding over the bounding node except those at the corner.
             #
-            size[d] *= 2 * 1.733 # sml = 2 * size * 1.733
+            size[d] *= 4 * 1.733 # sml = 2 * size * 1.733
 
           children = treetree.get_node_children(node, &nchildren)
           # in FOV?
@@ -402,7 +414,7 @@ cdef class Camera:
             # fully in
             #with gil:
             #  print 'painting', node, npar, self.l, self.b
-            self.paint_range(&citer, first, npar, ccd, write_ccd)
+            self.paint_range(&xa, &ya, &za, &ra, &ca, &la, treetree._arg, first, npar, ccd, write_ccd)
             node = treeiter.get_next_sibling()
           else:
             # partially in, look at children
@@ -410,43 +422,49 @@ cdef class Camera:
 
     return out
 
-  cdef int paint_range(self, npyiter.CIter * citer, intptr_t first, intptr_t npar, void * ccd, write_ccd_func write_ccd) nogil except -1:
+  cdef int paint_range(self, 
+          npyarray.CArray * xa,
+          npyarray.CArray * ya,
+          npyarray.CArray * za,
+          npyarray.CArray * ra,
+          npyarray.CArray * ca,
+          npyarray.CArray * la,
+          intptr_t * arg,
+          intptr_t first, intptr_t npar, void * ccd, write_ccd_func write_ccd) nogil except -1:
     cdef double pos[3], R[3]
+    cdef float c, l
     cdef float uvt[3], whl[3], c3inv
 
     cdef char * error
-    cdef intptr_t size = npyiter.select(citer, first, first + npar, &error)
     cdef double sml
-    if size == -1:
-      with gil:
-        raise RuntimeError(error)
-    else:
-      while size > 0:
-        while size > 0:
-          if citer.data[6][0]:
-            pos[0] = (<double*>citer.data[0])[0]
-            pos[1] = (<double*>citer.data[1])[0]
-            pos[2] = (<double*>citer.data[2])[0]
-            sml = (<double*>citer.data[3])[0]
-
-            R[0] = sml
-            R[1] = sml
-            R[2] = sml
-
-            flag = self.mask_object_one(pos, R)
-            if flag != 0:
-              c3inv = self.transform_one(pos, uvt)
-              self.transform_size_one(R,
+    cdef intptr_t i, j
+    for i in range(first, first + npar):
+        if arg != <intptr_t * > 0:
+            j = arg[i]
+        else:
+            j = i
+        npyarray.getnd(xa, &j, 1, &pos[0])
+        npyarray.getnd(ya, &j, 1, &pos[1])
+        npyarray.getnd(za, &j, 1, &pos[2])
+        npyarray.getnd(ra, &j, 1, &sml)
+        R[0] = sml
+        R[1] = sml
+        R[2] = sml
+        flag = self.mask_object_one(pos, R)
+        # do not disable this mask_object_one
+        # it selects the depth along light of sight too.
+        # if disabled, distance selection is not done.
+        if flag != 0:
+            c3inv = self.transform_one(pos, uvt)
+            npyarray.getnd(ca, &j, 1, &c)
+            npyarray.getnd(la, &j, 1, &l)
+            self.transform_size_one(R,
                   c3inv, 
                   whl)
-              self.paint_object_one(pos,
-                  uvt, whl,
-                  (<float*>citer.data[4])[0],
-                  (<float*>citer.data[5])[0],
+            self.paint_object_one(pos,
+                  uvt, whl, c, l,
                   ccd, write_ccd)
-          npyiter.advance(citer)
-          size = size - 1
-        size = npyiter.next(citer)
+
   def prunetree(self, Tree tree, bint return_nodes=True):
     """ scan the tree and find the nodes that are inside FOV,
         returns a mask, 0 if node is out, 0 if node is over resolved,
@@ -513,7 +531,7 @@ cdef class Camera:
     return mask
 
   def transform(self, x, y, z, r=None, out=None):
-    """ calculates the viewport positions and distance**2
+    """ calculates the CCD positions and CCD size 
         (horizontal, vertical, t) of input points x,y,z
         and put it into out, if the particle is closer than the near
         t < -1 for points too near, t > 1 for poitns too far
@@ -552,13 +570,15 @@ cdef class Camera:
           pos[0] = (<double*>citer.data[0])[0]
           pos[1] = (<double*>citer.data[1])[0]
           pos[2] = (<double*>citer.data[2])[0]
-          c3inv = self.transform_one(pos,
-                (<float*>citer.data[3]))
+          c3inv = self.transform_one(pos, uvt)
+          (<float*>citer.data[3])[0] = (uvt[0] + 1.0) * self._hshape[0]
+          (<float*>citer.data[3])[1] = (uvt[1] + 1.0) * self._hshape[1]
+          (<float*>citer.data[3])[2] = uvt[2] 
           if Nout == 6:
             R = (<float*>citer.data[4])[0] 
             R *= c3inv
-            (<float*>citer.data[3])[3] = R * self._scale[0]
-            (<float*>citer.data[3])[4] = R * self._scale[1]
+            (<float*>citer.data[3])[3] = R * self._scale[0] * self._hshape[0]
+            (<float*>citer.data[3])[4] = R * self._scale[1] * self._hshape[1]
             (<float*>citer.data[3])[5] = R * (self._scale[2] + self._scale[3] * c3inv)
  
           npyiter.advance(&citer)
@@ -655,6 +675,7 @@ cdef class Camera:
     self.model[...] = m2[...]
     self.matrix[...] = numpy.dot(self.proj, self.model)
     DieseFunktionFrustum(self.frustum, self.matrix)
+    return self
 
   cdef inline void transform_size_one(self, double r[3], float c3inv, float whl[3]) nogil:
     """ this is correct only if r is small """
@@ -703,16 +724,23 @@ cdef class Camera:
 
     cdef float D = 0.
     cdef float DD
+    cdef float Dinv
     # the brightness decedes with inverse square, if self.fade is True
     if self._fade != 0:
       for d in range(3):
         DD = pos[d] - self._pos[d]
         D += DD * DD
-      D = D * 3.1416
-    else: D = 1.0
+#      if D < self.near * self.near: D = self.near * self.near
+      # too close, fade it out
+      if D < self.near * self.near: return
+      if D > self.far * self.far: return
+      Dinv = 1 / D * fmin((1 - D / (self.far * self.far)) * \
+           (D / (self.near * self.near) - 1), 1.0)
+#      D = D * 3.1416
+    else: Dinv = 1.0
 
     # times physical size of a pixel, assuming unit size
-    cdef float brightness = luminosity / D 
+    cdef float brightness = luminosity * Dinv
     #cdef float brightness = luminosity
     # then we reduce the brightness because some portion of the particle is
     # too far or too near.
@@ -721,21 +749,32 @@ cdef class Camera:
     cdef int ix, iy, imax[2], imin[2], di[2], imaxclip[2], iminclip[2]
 
     for d in range(2):
-      imin[d] = <int>(xy[d] - dxy[d] + 0.5)
-      imax[d] = <int>(xy[d] + dxy[d] + 0.5)
-      if imax[d] > imin[d] + 1: 
-        imax[d] = imax[d] - 1
-      di[d] = imax[d] - imin[d] + 1
+      # use floor to make sure consistent pixel roundoff.
+      imin[d] = <int>(floor(xy[d] - dxy[d]))
+      imax[d] = <int>(ceil(xy[d] + dxy[d]))
+      di[d] = imax[d] - imin[d]
+      if di[d] <= 0:
+          di[1] = 1
+          imax[d] = imin[d] + 1
       iminclip[d] = imin[d]
       imaxclip[d] = imax[d]
+#      with gil:
+#          print 'dim', d, imax[d], imin[d], xy[d], dxy[d]
       if iminclip[d] < 0: iminclip[d] = 0
       if iminclip[d] >= self._shape[d]: 
         return
-      if imaxclip[d] < 0: 
+      if imaxclip[d] <= 0: 
         return
-      if imaxclip[d] >= self._shape[d]: 
-          imaxclip[d] = self._shape[d] - 1
+      if imaxclip[d] > self._shape[d]: 
+          imaxclip[d] = self._shape[d]
 
+    # skip extremely large pixels
+    if iminclip[0] == 0 and \
+       iminclip[1] == 0 and \
+       imaxclip[0] == self._shape[0] and \
+       imaxclip[1] == self._shape[1]:
+           pass
+           #return
 #    with gil:
 #        print iminclip[0], imaxclip[0], iminclip[1], imaxclip[1]
     # normfac is the area of a pixel
@@ -763,8 +802,7 @@ cdef class Camera:
     cdef float tmp2fac = 1.0 / dxy[1]
     cdef intptr_t p, q
 
-
-    if di[0] == 1 and di[1] == 1:
+    if di[0] <= 2 and di[1] <= 2:
       p = (iminclip[0] * self._shape[1] + iminclip[1]) * 2
       write_ccd(ccd, p, brightness, color)
       return
@@ -775,21 +813,22 @@ cdef class Camera:
     cdef int cachej
     cdef double sum = 0.0
 
-    cachei = 0
-    tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
-    ix = imin[0]
 
     if di[0] > 10 and di[1] > 10:
         # large pixel
       sum = 1.0
     else:
-      while ix <= imax[0]:
+      sum = 0.0
+      ix = imin[0]
+      cachei = 0
+      tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
+      while ix < imax[0]:
         tmp2 = (imin[1] - xy[1] + 0.5) * tmp2fac
         iy = imin[1]
-        while iy <= imax[1]:
+        while iy < imax[1]:
           tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
-          if (ix >= iminclip[0] and ix <= imaxclip[0] \
-               and iy >= iminclip[1] and iy <= imaxclip[1]):
+          if (ix >= iminclip[0] and ix < imaxclip[0] \
+               and iy >= iminclip[1] and iy < imaxclip[1]):
             if cachei < CACHESIZE:
               cache[cachei] = tmp3
               cachei = cachei + 1
@@ -799,32 +838,27 @@ cdef class Camera:
         tmp1 += tmp1fac
         ix = ix + 1
     cachej = 0
-    p = (imin[0] * self._shape[1] + imin[1]) * 2
-    tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
-    ix = imin[0]
 
-    while ix <= imax[0]:
-      tmp2 = (imin[1] - xy[1] + 0.5) * tmp2fac
-      iy = imin[1]
-      q = p
-      while iy <= imax[1]:
-        if (ix >= iminclip[0] and ix <= imaxclip[0] \
-             and iy >= iminclip[1] and iy <= imaxclip[1]):
-          if cachej < cachei:
-            tmp3 = cache[cachej]
-            cachej = cachej + 1
-          else:
-            tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
-          if tmp3 > 0:
-            write_ccd(ccd, q, bit * tmp3 / sum, color)
-          
-        iy = iy + 1
-        tmp2 += tmp2fac
-        q += 2
-        # 2 = 1(for color) + 1(for luminosity)
-      tmp1 += tmp1fac
-      p += self._shape[1] * 2
-      ix = ix + 1
+    # avoid contaminating image with nan
+    if sum == 0.0:
+        return
+
+    for ix in range(iminclip[0], imaxclip[0]):
+      tmp1 = (ix - xy[0] + 0.5) * tmp1fac
+      for iy in range(iminclip[1], imaxclip[1]):
+        tmp2 = (iy - xy[1] + 0.5) * tmp2fac
+        p = (ix * self._shape[1] + iy) * 2
+        if cachej < cachei:
+          tmp3 = cache[cachej]
+          cachej = cachej + 1
+        else:
+          tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
+        if tmp3 > 0:
+          write_ccd(ccd, p, bit * tmp3 / sum, color)
+#          if isnan(bit * tmp3 / sum):
+#              with gil:
+#                print dxy[0], dxy[1], normfac, bit, tmp3, sum
+
 
   cdef inline float transform_one(self, double pos[3], float uvt[3]) nogil:
     cdef int k
@@ -1001,3 +1035,31 @@ cdef void draw_line_one(unsigned char* buffer, intptr_t shape[3], float color[4]
            alpha * f)
     intery = intery + gradient
 
+def setupsml(Tree tree, pos, out=None):
+    """ guess the smoothing length from a tree
+        tree needs to be built on isotropic. 
+        pos = (x, y, z)
+    """
+    iter = numpy.nditer(
+          [pos[0], pos[1], pos[2],  out], 
+      op_flags=[['readonly'], ['readonly'], 
+                ['readonly'], ['readwrite', 'allocate']], 
+     op_dtypes=['f8', 'f8', 'f8', 'f4', ],
+         flags=['buffered', 'external_loop', 'zerosize_ok'], 
+       casting='unsafe')
+
+    cdef npyiter.CIter citer
+    cdef size_t size = npyiter.init(&citer, iter)
+    cdef double fpos[3]
+    cdef double R[3]
+    with nogil: 
+        while size > 0:
+            while size > 0:
+                for d in range(3):
+                    fpos[d] = (<double*>citer.data[d])[0]
+                tree.get_node_size(tree.get_container(fpos, 0), R)
+                (<float*>citer.data[3])[0] = R[0]
+                npyiter.advance(&citer)
+                size = size - 1
+            size = npyiter.next(&citer)
+    return iter.operands[3]

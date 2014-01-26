@@ -5,6 +5,7 @@ cimport numpy
 from libc.math cimport cos, sin
 
 cdef inline numpy.ndarray rotate_vector(numpy.ndarray vec, numpy.ndarray axis, double angle):
+    axis /= numpy.dot(axis, axis) ** 0.5
     dot = vec.dot(axis) 
     cross = numpy.cross(vec, axis)
     return axis * dot + numpy.cross(axis, cross) * cos(angle) - cross * sin(angle)

@@ -38,10 +38,10 @@ class BHDetail2:
             .blackholes is sorted by final bh mass [0] the most massive
             .blackholes.byid is a dictionary accessing the blackholes by id.
         """
-        if not raw and os.path.exist(os.path.join(path, "blackhole_details_%d.txt" % 0)):
-            data, merger = self._readtxt(path)
+        if not raw and os.path.exists(os.path.join(path, "blackhole_details_%d.txt" % 0)):
+            data, merger = self._readtxt(path, every)
         else:
-            data, merger = self._readraw(path)
+            data, merger = self._readraw(path, every)
         self.data = data
         self.merger = merger
         self._fillmain()
@@ -64,12 +64,17 @@ class BHDetail2:
         self.merger2 = self.merger.copy()
         self.merger2.sort(order=['after', 'time'])
         t = merger['time']
-        t.sort()
+        arg = t.argsort()
+        t = t[arg]
+        after = merger['after'][arg]
+        swallowed = merger['swallowed'][arg]
         ind = t.searchsorted(self.data['time'])
         bad = (t.take(ind, mode='clip') == self.data['time'])
+        bad &= after.take(ind, mode='clip') == self.data['id']
+        bad &= swallowed.take(ind, mode='clip') == self.data['id']
         self.data['mass'][bad] = numpy.nan
 
-    def _readraw(self, path):
+    def _readraw(self, path, every):
         dtype = numpy.dtype([
             ('type', 'i4'),
             ('', 'i4'),
@@ -109,7 +114,7 @@ class BHDetail2:
             ('after', 'u8'),
             ('swallowed', 'u8'),
             ('mbefore', 'f4'),
-            ('mswalow', 'f4'),
+            ('mswallowed', 'f4'),
             ('bhvel', 'f4'),
             ('cs', 'f4'),
             ('padding', ('u1',  dtype.itemsize - 48))
@@ -121,13 +126,13 @@ class BHDetail2:
             data[:] = raw[raw['type'] == 0]
 
             data['z'] = 1 / data['time'] - 1
-            return data, raw[raw['time'] == 2].view(dtype=dtype2)
+            return data, raw[raw['type'] == 2].view(dtype=dtype2)
 
         data0 = [numpy.array([], dtype=dtype1)]
         merger0 = [numpy.array([], dtype=dtype2)]
 
         def reduce(raw, mergerlist):
-            data0[0] = numpy.append(data0[0], raw)
+            data0[0] = numpy.append(data0[0], raw[::every])
             merger0[0] = numpy.append(merger0[0], mergerlist)
 
         filenames = list(bhfilenameiter(os.path.join(path, "blackhole_details_%d.raw")))
@@ -141,7 +146,7 @@ class BHDetail2:
         merger.sort(order=['swallowed', 'time'])
         return data, merger
         
-    def _readtxt(self, path):
+    def _readtxt(self, path, every):
         dtype = numpy.dtype([
          ('id', 'u8'), ('time', 'f8'), ('mass', 'f4'), ('mdot', 'f4'),
          ('rho', 'f4'), ('cs', 'f4'), ('bhvel', 'f4'), ('pos', ('f8', 3)),

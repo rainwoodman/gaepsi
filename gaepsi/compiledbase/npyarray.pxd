@@ -73,4 +73,7 @@ cdef inline int _typenum(cython.numeric *ptr) nogil:
 cdef inline void get(CArray * array, intptr_t offset, cython.numeric * ptr) nogil:
   array.castfunc[_typenum(ptr)](array.data + offset, ptr, 1, NULL, NULL)
 
+cdef inline void getnd(CArray * array, intptr_t * offset, int d, cython.numeric * ptr) nogil:
+    get(array, _(array, offset, d), ptr)
+
 

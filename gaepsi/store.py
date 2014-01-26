@@ -89,8 +89,8 @@ class Store(object):
       scale = fillingcurve.scale(origin=self.F[ftype]['locations'].min(axis=0), boxsize=self.F[ftype]['locations'].ptp(axis=0))
     else:
       scale = fillingcurve.scale(origin=self.origin, boxsize=self.boxsize)
-    zkey, scale = self.F[ftype].zorder(scale, np=self.np)
-    self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
+    self.T[ftype] = self.F[ftype].ztree(scale=scale, minthresh=min(thresh),
+            maxthresh=max(thresh), np=self.np)
     # optimize is useless I believe
     # self.T[ftype].optimize()
 
@@ -234,10 +234,6 @@ class Store(object):
       return rt[0]
     else:
       return rt
-
-    self.T[ftype] = self.F[ftype].ztree(zkey, scale, minthresh=min(thresh), maxthresh=max(thresh))
-    # i suspect this optimize has been deprecated.
-#    self.T[ftype].optimize()
 
   def unfold(self, M, ftype=None, center=None):
     """ unfold the field position by transformation M

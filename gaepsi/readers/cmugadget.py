@@ -61,7 +61,7 @@ def Snapshot(idtype='u8', floattype='f4',
       Ntot = (('i8', 6), _getNtot, _setNtot)
   return Reader
 
-def GroupTab(idtype, floattype, **kwargs):
+def GroupTab(idtype='u8', floattype='f4', **kwargs):
   class MyGroupTab:
       format = 'C'
       usemasstab = False
@@ -87,7 +87,7 @@ def GroupTab(idtype, floattype, **kwargs):
         pass
   return MyGroupTab
 
-def GroupIDs(idtype, floattype, **kwargs):
+def GroupIDs(idtype='u8', floattype='f4', **kwargs):
   class MyGroupIDs:
       format = 'C'
       usemasstab = False
@@ -105,7 +105,7 @@ def GroupIDs(idtype, floattype, **kwargs):
         pass
   return MyGroupIDs
     
-def SubHaloTab(idtype, floattype, **kwargs):
+def SubHaloTab(idtype='i8', floattype='f4', **kwargs):
   class MySubHaloTab:
       format = 'C'
       usemasstab = False

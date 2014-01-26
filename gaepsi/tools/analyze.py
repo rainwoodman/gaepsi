@@ -96,7 +96,8 @@ class HaloCatalog(Field):
       tabs.append(g)
     #print 'will read', len(tabs), 'files'
     Field.__init__(self, numpoints=count, components={'offset':'i8',
-        'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3)})
+        'length':'i8', 'massbytype':('f8', 6), 'mass':'f8', 'pos':('f8', 3),
+        'vel':('f8', 3)})
     if len(tabs) > 0:
         self.take_snapshots(tabs, ptype=0)
         del tabs
@@ -581,12 +582,16 @@ class interp1d(InterpolatedUnivariateSpline):
     y[bad] = self.fill_value
     return y.reshape(shape)
 
-def regulate(x, y, N, min=None, max=None):
+def regulate(x, y, N, min=None, max=None, skipnan=False):
     """
         regulate data into N bins along x direction.
         the mean is saved.
         returns newx, meany
     """
+    if skipnan:
+        bad = numpy.isnan(x) | numpy.isnan(y)
+        x = x[~bad]
+        y = y[~bad]
     if min is None:
         min = x.min()
     if max is None:

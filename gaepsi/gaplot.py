@@ -5,6 +5,19 @@ import matplotlib
 from matplotlib import cm
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 
+from matplotlib.markers import MarkerStyle
+from matplotlib.patches import PathPatch
+from matplotlib.collections import PathCollection
+from matplotlib.transforms import Affine2D, IdentityTransform
+from matplotlib.colors import colorConverter
+from matplotlib.collections import LineCollection
+from matplotlib.text import Text
+from matplotlib import colorbar as mcb
+from matplotlib.ticker import Formatter
+from matplotlib.patches import Rectangle
+from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
+from matplotlib.collections import EllipseCollection
+
 from gaepsi.tools import nl_, n_, normalize
 from gaepsi.store import *
 from gaepsi.tools import loadconfig
@@ -25,74 +38,9 @@ def _fr10(n):
   exp = numpy.floor(numpy.log10(n))
   return n * 10 ** -exp, exp
 
-def _image(color, luminosity=None, cmap=None, composite=False):
-    """converts (color, luminosity) to an rgba image,
-       if composite is False, directly reduce luminosity
-       on the RGBA channel by luminosity,
-       if composite is True, reduce the alpha channel.
-       color and luminosity needs to be normalized/clipped to (0, 1), 
-       otherwise will give nonsense results.
-    """
-    if cmap is None:
-      if luminosity is not None:
-        cmap = cm.coolwarm
-      else:
-        cmap = cm.gist_heat
-    image = cmap(color, bytes=True)
-    if luminosity is not None:
-      luminosity = luminosity.copy()
-      if composite:
-        numpy.multiply(luminosity, 255.999, image[..., 3], casting='unsafe')
-      else:
-        numpy.multiply(image[...,:3], luminosity[..., None], image[..., :3], casting='unsafe')
-    return image
-
+from render import image as _image
 image = _image
-
-def addspikes(image, x, y, s, color):
-  """deprecated method to directly add spikes to a raw image. 
-     use context.scatter(fancy=True) instead
-     s is pixels
-  """
-  from matplotlib.colors import colorConverter
-  color = numpy.array(colorConverter.to_rgba(color))
-  for X, Y, S in zip(x, y, s):
-    def work(image, XY, S, axis):
-      S = int(S)
-      if S < 1: return
-      XY = numpy.int32(XY)
-      start = XY[axis] - S
-      end = XY[axis] + S + 1
-
-      fga = ((1.0 - numpy.abs(numpy.linspace(-1, 1, end-start, endpoint=True))) * color[3])
-      #pre multiply
-      fg = color[0:3][None, :] * fga[:, None]
-
-      if start < 0: 
-        fga = fga[-start:]
-        fg = fg[-start:]
-        start = 0
-      if end >= image.shape[axis]:
-        end = image.shape[axis] - 1
-        fga = fga[:end - start]
-        fg = fg[:end - start]
- 
-      if axis == 0:
-        sl = image[start:end, XY[1], :]
-      elif axis == 1:
-        sl = image[XY[0], start:end, :]
-
-      bg = sl / 256.
-
-      #bga = bg[..., 3]
-      bga = 1.0
-      #bg = bg[..., 0:3] * bga[..., None]
-      c = bg * (1-fga[:, None]) + fg
-      ca = (bga * (1-fga) + fga)
-      sl[..., 0:3] = c * 256
-      #sl[..., 3] = ca * 256
-    work(image, (X, Y), S, 0)
-    work(image, (X, Y), S, 1)
+from render import addspikes
 
 class GaplotContext(Store):
   def __init__(self, snapname=None,
@@ -356,7 +304,7 @@ class GaplotContext(Store):
     return mask
 
   def transform(self, ftype, luminosity=None, radius=0, camera=None):
-    """ Find the CCD coordinate of objects inside the field of view. Objects are of 0 size, 
+    """ Find the data coordinate of objects inside the field of view. Objects are of 0 size, 
         r is the bounding radius of radius of the plotted object.
         The actually range used is 
         [-r, width+radius] x [-bledding, height+radius]
@@ -370,8 +318,8 @@ class GaplotContext(Store):
     for cam in self._mkcameras(camera):
       x, y, z = locations.T
       uvt = cam.transform(x, y, z)
-      x = (uvt[:, 0] + 1.0) * 0.5 * self.shape[0]
-      y = (uvt[:, 1] + 1.0) * 0.5 * self.shape[1]
+      x = uvt[:, 0]
+      y = uvt[:, 1]
       if radius is not None:
         mask = x >= -radius
         mask&= y >= -radius
@@ -391,6 +339,9 @@ class GaplotContext(Store):
         I += [mask.nonzero()[0]]
     X = numpy.concatenate(X)
     Y = numpy.concatenate(Y)
+    l, r, b, t =self.extent
+    X = X / self.shape[0] * (r - l) + l
+    Y = Y / self.shape[1] * (t - b) + b
     if luminosity is not None:
       D = numpy.concatenate(D)
       L = numpy.concatenate(L)
@@ -404,8 +355,6 @@ class GaplotContext(Store):
 
   def colorbar(self, ax=None, **kwargs):
     if ax is None: ax=self.default_axes
-    from matplotlib import colorbar as cb
-    from matplotlib.ticker import Formatter
     class MyFormatter(Formatter):
       def __init__(self, logscale, vmin, vmax):
         self.logscale = logscale
@@ -430,12 +379,12 @@ class GaplotContext(Store):
 
     if not hasattr(ax, 'colorbarax'):
       ca = ax.get_figure().gca()
-      ax.colorbarax, kwargs = cb.make_axes(ax, **kwargs)
+      ax.colorbarax, kwargs = mcb.make_axes(ax, **kwargs)
       ax.get_figure().sca(ca)
-    color = context.last['color']
-    cb.ColorbarBase(ax=ax.colorbarax, 
+    color = self.last['color']
+    mcb.ColorbarBase(ax=ax.colorbarax, 
            cmap=self.last['cmap'], 
-           norm=cb.colors.Normalize(
+           norm=mcb.colors.Normalize(
              vmin=color.vmin, vmax=color.vmax),
            format = MyFormatter(color.logscale, color.vmin, color.vmax)
            )
@@ -448,11 +397,10 @@ class GaplotContext(Store):
           + center[None, :]
 
     X, Y, B = self.transform(bbox, numpy.ones(len(bbox)), radius=None)
-    l, r, b, t =self.extent
+    l, r, b, t = self.extent
     X = X / self.shape[0] * (r - l) + l
     Y = Y / self.shape[1] * (t - b) + b
 
-    from matplotlib.collections import LineCollection
     pairs = ((0,1), (2,3), (6,7), (4,5),
          (1,5), (5,7), (7,3), (3,1),
          (0,4), (4,6), (6,2), (2,0))
@@ -501,25 +449,35 @@ class GaplotContext(Store):
       im = self.image(color=color, luminosity=luminosity, cmap=cmap)
     else:
       im = color
-    ax.imshow(im.swapaxes(0,1), **realkwargs)
+    ret = ax.imshow(im.swapaxes(0,1), **realkwargs)
 
     self.last['color'] = color
+    return ret 
+
+  def circle(self, x, y, dira, a, b, ax=None, **kwargs):
+    """ Draw Ellipses with dira as primary axis, a, b as axis half length at x, y"""
+    if ax is None: ax=self.default_axes
+    dira = numpy.atleast_2d(dira)
+    col = EllipseCollection(
+            offsets=numpy.array([x,y]).T, 
+            widths=a, 
+            heights=b,
+            units='xy', 
+            transOffset=ax.transData,
+            angles=numpy.arctan2(dira[:, 1], dira[:, 0]) / numpy.pi * 180,
+            **kwargs)
+    ax.add_collection(col)
+    ax.autoscale_view()
+    return col
 
   def scatter(self, x, y, s, ax=None, fancy=False, **kwargs):
-    """ takes CCD coordinate x, y and plot them to a data coordinate axes,
+    """ takes data coordinate x, y and plot them to a data coordinate axes,
         s is the radius in data units. 
         When fancy is True, apply a radient filter so that the 
         edge is blent into the background; better with marker='o' or marker='+'. """
-    x, y, s = numpy.asarray([x, y, s])
+    X, Y, S = numpy.asarray([x, y, s])
     if ax is None: ax=self.default_axes
-    l, r, b, t =self.extent
-    X = x / self.shape[0] * (r - l) + l
-    Y = y / self.shape[1] * (t - b) + b
     
-    from matplotlib.markers import MarkerStyle
-    from matplotlib.patches import PathPatch
-    from matplotlib.collections import PathCollection
-    from matplotlib.transforms import Affine2D, IdentityTransform
     def filter(image, dpi):
       # this is problematic if the marker is clipped.
       if image.shape[0] <=1 and image.shape[1] <=1: return image
@@ -533,7 +491,7 @@ class GaplotContext(Store):
       image[..., 3] *= ygrad[None, :] ** 0.5
       return image, 0, 0
 
-    marker = kwargs.pop('marker', None)
+    marker = kwargs.pop('marker', 'x')
     verts = kwargs.pop('verts', None)
     # to be API compatible
     if marker is None and not (verts is None):
@@ -549,7 +507,7 @@ class GaplotContext(Store):
     if not marker_obj.is_filled():
         edgecolor = color
 
-    for x,y,r in numpy.nditer([X, Y, s], flags=['zerosize_ok']):
+    for x,y,r in numpy.nditer([X, Y, S], flags=['zerosize_ok']):
       path = marker_obj.get_path().transformed(
          marker_obj.get_transform().scale(r).translate(x, y))
       obj = PathPatch(
@@ -575,8 +533,6 @@ class GaplotContext(Store):
           (scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5)
     """
     if ax is None: ax=self.default_axes
-    from matplotlib.ticker import Formatter
-    from matplotlib.text import Text
     class MyFormatter(Formatter):
       def __init__(self, size, units, unit=None):
         if unit is None:
@@ -628,9 +584,6 @@ class GaplotContext(Store):
     ax.set_ylim(b, t)
 
   def _updatescale(self, ax, scale=None, color=None, fontsize=None, loc=8, pad=0.1, borderpad=0.5, sep=5, comoving=True):
-    from matplotlib.patches import Rectangle
-    from matplotlib.text import Text
-    from mpl_toolkits.axes_grid.anchored_artists import AnchoredSizeBar
     h = self.C['h']
     if scale is None:
       l = (self.extent[1] - self.extent[0]) * 0.2

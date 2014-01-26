@@ -320,6 +320,7 @@ cdef numpy.dtype _register_dtype(typeobj):
      numpy.bitwise_and: '&', numpy.bitwise_or: '|', 
      numpy.bitwise_xor: '^', numpy.add: '+',
      numpy.subtract: '-'   , numpy.multiply: '*',
+     numpy.minimum: '<'   , numpy.maximum: '>',
      numpy.divide: '/', numpy.left_shift: 'l',
      numpy.right_shift: 'r',
       })
@@ -327,9 +328,6 @@ cdef numpy.dtype _register_dtype(typeobj):
      numpy.less: '<', numpy.less_equal: ',',
      numpy.greater: '>', numpy.greater_equal: '.',
      numpy.equal: '=',
-  })
-  register_ufuncs(typenum, <void*>_op_zz, [typenum, typenum], {
-     numpy.invert: '~', numpy.negative: '\\',
   })
   register_ufuncs(typenum, <void*>_op_zz, [typenum, typenum], {
      numpy.invert: '~', numpy.negative: '\\',
@@ -548,13 +546,11 @@ cdef void _op_zzz(char** args, intptr_t* dimensions, intptr_t* steps, int op) no
     elif op == '^':
       dst[0] = src[0] ^ op1[0]
     elif op == '<':
-      dst[0] = src[0] < op1[0]
-    elif op == ',':
-      dst[0] = src[0] <= op1[0]
+      if src[0] < op1[0]: dst[0] = src[0]
+      else: dst[0] = op1[0]
     elif op == '>':
-      dst[0] = src[0] > op1[0]
-    elif op == '.':
-      dst[0] = src[0] >= op1[0]
+      if src[0] > op1[0]: dst[0] = src[0]
+      else: dst[0] = op1[0]
     elif op == '=':
       dst[0] = src[0] == op1[0]
     elif op == 'l':

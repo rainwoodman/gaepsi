@@ -511,7 +511,7 @@ class normalize(numpy.ndarray):
     elif isinstance(vmax, basestring):
       if '%' == vmax[-1]:
         vmax = numpy.percentile(out, float(vmax[:-1]))
-      if logscale and 'db' in vmax:
+      elif logscale and 'db' in vmax:
         tmp = _fast.finitemax(out.flat)
         vmax = tmp - float(vmax[:-2]) * 0.1
       else:
@@ -541,10 +541,20 @@ class normalize(numpy.ndarray):
 
   def __array_wrap__(self, outarr, context=None):
     # any ufunc shall return a non-normalized result.
+    if context[0] is numpy.power:
+        rt = numpy.ndarray.__array_wrap__(self, outarr, context)
+        rt.gamma = self.gamma * context[1][1]
+        return rt
+
     return numpy.ndarray.__array_wrap__(self.view(numpy.ndarray), outarr, context)
 
   def __array_finalize__(self, obj):
-    pass
+    if obj is None: return
+    if isinstance(obj, normalize):
+        self.vmin = obj.vmin
+        self.vmax = obj.vmax
+        self.gamma = obj.gamma
+        self.logscale = obj.logscale
 
   def __repr__(self):
     return 'normed values, vmin=%s, vmax=%s, logscale=%s gamma=%s' % \

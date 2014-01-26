@@ -52,9 +52,11 @@ cdef class Tree:
   cdef readonly size_t minthresh
   cdef readonly size_t maxthresh
   cdef fckey_t * _zkey
+  cdef intptr_t * _arg
   cdef size_t _zkey_length
   cdef readonly numpy.ndarray zkey
   cdef readonly numpy.ndarray scale
+  cdef readonly numpy.ndarray arg
   cdef double * _scale
   cdef dict dict 
 
@@ -105,7 +107,7 @@ cdef class Tree:
 
   cdef inline void get_par_pos(Tree self, node_t index, double pos[3]) nogil:
     cdef ipos_t ipos[3]
-    fillingcurve.fc2i(self._zkey[index], ipos)
+    fillingcurve.fc2i(self._zkey[self._arg[index]], ipos)
     fillingcurve.i2f(self._scale, ipos, pos)
 
   cdef inline size_t get_node_npar(Tree self, node_t index) nogil:

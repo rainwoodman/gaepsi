@@ -308,35 +308,19 @@ class Field(object):
         if len(self[comp].shape) > 1:
           self[comp] = numpy.inner(self[comp], M)
 
-  def ztree(self, zkey, scale, minthresh, maxthresh):
-    return zt.Tree(zkey=zkey, scale=scale, minthresh=minthresh, maxthresh=maxthresh)
-    
-  def zorder(self, scale=None, np=None):
-    """ calculate zkey (morton key) and return it.
-        if sort is true, the field is sorted by zkey
-        if ztree is false, return zkey, scale, where scale is
-        an object converting from zkey and coordinates by fillingcurve
-
-        Note all previous reference to the field's components are invalid.
-    """
+  def ztree(self, zkey=None, scale=None, minthresh=10, maxthresh=20, np=None):
     if scale is None:
       scale = fc.scale(self['locations'].min(axis=0), self['locations'].ptp(axis=0))
-    zkey = numpy.empty(self.numpoints, dtype=fc.fckeytype)
+    zkey = sharedmem.empty(self.numpoints, dtype=fc.fckeytype)
 
-    with sharedmem.TPool(np=np) as pool:
+    with sharedmem.MapReduce(np=np) as pool:
       chunksize = 1024 * 1024
       def work(i):
         X, Y, Z = self['locations'][i:i+chunksize].T
         fc.encode(X, Y, Z, scale=scale, out=zkey[i:i+chunksize])
       pool.map(work, range(0, len(zkey), chunksize))
 
-    # if already sorted, return directly without copying.
-    if (zkey[1:] > zkey[:-1]).all(): return zkey, scale
-
     # use sharemem.argsort, because it is faster
     arg = sharedmem.argsort(zkey, np=np)
-    for comp in self.dict:
-      self.dict[comp] = numpy.take(self.dict[comp], arg, axis=0)
 
-    zkey = zkey[arg]
-    return zkey, scale
+    return zt.Tree(zkey=zkey, scale=scale, arg=arg, minthresh=minthresh, maxthresh=maxthresh)

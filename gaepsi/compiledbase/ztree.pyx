@@ -305,14 +305,16 @@ cdef class Tree:
     flexarray.init(&self._nodes, <void**>&self.nodes, sizeof(Node), 1024)
     flexarray.init(&self._leafnodes, <void**>&self.leafnodes, sizeof(LeafNode), 1024)
 
-  def __init__(self, zkey, scale, maxthresh=32, minthresh=1):
+  def __init__(self, zkey, scale, arg, maxthresh=32, minthresh=1):
     """ scale is min[0], min[1], min[2], norm( multply by norm to go to 0->1<<BITS -1)
-        zkey needs to be sorted!"""
+        arg sorts the array and needs to be intp"""
     self.maxthresh = maxthresh
     self.minthresh = minthresh
     self.dict = {}
     self.scale = numpy.empty(4, dtype='f8')
     self._scale = <double*> self.scale.data
+    self.arg = arg
+    self._arg = <intptr_t *> self.arg.data
     self._scale[0] = scale[0]
     self._scale[1] = scale[1]
     self._scale[2] = scale[2]
@@ -425,7 +427,7 @@ cdef class Tree:
       cdef intptr_t extrastep = 0
 
       flexarray.append(&self._nodes, 1)
-      while i < self._zkey_length and self._zkey[i] == -1: 
+      while i < self._zkey_length and self._zkey[self._arg[i]] == -1: 
         i = i + 1
       self.nodes[0].key = 0
       self.nodes[0].first = i
@@ -435,7 +437,7 @@ cdef class Tree:
       self.nodes[0].child_length = 0
       while i < self._zkey_length:
         while not j == -1 and \
-          not fillingcurve.keyinkey(self._zkey[i], self.get_node_key(j), self.get_node_order(j)):
+          not fillingcurve.keyinkey(self._zkey[self._arg[i]], self.get_node_key(j), self.get_node_order(j)):
           # close the nodes by filling in the npar, because we already scanned over
           # all particles in these nodes.
           self.set_node_npar(j, i - self.get_node_first(j))
@@ -480,7 +482,7 @@ cdef class Tree:
         if self.maxthresh > 1:
           extrastep = self.maxthresh - self.get_node_npar(j) - 1
           if extrastep > 0 and i + extrastep < self._zkey_length:
-            while not fillingcurve.keyinkey(self._zkey[i+extrastep], self.get_node_key(j), self.get_node_order(j)):
+            while not fillingcurve.keyinkey(self._zkey[self._arg[i+extrastep]], self.get_node_key(j), self.get_node_order(j)):
               extrastep >>= 1
           else:
             extrastep = 0
@@ -507,7 +509,7 @@ cdef class Tree:
     i = i + 1
     while i < end:
         while not j == grandparent and \
-          not fillingcurve.keyinkey(self._zkey[i], self.get_node_key(j), self.get_node_order(j)):
+          not fillingcurve.keyinkey(self._zkey[self._arg[i]], self.get_node_key(j), self.get_node_order(j)):
           self.set_node_npar(j, i - self.get_node_first(j))
           j = self.get_node_parent(j)
         if j == grandparent: 
@@ -574,7 +576,7 @@ cdef class Tree:
     self.leafnodes[index].order = self.nodes[parent].order - 1
     # the lower bits of a sqkey is cleared off, so that get_node_pos returns 
     # correct corner coordinates
-    self.leafnodes[index].key = fillingcurve.truncate(self._zkey[first_par], self.leafnodes[index].order)
+    self.leafnodes[index].key = fillingcurve.truncate(self._zkey[self._arg[first_par]], self.leafnodes[index].order)
     self.leafnodes[index].parent = parent
     self.leafnodes[index].child_length = 0
 
@@ -706,5 +708,6 @@ cdef class Tree:
   def __dealloc__(self):
     flexarray.destroy(&self._nodes)
     flexarray.destroy(&self._leafnodes)
+    print "one Tree destroyed"
 
 
