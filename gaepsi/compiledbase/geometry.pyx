@@ -141,6 +141,8 @@ cdef class Cubenoid:
     q, r = numpy.linalg.qr(matrix)
     # q as row vectors of the old basis in the new basis.
     # q is the transformation on the right, r is the new boxsize
+    q = numpy.dot(q, numpy.diag(numpy.sign(numpy.diag(r))))
+    r = numpy.dot(numpy.diag(numpy.sign(numpy.diag(r))), r)
     self.newboxsize[:] = numpy.diag(numpy.abs(r)) * volume ** 0.33333333
     self.center[:] = center
     if neworigin is None:
