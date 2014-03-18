@@ -50,6 +50,9 @@ class Store(object):
     self.origin = numpy.array([0, 0, 0.])
     self.boxsize = numpy.array([0, 0, 0.])
 
+    if boxsize is not None:
+        self.boxsize[...] = boxsize
+
     from gaepsi.cosmology import default
     self.cosmology = default
 
@@ -270,6 +273,24 @@ class Store(object):
     for ftype in ftypes:
         if ftype in self.T and self.T[ftype] != False:
           self.buildtree(ftype)
+
+  def smooth(self, ftype, ngb=32):
+    gas = self.F[ftype]
+    tree = self.T[ftype]
+    from gaepsi.compiledbase.ngbquery import NGBQueryN
+    q = NGBQueryN(tree, ngb)
+    gas['sml'] = sharedmem.empty(len(gas), dtype='f8')
+    with sharedmem.MapReduce(np=self.np) as pool:
+        chunksize = 1024 * 64
+        def work(i):
+            sl = slice(i, i + chunksize)
+            x, y, z = gas['pos'][sl].T
+            arr = q(x, y, z)[0]['weights']
+            arr = arr.reshape(-1, ngb)
+            dist = arr[:, 0] ** 0.5
+            gas['sml'][sl] = dist
+            print i, len(gas)
+        pool.map(work, range(0, len(gas), chunksize))
 
   def makeP(self, ftype, Xh=0.76, halo=False):
     """return the hydrogen Pressure * volume """

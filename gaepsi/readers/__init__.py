@@ -70,6 +70,8 @@ class ConstBase:
     return item in self._header.dtype.names or hasattr(self, item) or item in self._extra
 
   def __getitem__(self, item):
+    if item in self._extra:
+      return self._extra[item]
     if item in self._header.dtype.names:
       return self._header[item]
     elif hasattr(self, item):
@@ -81,8 +83,6 @@ class ConstBase:
         return virtarray(None, dtype, MethodType(get, self, None), MethodType(set, self, None))
       else:
         return attr
-    else:
-      return self._extra[item]
 
   def __setitem__(self, item, value):
     if item is Ellipsis:

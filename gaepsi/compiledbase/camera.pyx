@@ -433,7 +433,7 @@ cdef class Camera:
           intptr_t first, intptr_t npar, void * ccd, write_ccd_func write_ccd) nogil except -1:
     cdef double pos[3], R[3]
     cdef float c, l
-    cdef float uvt[3], whl[3], c3inv
+    cdef double uvt[3], c3inv, whl[3]
 
     cdef char * error
     cdef double sml
@@ -562,8 +562,8 @@ cdef class Camera:
 
     cdef npyiter.CIter citer
     cdef size_t size = npyiter.init(&citer, iter)
-    cdef float c3inv, R, uvt[3]
-    cdef double pos[3]
+    cdef float R
+    cdef double pos[3], uvt[3], c3inv
     with nogil: 
       while size > 0:
         while size > 0:
@@ -677,13 +677,13 @@ cdef class Camera:
     DieseFunktionFrustum(self.frustum, self.matrix)
     return self
 
-  cdef inline void transform_size_one(self, double r[3], float c3inv, float whl[3]) nogil:
+  cdef inline void transform_size_one(self, double r[3], double c3inv, double whl[3]) nogil:
     """ this is correct only if r is small """
     whl[0] = r[0] * self._scale[0] * c3inv
     whl[1] = r[1] * self._scale[1] * c3inv
     whl[2] = r[2] * c3inv * (self._scale[2] + self._scale[3] * c3inv)
     
-  cdef void paint_object_one(self, double pos[3], float uvt[3], float whl[3], float color, float luminosity, void * ccd, write_ccd_func write_ccd) nogil:
+  cdef void paint_object_one(self, double pos[3], double uvt[3], double whl[3], float color, float luminosity, void * ccd, write_ccd_func write_ccd) nogil:
 
 # this overresolve hack mess up things as we divide camera
 # into sub cameras
@@ -698,8 +698,8 @@ cdef class Camera:
 #      if uvt[d] + whl[d] < -1.0: return
 
     cdef float zfac 
-    cdef float xy[2]
-    cdef float dxy[2]
+    cdef double xy[2]
+    cdef double dxy[2]
 
     for d in range(2):
       xy[d] = (uvt[d] + 1.0) * self._hshape[d]
@@ -750,8 +750,8 @@ cdef class Camera:
 
     for d in range(2):
       # use floor to make sure consistent pixel roundoff.
-      imin[d] = <int>(floor(xy[d] - dxy[d]))
-      imax[d] = <int>(ceil(xy[d] + dxy[d]))
+      imin[d] = <int>(floor(xy[d] - dxy[d] - 0.5))
+      imax[d] = <int>(ceil(xy[d] + dxy[d] + 1.5))
       di[d] = imax[d] - imin[d]
       if di[d] <= 0:
           di[1] = 1
@@ -802,7 +802,7 @@ cdef class Camera:
     cdef float tmp2fac = 1.0 / dxy[1]
     cdef intptr_t p, q
 
-    if di[0] <= 2 and di[1] <= 2:
+    if di[0] < 2 and di[1] < 2:
       p = (iminclip[0] * self._shape[1] + iminclip[1]) * 2
       write_ccd(ccd, p, brightness, color)
       return
@@ -814,18 +814,18 @@ cdef class Camera:
     cdef double sum = 0.0
 
 
-    if di[0] > 10 and di[1] > 10:
+    if di[0] > 20 and di[1] > 20:
         # large pixel
       sum = 1.0
     else:
       sum = 0.0
       ix = imin[0]
       cachei = 0
-      tmp1 = (imin[0] - xy[0] + 0.5) * tmp1fac
       while ix < imax[0]:
-        tmp2 = (imin[1] - xy[1] + 0.5) * tmp2fac
+        tmp1 = (ix - xy[0] + 0.5) * tmp1fac
         iy = imin[1]
         while iy < imax[1]:
+          tmp2 = (iy - xy[1] + 0.5) * tmp2fac
           tmp3 = bit2 * self.kernel_func(tmp1, tmp2)
           if (ix >= iminclip[0] and ix < imaxclip[0] \
                and iy >= iminclip[1] and iy < imaxclip[1]):
@@ -860,16 +860,16 @@ cdef class Camera:
 #                print dxy[0], dxy[1], normfac, bit, tmp3, sum
 
 
-  cdef inline float transform_one(self, double pos[3], float uvt[3]) nogil:
+  cdef inline double transform_one(self, double pos[3], double uvt[3]) nogil:
     cdef int k
-    cdef float coord[4]
+    cdef double coord[4]
     for k in range(4):
       coord[k] = pos[0] * self._matrix[4*k+0] \
                + pos[1] * self._matrix[4*k+1] \
                + pos[2] * self._matrix[4*k+2] \
                     + self._matrix[4*k+3]
        
-    cdef float c3inv = 1.0 / coord[3]
+    cdef double c3inv = 1.0 / coord[3]
     uvt[0] = coord[0] * c3inv
     uvt[1] = coord[1] * c3inv
     uvt[2] = coord[2] * c3inv

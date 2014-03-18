@@ -101,7 +101,7 @@ cdef class NGBQueryN(Query):
     cdef ipos_t ipos[3]
     cdef int d
     cdef fckey_t centerkey
-    cdef double maxdist2, thisdist2, maxdist
+    cdef double maxdist2, thisdist2, maxdist, toplevelsize
 
     for d in range(3):
       pos[d] = (<double*>(data[d]))[0]
@@ -114,11 +114,12 @@ cdef class NGBQueryN(Query):
          size)
 
     maxdist = size[0]
-    maxdist2 = 0
-
+    maxdist2 = size[0] * size[0]
+    toplevelsize = size[0]
     # iterate 
     while True:
       scratch.reset()
+      iter.reset(iter.root)
       for d in range(3):
         size[d] = maxdist
       self._getAABBkey(pos, size, AABBkey)
@@ -129,6 +130,7 @@ cdef class NGBQueryN(Query):
       if thisdist2 <= maxdist2: break
       maxdist2 = thisdist2
       maxdist = maxdist2 ** 0.5 
+      if maxdist == toplevelsize: break
       
   cdef void execute_one(self, TreeIter iter, Scratch scratch, fckey_t centerkey, fckey_t AABBkey[2]) nogil:
     cdef fckey_t key
@@ -158,8 +160,8 @@ cdef class NGBQueryN(Query):
     cdef ipos_t ipos[3]
     cdef int d
     for d in range(3):
-      pos1[d] = pos[d] - size[d]
-      pos2[d] = pos[d] + size[d]
+      pos1[d] = pos[d] - size[d] * 0.5
+      pos2[d] = pos[d] + size[d] * 0.5
 
     fillingcurve.f2i(self.tree._scale, pos1, ipos)
     fillingcurve.i2fc(ipos, &AABBkey[0])
@@ -174,4 +176,3 @@ cdef class NGBQueryN(Query):
       e.index = item
       e.weight = fillingcurve.key2key2(self.tree._scale, centerkey, self.tree._zkey[item])
       scratch.add_item(&e)
-

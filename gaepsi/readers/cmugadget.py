@@ -47,9 +47,9 @@ def Snapshot(idtype='u8', floattype='f4',
       sfr = floattype, [0], ['flag_sfr']
       sft = floattype, [4], ['flag_sft']
       met = floattype, [0, 4], ['flag_met']
-      bhmass = floattype, [5]
-      bhmdot = floattype, [5]
-      bhnprogs = 'i8', [5]
+      bhmass = floattype, [5], ['flag_cool']
+      bhmdot = floattype, [5], ['flag_cool']
+      bhnprogs = 'i8', [5], ['flag_cool']
       __blocks__ = blocks
       
     class constants:
@@ -128,10 +128,10 @@ def SubHaloTab(idtype='i8', floattype='f4', **kwargs):
         rcrit200 = floattype, 0  #                 critical?
         mtoph200 = floattype, 0  #                 tophat
         rtoph200 = floattype, 0  #                 tophat
-        veldispmean200 = floattype, 0 # velocity dispersion, for each
+        vdispmean200 = floattype, 0 # velocity dispersion, for each
                                       #  overdensity 200
-        veldispcrit200 = floattype, 0
-        veldisptoph200 = floattype, 0
+        vdispcrit200 = floattype, 0
+        vdisptoph200 = floattype, 0
         lencontam = 'i4', 0       # number of particles (contamination) not in
                                   # any subhalos.
         masscontam = floattype, 0 # mass of particles not in any subhalos
@@ -147,7 +147,7 @@ def SubHaloTab(idtype='i8', floattype='f4', **kwargs):
         halovel = (floattype, 3), 1  # velocity (center mass?)
         halocm = (floattype, 3), 1   # center of mass position
         halospin = (floattype, 3), 1  # spin
-        haloveldisp = floattype, 1  # velocity dispersion
+        halovdisp = floattype, 1  # velocity dispersion
         halovmax = floattype, 1    # max circular velocity
         halovmaxrad = floattype, 1  # radius of max circular velocity
         halohalfmassradius = floattype, 1 # radius of half the mass
@@ -159,12 +159,12 @@ def SubHaloTab(idtype='i8', floattype='f4', **kwargs):
         'mmean200', 'rmean200', 
         'mcrit200', 'rcrit200', 
         'mtoph200', 'rtoph200', 
-        'veldispmean200', 'veldispcrit200', 'veldisptoph200', 
+        'vdispmean200', 'vdispcrit200', 'vdisptoph200', 
         'lencontam', 'masscontam', 
         'nhalo', 'firsthalo', 
         'halolen', 'halooffset', 'haloparent', 
         'halomass', 'halopos', 'halovel', 'halocm', 
-        'halospin', 'haloveldisp', 'halovmax', 'halovmaxrad', 
+        'halospin', 'halovdisp', 'halovmax', 'halovmaxrad', 
         'halohalfmassradius', 
         'haloid', 'halogroup',
         ]

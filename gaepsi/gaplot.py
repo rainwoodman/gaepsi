@@ -21,7 +21,7 @@ from matplotlib.collections import EllipseCollection
 from gaepsi.tools import nl_, n_, normalize
 from gaepsi.store import *
 from gaepsi.tools import loadconfig
-from gaepsi.compiledbase.camera import Camera
+from gaepsi.compiledbase.camera import Camera, setupsml
 from gaepsi.compiledbase.ztree import TreeProperty
 
 try:
@@ -184,7 +184,7 @@ class GaplotContext(Store):
         continue
 
   def paint(self, ftype, color, luminosity, sml=None, camera=None, kernel=None,
-          preserve=False, np=None):
+          preserve=False, np=None, debug=False):
     """ paint field to CCD, returns
         C, L where
           C is the color of the pixel
@@ -208,16 +208,18 @@ class GaplotContext(Store):
     locations, color, luminosity, sml = self._getcomponent(ftype,
       'locations', color, luminosity, sml)
 
+    x, y, z = locations.T
     if sml is None:
-      warnings.warn('sml is None and the on-the-fly calculation is buggy, will run field.smooth first, sml is overwritten')
-      self[ftype].smooth(tree)
-      sml = self[ftype]['sml']
+      #warnings.warn('sml is None and the on-the-fly calculation is buggy, will run field.smooth first, sml is overwritten')
+      sml = numpy.empty_like(luminosity, dtype='f4')
+      setupsml(tree, (x, y, z), out=sml)
+  #    self[ftype].smooth(tree)
+      self[ftype]['sml'] = sml
 
     if 'densitykerneltype' in self.C:
       support = [2. , 3., 2.5]
       sml = sml * (2 / support[self.C['densitykerneltype']])
 
-    x, y, z = locations.T
     with sharedmem.MapReduce(np=np) as pool:
       for cam in self._mkcameras(camera):
         cams = cam.divide(int(pool.np ** 0.5 * 2 + 1), int(pool.np ** 0.5 * 2 + 1))
@@ -228,8 +230,9 @@ class GaplotContext(Store):
           cam.paint(x,y,z,sml,color,luminosity, kernel=kernel, out=smallCCD,
                   tree=tree)
           # no race condition here. cameras are independent.
-          #smallCCD[0, :, :]= -1
-          #smallCCD[:, 0, :]= -1
+          if debug:
+              smallCCD[0, :, :]= -1.0
+              smallCCD[:, 0, :]= -1.0
           return i, smallCCD
         def reduce(i, smallCCD):
           cam, offx, offy = cams[i]

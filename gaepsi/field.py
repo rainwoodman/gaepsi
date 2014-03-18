@@ -279,11 +279,9 @@ class Field(object):
         dirty and quick way, estimating sml from the size of the immediate
         tree node containing the particle.
     """
-    size = numpy.concatenate((tree['size'][tree._:][:, 0], [0,]))
-    npar = tree['npar'][tree._:]
-    npar = numpy.concatenate((npar, numpy.array([self.numpoints - npar.sum(),], dtype=npar.dtype)))
-    self['sml'] = numpy.repeat(size, npar)
-  
+    #(dist ** 2).sum(axis=-1) ** 0.5
+    assert True
+
   def rotate(self, angle, axis, origin):
     """angle is in degrees"""
     angle *= (3.14159/180)

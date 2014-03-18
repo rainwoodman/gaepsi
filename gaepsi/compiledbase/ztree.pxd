@@ -211,6 +211,7 @@ cdef class TreeIter:
     if self.top == -1:
       if skip_children: return -1
       self.head[0] = self.tree.get_node_children(self.root, &nchildren)
+      if nchildren == 0: return -1
       self.end[0] = self.head[0] + nchildren
       self.top = 0
       return self.tree.node_index(self.head[0][0])
