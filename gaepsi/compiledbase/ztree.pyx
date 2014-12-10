@@ -708,6 +708,6 @@ cdef class Tree:
   def __dealloc__(self):
     flexarray.destroy(&self._nodes)
     flexarray.destroy(&self._leafnodes)
-    print "one Tree destroyed"
+#    print "one Tree destroyed"
 
 
