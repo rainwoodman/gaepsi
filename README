@@ -19,7 +19,8 @@ https://github.com/bccp/nbodykit
 
 When gaepsi2 is sufficiently finished, it will be renamed to gaepsi. The currently main
 missing feature is the support to legacy Gadget file format, 
-and OctTree prunning of a scene (which turns out to be not very important in terms of speed up).
+and OctTree prunning of a scene (which turns out to be not very important in terms of speed up),
+documentation, and a revisit to the ugly C API.
 
 https://github.com/rainwoodman/gaepsi2
 
