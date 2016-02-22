@@ -1,6 +1,29 @@
 Visualization and analysis toolkit for SPH cosmology code GADGET.
 
-install with
+This is barely maintained; since I no longer work with legacy gadget format.
 
-  easy_install gaepsi
+My latest version of Gadget, MP-Gadget switched to an easier format, bigfile:
+
+https://github.com/rainwoodman/MP-Gadget
+
+https://github.com/rainwoodman/bigfile
+
+
+Consult the following replacements:
+
+- For analysing nbody simulations and 2-point statistics:
+
+https://github.com/bccp/nbodykit
+
+- The core visualization code in gaepsi has been simplified and stripped to gaepsi2.
+
+When gaepsi2 is sufficiently finished, it will be renamed to gaepsi. The currently main
+missing feature is the support to legacy Gadget file format, 
+and OctTree prunning of a scene (which turns out to be not very important in terms of speed up).
+
+https://github.com/rainwoodman/gaepsi2
+
+- The cosmology calculation can be done with astropy.cosmology, which is distributed
+by anaconda.
+
 
