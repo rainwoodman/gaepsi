@@ -2,7 +2,19 @@ from gaepsi.readers import Reader
 from gaepsi.io import F77IOError
 import numpy
 
-class Snapshot:
+def Snapshot(file=None, reader=None, readonly=True, create=False,
+        overwrite=True, template=None, **kwargs):
+    if reader == 'hdf5':
+        from gaepsi.readers.hdf5 import SnapshotHDF5
+        return SnapshotHDF5(file)
+    elif reader == 'bigfile':
+        from gaepsi.readers.bigfile import SnapshotBigFile
+        return SnapshotBigFile(file)
+    else :
+        return SnapshotGadget(file, reader, readonly, create, overwrite,
+                template, **kwargs)
+
+class SnapshotGadget(object):
   def __init__(self, file=None, reader=None, 
                readonly=True, create=False, overwrite=True, template=None, **kwargs):
     """ create a snapshot object whose schema is like

@@ -131,8 +131,12 @@ class Store(object):
         only particles within origin and boxsize are loaded.
     """
     self.snapname = snapname
-    self.format = Reader(format, **kwargs)
-
+    if format == 'hdf5':
+        self.format = 'hdf5'
+    elif format == 'bigfile':
+        self.format = 'bigfile'
+    else:
+        self.format = Reader(format, **kwargs)
     try:
       snapname = self.snapname % 0
     except TypeError:

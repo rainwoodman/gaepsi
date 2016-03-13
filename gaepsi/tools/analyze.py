@@ -410,8 +410,8 @@ def collapse(field, ticks=None, axis=[], logscale=False):
     return newticks, newfield
 
 
-def corrfromdelta(delta, boxsize, collapse_axes=None):
-    K, P = powerfromdelta(delta, boxsize, collapse_axes=[])
+def corrfromdelta(delta, boxsize, deconvolve=False, collapse_axes=None):
+    K, P = powerfromdelta(delta, boxsize, deconvolve=deconvolve, collapse_axes=[])
     return corrfrompower(P, boxsize, collapse_axes)
 
 def corrfrompower(P, boxsize, collapse_axes=None):
@@ -424,6 +424,7 @@ def corrfrompower(P, boxsize, collapse_axes=None):
     Ndim = len(XI.shape)
     BoxSize = numpy.empty(Ndim, dtype='f8')
     BoxSize[:] = boxsize
+    print 'BoxSize', BoxSize
 
     if len(collapse_axes) != 0:
         XI = fftshift(XI)
@@ -442,8 +443,42 @@ def corrfrompower(P, boxsize, collapse_axes=None):
 
     return collapse(XI, X, collapse_axes, logscale=False)
 
+def cicdeconvolve(delta, boxsize=1.0):
+    N = numpy.prod(delta.shape, dtype='f8')
+    Ndim = len(delta.shape)
+    BoxSize = numpy.empty(Ndim, dtype='f8')
+    BoxSize[:] = boxsize
+  
+    # each dim has a different K0
+    # (Dx)^3 = N / prod(BoxSize)
+    # extra 2 * pi is from K0!
+    K0 = 2 * numpy.pi / BoxSize
+  
+    delta_k = rfftn(delta) / N
+  
+    full = numpy.array(delta_k.shape)
+    half = numpy.array(delta_k.shape) // 2
+    # last dim is already halved
+    half[-1] = delta_k.shape[-1] - 1
+    full[-1] = half[-1] * 2
+    Kret = []
+
+    for i in range(Ndim):
+        kx = fftfreq(full[i]) * full[i]
+        kx = kx[:delta_k.shape[i]]
+        Kret.append(kx * K0[i])
+
+    for dim, ki in enumerate(Kret):
+        shape = numpy.ones(len(Kret), dtype='i4')
+        shape[dim] = len(ki)
+        ki = ki.reshape(shape)
+        kernel = numpy.sinc(ki * (0.5 * BoxSize[i] / full[dim]) / numpy.pi) ** -2
+        delta_k *= kernel
+    
+    return irfftn(delta_k)
+
 def powerfromdelta(delta, boxsize, logscale=False, collapse_axes=None,
-        cheat=None):
+        deconvolve=False, cheat=None):
     """ delta is over density.
         this obviously does not correct for redshift evolution.
         returns a collapsed powerspectrum, 
@@ -464,6 +499,9 @@ def powerfromdelta(delta, boxsize, logscale=False, collapse_axes=None,
     
        The power spectrum is assumed to have the gadget convention,
        AKA, normalized to (2 * pi) ** -3 times sigma_8.
+
+       if deconvolve is True, deconvolve the field in K space with
+       the CIC kernel.
     """
     Dplus = 1.0 # no evolution correction
   
@@ -499,11 +537,18 @@ def powerfromdelta(delta, boxsize, logscale=False, collapse_axes=None,
                 kx = fftshift(kx)
         else:
             kx = kx[:delta_k.shape[i]]
-        kx *= BoxSize[i] * numpy.pi * 2
         Kret.append(kx * K0[i])
 
     if len(collapse_axes) != 0:
         delta_k = fftshift(delta_k, axes=numpy.arange(len(delta.shape) - 1))
+
+    if deconvolve:
+        for dim, ki in enumerate(Kret):
+            shape = numpy.ones(len(Kret), dtype='i4')
+            shape[dim] = len(ki)
+            ki = ki.reshape(shape)
+            kernel = numpy.sinc(ki / K0[dim] / full[dim]) ** -2
+            delta_k *= kernel
 
     P = numpy.abs(delta_k) ** 2 * K0.prod() ** -1 * Dplus ** 2
     if len(collapse_axes) == 0:
@@ -535,7 +580,7 @@ def corrfrompower_old(K, P, logscale=False, R=None):
     P = P[mask]
     P = P * (2 * numpy.pi) ** 3 # going from GADGET to xiao
     Pfunc = interp1d(K, P, kind=5)
-    K = numpy.linspace(K.min(), K.max(), 10000000)
+    K = numpy.linspace(K.min(), K.max(), 1000000)
     P = Pfunc(K)
 
     if R is None:

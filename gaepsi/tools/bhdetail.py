@@ -63,16 +63,18 @@ class BHDetail2:
     #        self._fillmergermass()
         self.merger2 = self.merger.copy()
         self.merger2.sort(order=['after', 'time'])
-        t = merger['time']
-        arg = t.argsort()
-        t = t[arg]
-        after = merger['after'][arg]
-        swallowed = merger['swallowed'][arg]
-        ind = t.searchsorted(self.data['time'])
-        bad = (t.take(ind, mode='clip') == self.data['time'])
-        bad &= after.take(ind, mode='clip') == self.data['id']
-        bad &= swallowed.take(ind, mode='clip') == self.data['id']
-        self.data['mass'][bad] = numpy.nan
+
+        if(len(merger) > 0) :
+            t = merger['time']
+            arg = t.argsort()
+            t = t[arg]
+            after = merger['after'][arg]
+            swallowed = merger['swallowed'][arg]
+            ind = t.searchsorted(self.data['time'])
+            bad = (t.take(ind, mode='clip') == self.data['time'])
+            bad &= after.take(ind, mode='clip') == self.data['id']
+            bad &= swallowed.take(ind, mode='clip') == self.data['id']
+            self.data['mass'][bad] = numpy.nan
 
     def _readraw(self, path, every):
         dtype = numpy.dtype([
@@ -135,7 +137,11 @@ class BHDetail2:
             data0[0] = numpy.append(data0[0], raw[::every])
             merger0[0] = numpy.append(merger0[0], mergerlist)
 
-        filenames = list(bhfilenameiter(os.path.join(path, "blackhole_details_%d.raw")))
+        try:
+            filenames = list(bhfilenameiter(os.path.join(path, "blackhole_details_%d.raw")))
+        except IOError:
+            filenames = list(glob.glob(os.path.join(path, "dumpdir-*/blackhole_details_*.raw")))
+
         with sharedmem.MapReduce() as pool:
             pool.map(work, filenames, reduce=reduce)
 

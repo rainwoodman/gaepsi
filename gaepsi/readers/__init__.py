@@ -18,6 +18,8 @@ def Reader(reader, **kwargs):
       the module and class.
   """
   if is_string_like(reader) :
+    if reader == "hdf5":
+      return ReaderObjHDF5()
     try:
       module = __import__('gaepsi.readers.%s' % reader, globals(), {}, [''], 0)
       modulename = reader
@@ -147,7 +149,7 @@ class ReaderObj(object):
 
   def __str__(cls):
     return str(cls.__dict__)
-
+""" unused
 
   def write_header(cls, snapshot):
     file = cls.file_class(snapshot.file, endian=cls.endian, mode='r+')
@@ -164,4 +166,10 @@ class ReaderObj(object):
     file.seek(0)
     file.write_record(snapshot.header)
 
-    
+   """ 
+
+class ReaderObjHDF5(object):
+  def __init__(cls):
+    pass
+  def __str__(cls):
+    return "<HDF5Reader>"
