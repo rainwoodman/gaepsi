@@ -55,7 +55,7 @@ def paint(pos, color, luminosity, sml, camera, CCD, tree=None,
                 fc.encode(x[sl], y[sl], z[sl], scale=scale, out=zkey[i:i+chunksize])
             pool.map(work, range(0, len(zkey), chunksize))
 
-        arg = sharedmem.argsort(zkey)
+        arg = numpy.argsort(zkey)
 
         tree = zt.Tree(zkey=zkey, scale=scale, arg=arg, minthresh=8, maxthresh=20)
     if sml is None:

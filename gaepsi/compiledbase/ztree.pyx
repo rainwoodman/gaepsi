@@ -592,7 +592,7 @@ cdef class Tree:
 
     return index 
 
-  cdef node_t _try_merge_children(Tree self, intptr_t parent) nogil:
+  cdef node_t _try_merge_children(Tree self, intptr_t parent) nogil except -1:
     cdef int nchildren
     cdef int k
     cdef node_t index, grandparent
